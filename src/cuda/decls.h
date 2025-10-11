@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <stdbool.h> // bool
 typedef unsigned long len_t;
+typedef size_t len_t;
 typedef unsigned char dtype;
 static const dtype SINGLE = 0;
 static const dtype DOUBLE = 1;
