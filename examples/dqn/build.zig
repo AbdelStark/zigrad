@@ -16,12 +16,16 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "dqn",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigrad", .module = zigrad_dep.module("zigrad") },
+                .{ .name = "tensorboard", .module = tensorboard_dep.module("tensorboard") },
+            },
+        }),
     });
     exe.linkLibC();
-    exe.root_module.addImport("zigrad", zigrad_dep.module("zigrad"));
-    exe.root_module.addImport("tensorboard", tensorboard_dep.module("tensorboard"));
     b.installArtifact(exe);
 }

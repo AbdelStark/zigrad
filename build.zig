@@ -25,6 +25,7 @@ pub fn build(b: *Build) !void {
 
     const enable_cuda = b.option(bool, "enable_cuda", "Enable CUDA backend.") orelse false;
     build_options.addOption(bool, "enable_cuda", enable_cuda);
+    const rebuild_cuda: bool = b.option(bool, "rebuild_cuda", "force CUDA backend to recompile") orelse false;
 
     const zigrad = b.addModule("zigrad", .{
         .root_source_file = b.path("src/zigrad.zig"),
@@ -48,7 +49,7 @@ pub fn build(b: *Build) !void {
         else => @panic("Os not supported."),
     }
 
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "zigrad",
         .root_module = zigrad,
     });
@@ -59,7 +60,7 @@ pub fn build(b: *Build) !void {
     b.installArtifact(lib);
 
     if (enable_cuda) {
-        const cuda = make_cuda_module(b, target);
+        const cuda = make_cuda_module(b, target, rebuild_cuda);
         zigrad.addImport("cuda", cuda);
     }
 
@@ -90,8 +91,6 @@ pub fn build(b: *Build) !void {
 
     const unit_tests = b.addTest(.{
         .root_module = zigrad,
-        .target = target,
-        .optimize = optimize,
     });
 
     unit_tests.root_module.addImport("build_options", build_options_module);
@@ -171,9 +170,7 @@ pub fn build_tracy(b: *Build, target: Build.ResolvedTarget) ?*Module {
     return tracy;
 }
 
-pub fn make_cuda_module(b: *Build, target: Build.ResolvedTarget) *std.Build.Module {
-    const rebuild_cuda: bool = b.option(bool, "rebuild_cuda", "force CUDA backend to recompile") orelse false;
-
+pub fn make_cuda_module(b: *Build, target: Build.ResolvedTarget, rebuild_cuda: bool) *std.Build.Module {
     const here = b.path(".").getPath(b);
 
     const cuda = b.createModule(.{

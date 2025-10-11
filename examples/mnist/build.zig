@@ -5,6 +5,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const enable_cuda = b.option(bool, "enable_cuda", "Enable CUDA") orelse false;
+    const rebuild_cuda = b.option(bool, "rebuild_cuda", "Rebuild CUDA") orelse false;
     const enable_mkl = b.option(bool, "enable_mkl", "Enable MKL") orelse false;
     const log_level = b.option(std.log.Level, "log_level", "Log level") orelse .info;
 
@@ -14,6 +15,7 @@ pub fn build(b: *std.Build) void {
         .enable_mkl = enable_mkl,
         .log_level = log_level,
         .enable_cuda = enable_cuda,
+        .rebuild_cuda = rebuild_cuda,
     });
 
     const exe = b.addExecutable(.{

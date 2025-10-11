@@ -90,38 +90,46 @@ all: intro run
 intro:
 	@printf '%b\n' "$$PROJECT_LOGO"
 
-ensure-zig:
 ifndef ZIG
-	@printf '%b\n' -n "$(YELLOW)$(BOLD)Zig not found. Would you like to install it using zvm? [y/N] $(RESET)"
-	@read -p "" response; \
-	if [ "$$response" = "y" ] || [ "$$response" = "Y" ]; then \
-		printf '%b\n' "$(CYAN)Checking for curl...$(RESET)"; \
-		if ! command -v curl > /dev/null; then \
-			printf '%b\n' "$(RED)curl not found. Please install curl first.$(RESET)"; \
-			exit 1; \
-		fi; \
-		printf '%b\n' "$(CYAN)Installing zvm...$(RESET)"; \
-		ZVM_OUT=$$(curl -fsSL https://raw.githubusercontent.com/tristanisham/zvm/$(ZVM_HASH)/install.sh | bash); \
-		if [ $$? -ne 0 ]; then \
-			printf '%b\n' "$(RED)Failed to install zvm$(RESET)"; \
-			exit 1; \
-		fi; \
-		PROFILE_PATH=$$(printf '%b\n' "$$ZVM_OUT" | grep -o '/[^[:space:]]*profile' | head -n1); \
-		if [ -f "$$PROFILE_PATH" ]; then \
-			. "$$PROFILE_PATH"; \
-			zvm install $(DEFAULT_ZIG_VERSION) || { printf '%b\n' "$(RED)Failed to install Zig$(RESET)"; exit 1; }; \
-			printf '%b\n' "$(GREEN)✓ Zig installed with zvm$(RESET)"; \
-			printf '%b\n' "$(YELLOW)⚠ Please source your profile or restart your shell and re-run.$(RESET)"; \
-			exit 1; \
-		else \
-			printf '%b\n' "$(RED)⚠ Failed to locate profile path, restart your shell or source your profile accordingly before re-running.$(RESET)"; \
-			exit 1; \
-		fi; \
-	else \
-		printf '%b\n' "$(RED)⚠ Zig installation cancelled. Please install Zig manually.$(RESET)"; \
-		exit 1; \
+.ONESHELL:
+ensure-zig:
+	@printf '%b' "$(YELLOW)$(BOLD)Zig not found. Install with zvm? [y/N] $(RESET)"
+	IFS= read -r response || true
+	if [ "$$response" = "y" ] || [ "$$response" = "Y" ]; then
+		printf '%b\n' "$(CYAN)Checking for curl...$(RESET)"
+		if ! command -v curl >/dev/null 2>&1; then
+			printf '%b\n' "$(RED)curl not found. Please install curl first.$(RESET)"
+			exit 1
+		fi
+		printf '%b\n' "$(CYAN)Installing zvm...$(RESET)"
+		ZVM_OUT=$$(curl -fsSL https://raw.githubusercontent.com/tristanisham/zvm/$(ZVM_HASH)/install.sh | bash) || {
+			printf '%b\n' "$(RED)Failed to install zvm$(RESET)"
+			exit 1
+		}
+		PROFILE_PATH=$$(printf '%s\n' "$$ZVM_OUT" | grep -o '/[^[:space:]]*profile' | head -n 1)
+		if [ -f "$$PROFILE_PATH" ]; then
+			. "$$PROFILE_PATH"
+			if ! zvm install $(DEFAULT_ZIG_VERSION); then
+				printf '%b\n' "$(RED)Failed to install Zig$(RESET)"
+				exit 1
+			fi
+			printf '%b\n' "$(GREEN)✓ Zig installed with zvm$(RESET)"
+			if command -v zig >/dev/null 2>&1; then
+				zig version
+				exit 0
+			fi
+			printf '%b\n' "$(YELLOW)Please source your profile or restart your shell, then re-run.$(RESET)"
+			exit 1
+		else
+			printf '%b\n' "$(RED)Could not locate profile path; restart your shell or source your profile and re-run.$(RESET)"
+			exit 1
+		fi
+	else
+		printf '%b\n' "$(RED)Zig installation cancelled. Please install Zig manually.$(RESET)"
+		exit 1
 	fi
 endif
+
 
 clean:
 	@printf '%b\n' "$(RED)$(BOLD)Cleaning up project directories...$(RESET)"

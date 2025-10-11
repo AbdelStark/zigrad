@@ -112,3 +112,9 @@ help:
 	@echo "\n$(BOLD)First time? Start with:$(RESET)"
 	@echo "  $(GREEN)make$(RESET) [BUILD_MODE=<mode>] - This will set up everything and run the demo"
 	@echo "$(DIM)(The setup process will use python to download MNIST data)$(RESET)"
+
+debug:
+	rm -rf .zig-cache zig-out
+	zig build -Denable_cuda=true
+	ldd ./zig-out/bin/main
+	compute-sanitizer ./zig-out/bin/main

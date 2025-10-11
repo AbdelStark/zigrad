@@ -79,6 +79,11 @@ def main():
     if not cuda_rebuild and os.path.exists(CUDA_SRC / "amalgamate.so"):
         return
 
+    if cuda_rebuild and os.path.exists(CUDA_SRC / "build"):
+        import shutil
+
+        shutil.rmtree(CUDA_SRC / "build")
+
     if not os.path.exists(CUDA_SRC / "build"):
         os.mkdir(CUDA_SRC / "build")
 
