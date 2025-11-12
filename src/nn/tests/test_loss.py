@@ -1,8 +1,17 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "ruff",
+#     "torch",
+# ]
+# ///
+
+import json
 from pathlib import Path
 from typing import cast
+
 import torch
 import torch.nn as nn
-import json
 
 
 def _smce(input_tensor, target_tensor) -> dict[str, list | float]:
@@ -19,7 +28,7 @@ def _smce(input_tensor, target_tensor) -> dict[str, list | float]:
         "shape": list(input_tensor.shape),
         "input": input_tensor.flatten().tolist(),
         "target": target_tensor.flatten().tolist(),
-        "loss": cast(float, loss.item()),
+        "loss": cast("float", loss.item()),
         "input_grad": input_tensor.grad.flatten().tolist(),
     }
 

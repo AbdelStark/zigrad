@@ -1,7 +1,13 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "numpy",
+#     "torch",
+# ]
+# ///
 import math
 import random
-from collections import deque
-from collections import namedtuple
+from collections import deque, namedtuple
 from itertools import count
 
 import torch
@@ -9,7 +15,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from cartpole_py import CartPole
-
 from torch.utils.tensorboard import SummaryWriter
 
 writer = SummaryWriter(log_dir="/tmp/pytorch_logs")
@@ -32,7 +37,7 @@ Transition = namedtuple("Transition", ("state", "action", "next_state", "reward"
 
 class ReplayMemory:
     def __init__(self, capacity):
-        self.memory = deque([], maxlen=capacity)
+        self.memory = deque(maxlen=capacity)
 
     def push(self, *args):
         """Save a transition"""

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-import contextlib
-from pathlib import Path
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
 import argparse
+import os
 import subprocess
 import sys
-import os
+from pathlib import Path
 
 
 def get_all_cuda_devices():

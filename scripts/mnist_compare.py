@@ -112,7 +112,9 @@ class PerformanceParser:
             imbalance = abs(s.iloc[0] - s.iloc[1])
             etol = timings_df["epoch"].max().max()
             if imbalance <= etol:
-                print("Did not get same number of batches for each framework but within epoch off-by-one tolerance", etol)
+                print(
+                    "Did not get same number of batches for each framework but within epoch off-by-one tolerance", etol
+                )
                 print(s)
                 min_size = grouped.size().min()
                 timings_df = grouped.head(min_size).reset_index(drop=True)

@@ -1,6 +1,6 @@
 import ctypes
 import pathlib
-from ctypes import POINTER, c_uint32, c_uint64, c_float
+from ctypes import POINTER, c_float, c_uint32, c_uint64
 
 import numpy as np
 

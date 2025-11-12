@@ -12,13 +12,13 @@ import platform
 import time
 from pathlib import Path
 
-import numpy as np
 import jax
-from jax import jit
 import jax.numpy as jnp
+import numpy as np
+import optax
 from flax import linen as nn
 from flax.training import train_state
-import optax
+from jax import jit
 
 
 class Model(nn.Module):

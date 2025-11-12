@@ -7,17 +7,17 @@
 # ]
 # ///
 
-import array
-from sys import stderr
-import time
 import argparse
-from pathlib import Path
+import array
 import json
+import time
+from pathlib import Path
+from sys import stderr
 
 import torch
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv
 from torch_geometric.datasets import Planetoid
+from torch_geometric.nn import GCNConv
 
 
 class GCN(torch.nn.Module):

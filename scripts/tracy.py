@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-import sys
-from pathlib import Path
 import argparse
 import re
+import sys
+from pathlib import Path
+
 from . import fndecls as TARGET_FUNCTIONS
 
 # TARGET_FUNCTIONS = {
@@ -244,11 +245,7 @@ def remove_tracy_zones(content: str) -> tuple[str, bool]:
             #     continue
             i += 1
             continue
-        elif "defer zone.end()" in line:
-            was_modified = True
-            i += 1
-            continue
-        elif 'const tracy = @import("tracy");' in line:
+        elif "defer zone.end()" in line or 'const tracy = @import("tracy");' in line:
             was_modified = True
             i += 1
             continue

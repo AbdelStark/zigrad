@@ -69,7 +69,6 @@ DIM := \033[2m
 
 OR := \033[38;5;208m
 
-PYTHON := python3
 BUILD_MODE ?= ReleaseFast
 ZVM_HASH=233a41c579fd2eeb602d51efa10499e083cd64d0
 ZIG := $(shell which zig 2>/dev/null)
@@ -84,7 +83,7 @@ $(OR)
 endef
 export PROJECT_LOGO
 
-.PHONY: all intro ensure-zig clean build run py-bindings help
+.PHONY: all intro ensure-zig clean build run torchdqn help
 all: intro run
 
 intro:
@@ -149,7 +148,7 @@ run: ./zig-out/bin/dqn
 	@./zig-out/bin/dqn
 	@printf '%b\n' "$(GREEN)✓ Done$(RESET)"
 
-py-bindings:
+torchdqn:
 	cd py && zig build-lib cartpole_wrapper.zig -Doptimize=ReleaseFast -dynamic
 	cd py && uv run torchdqn.py
 

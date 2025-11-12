@@ -1,3 +1,8 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
+
 """Pulls mnist dataset and converts to csv artifacts.
 
 Optimized for the impatient.

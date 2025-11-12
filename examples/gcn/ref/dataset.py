@@ -8,13 +8,13 @@
 # ]
 # ///
 
-from pathlib import Path
 import os
+from pathlib import Path
 
-import torch
 import numpy as np
-from torch_geometric.datasets import Planetoid
+import torch
 from torch_geometric.data import Data
+from torch_geometric.datasets import Planetoid
 
 
 def dump_to_csv(data: Data, out_path_papers: Path, out_path_cities: Path) -> None:
