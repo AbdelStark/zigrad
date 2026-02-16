@@ -15,6 +15,8 @@
 <p align="center" class="markdown-heading"><strong><i>Supporting AI innovation from ideation to results.</i></strong></p>
 
 ---
+> ⚠️ **Zigrad is undergoing a rewrite**
+> Public release tentatively planned for mid 2026 please stay tuned.
 
 > 🚧 **Zigrad is under active development.**  
 > By using Zigrad, you are participating in its development and contributing to its early testing and validation. Expect APIs to change and features to evolve rapidly. Bug reports, benchmarks, and contributions are welcome.
