@@ -69,7 +69,7 @@ documents we will implement against.
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
 | RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, smoke CI, and synthetic BLAS/autograd/memory/MNIST/DQN/GCN coverage are landed; future CUDA/compiler/interop suites remain. |
-| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Expands host performance beyond the current baseline. |
+| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, runtime metadata, and documented oneMKL path overrides are landed; Linux OpenBLAS/oneMKL parity and performance validation remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Turns experimental CUDA into a supported execution backend. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
 | RFC-0005 | ggml/GGUF Interop | `Planned` | P1 | RFC-0001, RFC-0012 | Critical for LLM examples and inference compatibility. |
@@ -214,3 +214,34 @@ Every RFC in this folder set must maintain:
   - `zig build benchmark-memory`
   - `zig build benchmark`
   - `zig build benchmark-compare -- --baseline benchmarks/results/memory.jsonl --candidate benchmarks/results/memory.jsonl --runner zig --json-output benchmarks/results/memory-comparison.json --report-output benchmarks/results/memory-comparison.txt`
+
+### RFC-0002 2026-03-27 Provider Selection + Metadata
+
+- Completed:
+  - Added `HostBlasProvider` and `HostBackendInfo` under
+    [`src/device/host_blas_provider.zig`](../src/device/host_blas_provider.zig)
+    and exposed the configured provider through the host backend/public device
+    API.
+  - Replaced the build-graph `-Denable_mkl` toggle with explicit
+    `-Dhost_blas=auto|accelerate|openblas|mkl` selection, preserving
+    `-Denable_mkl=true` as a compatibility alias for `mkl`.
+  - Added oneMKL include/library override flags and updated docs/CI commands to
+    use explicit provider selection.
+  - Updated benchmark metadata to emit `accelerate`, `openblas`, or `mkl`
+    instead of the ambiguous Linux `blas` label.
+- Remains:
+  - Validate Linux OpenBLAS and oneMKL builds, then add cross-provider
+    numerical parity tests and benchmark tables.
+  - Audit provider-backed conv, linear, and batched-GEMM execution paths.
+- Blockers:
+  - Local validation ran only on macOS/Accelerate, so the Linux OpenBLAS and
+    oneMKL paths remain unexecuted in this run.
+- Validation:
+  - `zig build test`
+  - `zig build -Dhost_blas=accelerate benchmark`
+  - `python3 - <<'PY'`
+    `import json`
+    `from pathlib import Path`
+    `first = json.loads(Path("benchmarks/results/latest.jsonl").read_text().splitlines()[0])`
+    `print(first["backend"]["host_provider"])`
+    `PY`

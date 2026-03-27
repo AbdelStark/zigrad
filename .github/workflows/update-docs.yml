@@ -47,7 +47,7 @@ jobs:
         env:
           ZIGRAD_BACKEND: HOST
         run: |
-          zig build docs
+          zig build -Dhost_blas=openblas docs
 
       - name: Switch branches and update tar
         env:

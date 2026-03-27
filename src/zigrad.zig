@@ -39,8 +39,11 @@ const device_root = @import("device.zig");
 pub const device = struct {
     pub const Error = device_root.Error;
     pub const HostDevice = device_root.HostDevice;
+    pub const HostBlasProvider = device_root.HostBlasProvider;
     pub const CudaDevice = device_root.CudaDevice;
     pub const DeviceData = device_root.DeviceData;
+    pub const configured_host_blas_provider = device_root.configured_host_blas_provider;
+    pub const configured_host_backend = device_root.configured_host_backend;
 };
 pub const opspec = device_root.opspec;
 pub const DeviceReference = device_root.DeviceReference;

@@ -17,6 +17,13 @@ zig build benchmark-models
 zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl
 ```
 
+Host BLAS selection follows the main build graph:
+
+```sh
+zig build benchmark -Dhost_blas=openblas
+zig build benchmark -Dhost_blas=mkl -Dmkl_include_dir=/opt/intel/oneapi/mkl/latest/include -Dmkl_library_dir=/opt/intel/oneapi/mkl/latest/lib
+```
+
 The default build steps write JSON-lines results into [`benchmarks/results/`](./results/).
 
 You can also pass runtime arguments through the benchmark executable:
@@ -113,7 +120,7 @@ Each run emits one JSON object per benchmark with:
   - total memory when discoverable
 - backend metadata:
   - device kind
-  - host provider
+  - host provider (`accelerate`, `openblas`, or `mkl`)
   - configured thread count
 - setup latency
 - measured latency summary:

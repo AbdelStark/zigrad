@@ -57,7 +57,8 @@ The benchmark harness now lives in
 and emits machine-readable JSONL results with hardware and backend metadata,
 plus a comparison tool for base-vs-candidate regression checks. The current
 smoke suite covers deterministic primitive, MNIST MLP, CartPole-style DQN, and
-two-layer GCN workloads:
+two-layer GCN workloads. Host benchmark/build metadata now records the explicit
+BLAS provider as `accelerate`, `openblas`, or `mkl`:
 
 ```shell
 zig build benchmark
@@ -136,13 +137,17 @@ On linux (or intel mac) you have some options,
 - MKL (recommended for best performance)
   - See https://www.intel.com/content/www/us/en/developer/tools/oneapi/onemkl-download.html
   - Reccommend a system installation for simplicity although this can work with `conda` for example, just make sure you adjust the library paths as necessary.
+  - Build with `zig build -Dhost_blas=mkl`
+  - If headers or libraries are not on your default search path, add `-Dmkl_include_dir=/path/to/include -Dmkl_library_dir=/path/to/lib`
 - OpenBLAS
   - See https://github.com/OpenMathLib/OpenBLAS/wiki/Precompiled-installation-packages
   - Likely available through your package manager as `libopenblas-dev` or `openblas-devel`
+  - Build with `zig build -Dhost_blas=openblas`
 
 ### Apple Silicon
 
-- Nothing :)
+- Uses Accelerate by default.
+- You can be explicit with `zig build -Dhost_blas=accelerate`.
 
 ### Examples
 

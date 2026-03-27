@@ -70,6 +70,10 @@ zig build benchmark-models
 zig build benchmark
 ```
 
+If the benchmark exercises a specific host provider configuration, record that
+explicitly in the command, for example `zig build benchmark -Dhost_blas=openblas`
+or `zig build benchmark -Dhost_blas=mkl`.
+
 ## Regression Comparison
 
 Use the comparison tool to compare a candidate run against a baseline JSONL:

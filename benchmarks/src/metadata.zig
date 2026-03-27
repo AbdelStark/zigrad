@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const build_options = @import("build_options");
+const zg = @import("zigrad");
 const result = @import("result.zig");
 
 pub const Snapshot = struct {
@@ -39,11 +39,8 @@ pub fn collect(
 }
 
 pub fn hostProvider() []const u8 {
-    return switch (builtin.target.os.tag) {
-        .macos => "accelerate",
-        .linux => if (build_options.enable_mkl) "mkl" else "blas",
-        else => "unknown",
-    };
+    _ = builtin;
+    return zg.device.configured_host_blas_provider.name();
 }
 
 fn gitCommit(allocator: std.mem.Allocator) ![]const u8 {
@@ -135,4 +132,11 @@ fn runAndTrim(
 
 fn parseU64(value: anytype) !u64 {
     return std.fmt.parseInt(u64, value, 10);
+}
+
+test "host provider reflects configured host backend" {
+    try std.testing.expectEqualStrings(
+        zg.device.configured_host_blas_provider.name(),
+        hostProvider(),
+    );
 }

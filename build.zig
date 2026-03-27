@@ -3,6 +3,34 @@ const Build = std.Build;
 const Module = Build.Module;
 const OptimizeMode = std.builtin.OptimizeMode;
 
+const HostBlasProvider = enum {
+    auto,
+    accelerate,
+    openblas,
+    mkl,
+};
+
+const HostBlasConfig = struct {
+    provider: HostBlasProvider,
+    openblas_library_name: []const u8,
+    mkl_runtime_library_name: []const u8,
+    mkl_include_dir: ?[]const u8,
+    mkl_library_dir: ?[]const u8,
+
+    fn providerName(self: HostBlasConfig) []const u8 {
+        return switch (self.provider) {
+            .accelerate => "accelerate",
+            .openblas => "openblas",
+            .mkl => "mkl",
+            .auto => unreachable,
+        };
+    }
+
+    fn usesMkl(self: HostBlasConfig) bool {
+        return self.provider == .mkl;
+    }
+};
+
 pub fn build(b: *Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -26,8 +54,18 @@ pub fn build(b: *Build) !void {
         b.option(std.log.Level, "log_level", "The Log Level to be used.") orelse .info,
     );
 
-    const enable_mkl = b.option(bool, "enable_mkl", "Link MKL.") orelse false;
-    build_options.addOption(bool, "enable_mkl", enable_mkl);
+    const legacy_enable_mkl = b.option(bool, "enable_mkl", "Deprecated: use -Dhost_blas=mkl.") orelse false;
+    const requested_host_blas = b.option([]const u8, "host_blas", "Host BLAS provider: auto|accelerate|openblas|mkl.") orelse if (legacy_enable_mkl) "mkl" else "auto";
+    const host_blas = try resolveHostBlasConfig(
+        target.result.os.tag,
+        requested_host_blas,
+        b.option([]const u8, "openblas_library_name", "Linux OpenBLAS runtime library name.") orelse "openblas",
+        b.option([]const u8, "mkl_runtime_library_name", "Linux oneMKL runtime library name.") orelse "mkl_rt",
+        b.option([]const u8, "mkl_include_dir", "Path to oneMKL headers when -Dhost_blas=mkl."),
+        b.option([]const u8, "mkl_library_dir", "Path to oneMKL libraries when -Dhost_blas=mkl."),
+    );
+    build_options.addOption(bool, "enable_mkl", host_blas.usesMkl());
+    build_options.addOption([]const u8, "host_blas_provider", host_blas.providerName());
 
     // const enable_vml = b.option(bool, "enable_vml", "Link VML.") orelse false;
     // build_options.addOption(bool, "enable_vml", enable_vml);
@@ -44,6 +82,7 @@ pub fn build(b: *Build) !void {
             .{ .name = "build_options", .module = build_options_module },
         },
     });
+    configureHostBlasModule(zigrad, host_blas);
     const safetensors_module = b.addModule("safetensors_zg", .{
         .root_source_file = b.path("src/third_party/safetensors_zg/root.zig"),
         .target = target,
@@ -54,17 +93,6 @@ pub fn build(b: *Build) !void {
     });
     zigrad.addImport("safetensors_zg", safetensors_module);
 
-    switch (target.result.os.tag) {
-        .linux => {
-            // TODO: Dynamic library paths for cuda build
-            // zigrad.addLibraryPath(.{ .cwd_relative = "/lib/x86_64-linux-gnu/" });
-            // zigrad.addLibraryPath(.{ .cwd_relative = "/usr/lib/x86_64-linux-gnu/" });
-            if (enable_mkl) zigrad.linkSystemLibrary("mkl_rt", .{}) else zigrad.linkSystemLibrary("blas", .{});
-        },
-        .macos => zigrad.linkFramework("Accelerate", .{}),
-        else => @panic("Os not supported."),
-    }
-
     const lib = b.addLibrary(.{
         .name = "zigrad",
         .root_module = zigrad,
@@ -72,7 +100,7 @@ pub fn build(b: *Build) !void {
 
     lib.root_module.addImport("build_options", build_options_module);
 
-    link(target, lib, enable_mkl);
+    link(target, lib, host_blas);
     b.installArtifact(lib);
 
     if (enable_cuda) {
@@ -92,7 +120,7 @@ pub fn build(b: *Build) !void {
         }),
     });
 
-    link(target, exe, enable_mkl);
+    link(target, exe, host_blas);
     b.installArtifact(exe);
 
     const benchmark_module = b.addModule("benchmarking", .{
@@ -118,7 +146,7 @@ pub fn build(b: *Build) !void {
         }),
     });
 
-    link(target, benchmark_exe, enable_mkl);
+    link(target, benchmark_exe, host_blas);
     b.installArtifact(benchmark_exe);
 
     const benchmark_compare_exe = b.addExecutable(.{
@@ -134,7 +162,7 @@ pub fn build(b: *Build) !void {
         }),
     });
 
-    link(target, benchmark_compare_exe, enable_mkl);
+    link(target, benchmark_compare_exe, host_blas);
     b.installArtifact(benchmark_compare_exe);
 
     const run_benchmark = b.addRunArtifact(benchmark_exe);
@@ -260,15 +288,117 @@ pub fn build(b: *Build) !void {
     }
 }
 
-fn link(target: Build.ResolvedTarget, exe: *Build.Step.Compile, enable_mkl: bool) void {
+fn configureHostBlasModule(module: *Build.Module, host_blas: HostBlasConfig) void {
+    if (host_blas.provider == .mkl) {
+        if (host_blas.mkl_include_dir) |dir| {
+            module.addIncludePath(.{ .cwd_relative = dir });
+        }
+    }
+}
+
+fn link(target: Build.ResolvedTarget, exe: *Build.Step.Compile, host_blas: HostBlasConfig) void {
     switch (target.result.os.tag) {
         .linux => {
-            if (enable_mkl) exe.linkSystemLibrary("mkl_rt") else exe.linkSystemLibrary("blas");
+            switch (host_blas.provider) {
+                .openblas => exe.linkSystemLibrary(host_blas.openblas_library_name),
+                .mkl => {
+                    if (host_blas.mkl_library_dir) |dir| {
+                        exe.addLibraryPath(.{ .cwd_relative = dir });
+                    }
+                    exe.linkSystemLibrary(host_blas.mkl_runtime_library_name);
+                },
+                .accelerate, .auto => @panic("Unsupported host BLAS provider for Linux"),
+            }
             exe.linkLibC();
         },
-        .macos => exe.linkFramework("Accelerate"),
+        .macos => {
+            if (host_blas.provider != .accelerate) @panic("Unsupported host BLAS provider for macOS");
+            exe.linkFramework("Accelerate");
+        },
         else => @panic("Os not supported."),
     }
+}
+
+fn resolveHostBlasConfig(
+    os_tag: std.Target.Os.Tag,
+    requested_name: []const u8,
+    openblas_library_name: []const u8,
+    mkl_runtime_library_name: []const u8,
+    mkl_include_dir: ?[]const u8,
+    mkl_library_dir: ?[]const u8,
+) !HostBlasConfig {
+    const requested = parseHostBlasProvider(requested_name) catch {
+        std.debug.print(
+            "error: unknown host BLAS provider '{s}'; expected auto, accelerate, openblas, or mkl\n",
+            .{requested_name},
+        );
+        return error.InvalidHostBlasProvider;
+    };
+
+    const provider = switch (requested) {
+        .auto => defaultHostBlasProvider(os_tag),
+        else => requested,
+    };
+
+    switch (os_tag) {
+        .linux => switch (provider) {
+            .openblas, .mkl => {},
+            else => {
+                std.debug.print(
+                    "error: Linux host builds support only openblas or mkl; got '{s}'\n",
+                    .{providerName(provider)},
+                );
+                return error.UnsupportedHostBlasProvider;
+            },
+        },
+        .macos => if (provider != .accelerate) {
+            std.debug.print(
+                "error: macOS host builds support only accelerate; got '{s}'\n",
+                .{providerName(provider)},
+            );
+            return error.UnsupportedHostBlasProvider;
+        },
+        else => {
+            std.debug.print(
+                "error: unsupported target OS '{s}' for host BLAS selection\n",
+                .{@tagName(os_tag)},
+            );
+            return error.UnsupportedHostBlasProvider;
+        },
+    }
+
+    return .{
+        .provider = provider,
+        .openblas_library_name = openblas_library_name,
+        .mkl_runtime_library_name = mkl_runtime_library_name,
+        .mkl_include_dir = mkl_include_dir,
+        .mkl_library_dir = mkl_library_dir,
+    };
+}
+
+fn parseHostBlasProvider(value: []const u8) !HostBlasProvider {
+    if (std.mem.eql(u8, value, "auto")) return .auto;
+    if (std.mem.eql(u8, value, "accelerate")) return .accelerate;
+    if (std.mem.eql(u8, value, "openblas")) return .openblas;
+    if (std.mem.eql(u8, value, "mkl")) return .mkl;
+    return error.InvalidHostBlasProvider;
+}
+
+fn defaultHostBlasProvider(os_tag: std.Target.Os.Tag) HostBlasProvider {
+    return switch (os_tag) {
+        .macos => .accelerate,
+        .linux => .openblas,
+        else => @panic("Unsupported target OS for host BLAS selection"),
+    };
+}
+
+fn providerName(provider: HostBlasProvider) []const u8 {
+    return switch (provider) {
+        .auto => "auto",
+        .accelerate => "accelerate",
+        .openblas => "openblas",
+        .mkl => "mkl",
+    };
 }
 
 pub fn build_tracy(b: *Build, target: Build.ResolvedTarget) ?*Module {

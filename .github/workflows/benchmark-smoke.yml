@@ -46,7 +46,7 @@ jobs:
           echo "sha=$baseline_sha" >> "$GITHUB_OUTPUT"
 
       - name: Run candidate benchmark smoke suite
-        run: zig build benchmark
+        run: zig build -Dhost_blas=openblas benchmark
 
       - name: Prepare baseline worktree
         if: steps.baseline.outputs.sha != ''
@@ -58,7 +58,7 @@ jobs:
       - name: Run baseline benchmark smoke suite
         if: steps.baseline.outputs.sha != ''
         working-directory: ../zigrad-baseline
-        run: zig build benchmark
+        run: zig build -Dhost_blas=openblas benchmark
 
       - name: Copy baseline benchmark results
         if: steps.baseline.outputs.sha != ''

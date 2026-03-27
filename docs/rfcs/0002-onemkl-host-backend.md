@@ -101,9 +101,10 @@ regardless of provider:
 
 ### Workstream A: Provider Abstraction
 
-- Formalize provider selection.
-- Introduce runtime-visible provider metadata.
-- Separate capability discovery from operation dispatch.
+- [x] Formalize provider selection.
+- [x] Introduce runtime-visible provider metadata.
+- [x] Separate capability discovery from operation dispatch for the current host
+  BLAS selection path.
 
 ### Workstream B: Kernel Coverage
 
@@ -148,3 +149,40 @@ regardless of provider:
 
 - oneDNN integration once the provider abstraction is stable.
 - provider-specific fused kernels where BLAS alone is insufficient.
+
+## Agentic Context
+
+### 2026-03-27 Provider Selection + Metadata
+
+- Completed:
+  - Added [`src/device/host_blas_provider.zig`](../../src/device/host_blas_provider.zig)
+    to formalize `HostBlasProvider` and `HostBackendInfo`.
+  - Replaced the build-graph `-Denable_mkl` toggle with explicit
+    `-Dhost_blas=auto|accelerate|openblas|mkl` selection while keeping
+    `-Denable_mkl=true` as a compatibility alias for `mkl`.
+  - Added documented oneMKL include/library overrides in `build.zig` via
+    `-Dmkl_include_dir` and `-Dmkl_library_dir`.
+  - Exposed the configured provider through the host backend and benchmark
+    metadata so JSONL results now report `accelerate`, `openblas`, or `mkl`
+    instead of the ambiguous Linux `blas` label.
+  - Updated repository docs and Linux CI entrypoints to use explicit host BLAS
+    provider selection.
+- Remains:
+  - Validate OpenBLAS and oneMKL builds on Linux/x86 hardware and add
+    cross-provider numerical parity coverage.
+  - Audit conv, linear, and batched-GEMM call sites so provider-backed paths
+    are explicitly covered by tests and benchmarks.
+  - Add provider comparison benchmark tables once Linux OpenBLAS and oneMKL
+    environments are available.
+- Blockers:
+  - This run validated only the macOS Accelerate path locally. OpenBLAS and
+    oneMKL configuration was implemented but not executed in this environment.
+- Validation performed:
+  - `zig build test`
+  - `zig build -Dhost_blas=accelerate benchmark`
+  - `python3 - <<'PY'`
+    `import json`
+    `from pathlib import Path`
+    `first = json.loads(Path("benchmarks/results/latest.jsonl").read_text().splitlines()[0])`
+    `print(first["backend"]["host_provider"])`
+    `PY`

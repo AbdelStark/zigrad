@@ -6,7 +6,13 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
-pub const using_mkl_rt = build_options.enable_mkl;
+const host_blas = @import("host_blas_provider.zig");
+pub const HostBlasProvider = host_blas.HostBlasProvider;
+pub const HostBackendInfo = host_blas.HostBackendInfo;
+pub const configured_host_blas_provider = host_blas.configured_host_blas_provider;
+pub const configured_host_backend = host_blas.configured_host_backend;
+pub const using_mkl = configured_host_blas_provider == .mkl;
+pub const using_mkl_rt = using_mkl;
 
 const BinaryOp = @import("device_common.zig").BinaryOp;
 const DeviceReference = @import("device_reference.zig");
@@ -25,20 +31,11 @@ const opspec = @import("opspec.zig");
 pub const Options = CachingAllocator.Options;
 pub const CacheMemoryTelemetry = CachingAllocator.MemoryTelemetry;
 const zg = @import("../zigrad.zig");
-
-pub const using_mkl_blas: bool = blk: {
-    const decls = @typeInfo(c).Struct.decls;
-    for (decls) |decl| {
-        if (std.mem.startsWith(u8, decl.name, "mkl_") or std.mem.startsWith(u8, decl.name, "MKL_")) {
-            break :blk true;
-        }
-    }
-    break :blk false;
-};
+pub const using_mkl_blas = using_mkl;
 
 const c = switch (builtin.target.os.tag) {
     .linux => @cImport({
-        if (build_options.enable_mkl) {
+        if (using_mkl) {
             @cInclude("mkl_vml_functions.h");
             @cInclude("mkl_cblas.h");
         } else {
@@ -195,6 +192,14 @@ pub fn init_advanced(opts: CachingAllocator.Options) Self {
 pub fn deinit(self: *Self) void {
     self.cache.deinit();
     self.* = undefined;
+}
+
+pub fn provider(_: *const Self) HostBlasProvider {
+    return configured_host_blas_provider;
+}
+
+pub fn backendInfo(_: *const Self) HostBackendInfo {
+    return configured_host_backend;
 }
 
 pub fn cacheTelemetry(self: *const Self) CacheMemoryTelemetry {
