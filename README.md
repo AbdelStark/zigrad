@@ -62,6 +62,7 @@ two-layer GCN workloads:
 ```shell
 zig build benchmark
 zig build benchmark-primitive
+zig build benchmark-memory
 zig build benchmark-models
 zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl
 ```
@@ -71,6 +72,10 @@ Optional PyTorch baseline execution is available per spec:
 ```shell
 zig build benchmark -- --baseline pytorch
 ```
+
+The smoke suite also reports allocator and graph high-water marks for dedicated
+memory benchmarks, including a tensor cache cycle and a synthetic MNIST
+training step.
 
 Benchmark authoring and smoke-policy guidance live in
 [`benchmarks/AUTHORING.md`](./benchmarks/AUTHORING.md).

@@ -70,6 +70,7 @@ fn emitAll(
             .backend = snapshot.backend,
             .setup_latency_ns = run_output.setup_latency_ns,
             .stats = stats,
+            .memory = run_output.memory,
             .notes = run_output.notes,
         });
 
@@ -115,7 +116,7 @@ fn parseArgs(allocator: std.mem.Allocator) !Options {
 
 fn printUsage() void {
     std.debug.print(
-        \\Usage: benchmark [--spec-root <path>] [--output <path>] [--group <name>] [--spec <path>] [--baseline none|pytorch]
+        \\Usage: benchmark [--spec-root <path>] [--output <path>] [--group primitive|blas|autograd|memory|model-train|model-infer|models|all] [--spec <path>] [--baseline none|pytorch]
         \\
     , .{});
 }
@@ -135,6 +136,9 @@ fn loadSpecs(allocator: std.mem.Allocator, options: Options) ![]const manifest.S
         }
         if (matchesGroup(options.group, "autograd")) {
             try appendSuiteSpecs(allocator, &specs, options.spec_root, "autograd");
+        }
+        if (matchesGroup(options.group, "memory")) {
+            try appendSuiteSpecs(allocator, &specs, options.spec_root, "memory");
         }
         if (matchesGroup(options.group, "model-train")) {
             try appendSuiteSpecs(allocator, &specs, options.spec_root, "model-train");

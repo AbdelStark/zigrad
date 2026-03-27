@@ -12,6 +12,7 @@ zig build benchmark
 zig build benchmark-primitive
 zig build benchmark-blas
 zig build benchmark-autograd
+zig build benchmark-memory
 zig build benchmark-models
 zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl
 ```
@@ -49,6 +50,9 @@ zig build benchmark-compare -- \
 - `autograd`
   - deterministic dot forward+backward
   - deterministic matvec forward+backward
+- `memory`
+  - host tensor cache allocation/free cycle high-water mark
+  - synthetic MNIST training-step cache and graph-arena high-water mark
 - `model-train`
   - synthetic MNIST-style MLP training step
   - synthetic CartPole-shaped DQN training step
@@ -69,7 +73,7 @@ Benchmark specs live under [`benchmarks/specs/`](./specs/) as JSON files.
 Common fields:
 
 - `id`: stable benchmark identifier
-- `suite`: `primitive`, `blas`, `autograd`, `model-train`, or `model-infer`
+- `suite`: `primitive`, `blas`, `autograd`, `memory`, `model-train`, or `model-infer`
 - `kind`: workload selector
 - `dtype`: currently `f32`
 - `warmup_iterations`
@@ -82,6 +86,7 @@ Workload-specific fields:
 
 - `lhs_shape`, `rhs_shape` for primitive add/matmul, BLAS dot/matvec, and
   autograd dot/matvec backward
+- `lhs_shape` plus `batch_size` for memory tensor-cache cycle workloads
 - `batch_size`, `input_shape`, `label_shape` for batched model workloads
 - `input_shape`, optional `label_shape`, and derived synthetic graph topology
   for GCN workloads
@@ -118,6 +123,12 @@ Each run emits one JSON object per benchmark with:
   - p95
   - max
   - throughput when applicable
+- optional memory summary:
+  - peak live bytes
+  - final live bytes
+  - peak graph arena bytes
+  - final graph arena bytes
+  - peak scratch bytes
 
 ## PyTorch Baseline
 
@@ -127,7 +138,8 @@ The optional PyTorch runner lives under
 If `torch` is not installed, the runner emits a `skipped` record instead of
 failing the whole benchmark run. This keeps the default path dependency-light
 while still allowing direct framework comparisons on prepared machines for the
-BLAS, autograd, and model suites.
+BLAS, autograd, and model suites. Memory specs are Zig-only today because they
+depend on Zigrad allocator and graph telemetry.
 
 ## Authoring
 

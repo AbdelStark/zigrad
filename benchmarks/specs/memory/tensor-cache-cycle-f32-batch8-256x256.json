@@ -1,0 +1,13 @@
+{
+  "id": "memory.tensor-cache-cycle.f32.batch8.256x256",
+  "suite": "memory",
+  "kind": "memory_tensor_cache_cycle",
+  "dtype": "f32",
+  "warmup_iterations": 2,
+  "measured_iterations": 5,
+  "batch_size": 8,
+  "thread_count": 1,
+  "seed": 81761,
+  "lhs_shape": [256, 256],
+  "notes": "Allocates and releases eight same-shaped host tensors per iteration to track cache high-water marks."
+}

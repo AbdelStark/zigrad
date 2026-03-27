@@ -89,6 +89,14 @@ pub const SummaryStats = struct {
     }
 };
 
+pub const MemoryStats = struct {
+    peak_live_bytes: ?u64 = null,
+    final_live_bytes: ?u64 = null,
+    peak_graph_arena_bytes: ?u64 = null,
+    final_graph_arena_bytes: ?u64 = null,
+    peak_scratch_bytes: ?u64 = null,
+};
+
 pub const Record = struct {
     benchmark_id: []const u8,
     suite: []const u8,
@@ -106,6 +114,7 @@ pub const Record = struct {
     backend: BackendMetadata,
     setup_latency_ns: ?u64 = null,
     stats: ?SummaryStats = null,
+    memory: ?MemoryStats = null,
     notes: ?[]const u8 = null,
 };
 
@@ -198,7 +207,7 @@ test "summary stats compute deterministic aggregates" {
 test "load jsonl records from slice" {
     const allocator = std.testing.allocator;
     var loaded = try LoadedFile.loadFromSlice(allocator,
-        \\{"benchmark_id":"primitive.add.f32.1x1","suite":"primitive","kind":"primitive_add","runner":"zig","status":"ok","dtype":"f32","warmup_iterations":1,"measured_iterations":2,"batch_size":null,"seed":1,"shapes":[{"name":"lhs","dims":[1]},{"name":"rhs","dims":[1]}],"runtime":{"timestamp_unix_ms":0,"git_commit":"deadbeef","git_dirty":false,"zig_version":"0.15.2","harness_version":"0.1.0"},"system":{"os":"linux","kernel":"test","arch":"x86_64","cpu_model":"cpu","cpu_logical_cores":1,"total_memory_bytes":null},"backend":{"device":"host","host_provider":"blas","thread_count":1,"accelerator":null},"setup_latency_ns":10,"stats":{"min_ns":10,"median_ns":10,"mean_ns":10.0,"p95_ns":10,"max_ns":10,"throughput_per_second":100.0,"throughput_unit":"elements"},"notes":null}
+        \\{"benchmark_id":"primitive.add.f32.1x1","suite":"primitive","kind":"primitive_add","runner":"zig","status":"ok","dtype":"f32","warmup_iterations":1,"measured_iterations":2,"batch_size":null,"seed":1,"shapes":[{"name":"lhs","dims":[1]},{"name":"rhs","dims":[1]}],"runtime":{"timestamp_unix_ms":0,"git_commit":"deadbeef","git_dirty":false,"zig_version":"0.15.2","harness_version":"0.1.0"},"system":{"os":"linux","kernel":"test","arch":"x86_64","cpu_model":"cpu","cpu_logical_cores":1,"total_memory_bytes":null},"backend":{"device":"host","host_provider":"blas","thread_count":1,"accelerator":null},"setup_latency_ns":10,"stats":{"min_ns":10,"median_ns":10,"mean_ns":10.0,"p95_ns":10,"max_ns":10,"throughput_per_second":100.0,"throughput_unit":"elements"},"memory":{"peak_live_bytes":64,"final_live_bytes":0,"peak_graph_arena_bytes":null,"final_graph_arena_bytes":null,"peak_scratch_bytes":32},"notes":null}
     );
     defer loaded.deinit();
 
@@ -206,4 +215,5 @@ test "load jsonl records from slice" {
     try std.testing.expectEqualStrings("primitive.add.f32.1x1", loaded.records[0].benchmark_id);
     try std.testing.expectEqual(Status.ok, loaded.records[0].status);
     try std.testing.expectApproxEqAbs(@as(f64, 10.0), loaded.records[0].stats.?.mean_ns, 1e-9);
+    try std.testing.expectEqual(@as(u64, 64), loaded.records[0].memory.?.peak_live_bytes.?);
 }

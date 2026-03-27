@@ -15,6 +15,7 @@ pub const RunOutput = struct {
     timings_ns: []const u64,
     throughput_items: ?usize = null,
     throughput_unit: ?[]const u8 = null,
+    memory: ?result.MemoryStats = null,
     notes: ?[]const u8 = null,
 };
 
@@ -40,6 +41,8 @@ pub fn run(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .blas_matvec => runBlasMatvec(allocator, spec),
         .autograd_dot_backward => runAutogradDotBackward(allocator, spec),
         .autograd_matvec_backward => runAutogradMatvecBackward(allocator, spec),
+        .memory_tensor_cache_cycle => runMemoryTensorCacheCycle(allocator, spec),
+        .memory_mnist_train_step => runMemoryMnistTrainStep(allocator, spec),
         .mnist_mlp_train => runMnistTrain(allocator, spec),
         .mnist_mlp_infer => runMnistInfer(allocator, spec),
         .dqn_cartpole_train => runDqnTrain(allocator, spec),
@@ -285,6 +288,135 @@ fn runPrimitiveMatmul(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOut
         .timings_ns = timings,
         .throughput_items = spec.batch_size,
         .throughput_unit = null,
+        .notes = spec.notes,
+    };
+}
+
+fn runMemoryTensorCacheCycle(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+    const buffer_shape = spec.lhs_shape.?;
+    const retained_buffers = spec.batch_size.?;
+
+    var host = zg.device.HostDevice.init();
+    defer host.deinit();
+    const device = host.reference();
+
+    const buffer_values = try makeDeterministicSlice(allocator, countElements(buffer_shape), spec.seed);
+    defer allocator.free(buffer_values);
+
+    var timer = try std.time.Timer.start();
+    const setup_latency_ns = timer.read();
+
+    for (0..spec.warmup_iterations) |_| {
+        try oneMemoryTensorCacheCycle(allocator, device, buffer_values, buffer_shape, retained_buffers);
+    }
+
+    host.resetCacheTelemetry();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    for (timings) |*timing| {
+        timer.reset();
+        try oneMemoryTensorCacheCycle(allocator, device, buffer_values, buffer_shape, retained_buffers);
+        timing.* = timer.read();
+    }
+
+    const telemetry = host.cacheTelemetry();
+
+    return .{
+        .shapes = try shapeMetadataFromMemoryBuffer(allocator, spec),
+        .batch_size = retained_buffers,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = retained_buffers * countElements(buffer_shape),
+        .throughput_unit = "elements",
+        .memory = .{
+            .peak_live_bytes = @as(u64, @intCast(telemetry.peak_live_bytes)),
+            .final_live_bytes = @as(u64, @intCast(telemetry.live_bytes)),
+            .peak_scratch_bytes = @as(u64, @intCast(telemetry.peak_scratch_bytes)),
+        },
+        .notes = spec.notes,
+    };
+}
+
+fn runMemoryMnistTrainStep(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+    const batch_size = spec.batch_size.?;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    var host = zg.device.HostDevice.init();
+    defer host.deinit();
+    const device = host.reference();
+
+    var timer = try std.time.Timer.start();
+    var model = try MnistBenchmarkModel(f32).init(allocator, device, &graph, spec.seed);
+    defer model.deinit();
+
+    var sgd = zg.optim.SGD.init(allocator, .{
+        .lr = 0.01,
+        .grad_clip_max_norm = 10.0,
+        .grad_clip_delta = 1e-6,
+        .grad_clip_enabled = false,
+    });
+    defer sgd.deinit();
+    const optimizer = sgd.optimizer();
+    try model.attachOptimizer(optimizer);
+
+    const input_values = try makeDeterministicSlice(allocator, countElements(spec.input_shape.?), spec.seed +% 71);
+    defer allocator.free(input_values);
+    const label_values = try makeOneHotLabels(allocator, batch_size, spec.label_shape.?[1], spec.seed +% 73);
+    defer allocator.free(label_values);
+    const setup_latency_ns = timer.read();
+
+    for (0..spec.warmup_iterations) |_| {
+        try oneMnistTrainingStep(
+            &graph,
+            device,
+            &model,
+            input_values,
+            spec.input_shape.?,
+            label_values,
+            spec.label_shape.?,
+            optimizer,
+        );
+    }
+
+    host.resetCacheTelemetry();
+    var peak_graph_arena_bytes = graph.queryArenaCapacityBytes();
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+
+    for (timings) |*timing| {
+        timer.reset();
+        try oneMnistTrainingStep(
+            &graph,
+            device,
+            &model,
+            input_values,
+            spec.input_shape.?,
+            label_values,
+            spec.label_shape.?,
+            optimizer,
+        );
+        timing.* = timer.read();
+        peak_graph_arena_bytes = @max(peak_graph_arena_bytes, graph.queryArenaCapacityBytes());
+    }
+
+    const telemetry = host.cacheTelemetry();
+    const final_graph_arena_bytes = graph.queryArenaCapacityBytes();
+
+    return .{
+        .shapes = try shapeMetadataFromMnist(allocator, spec),
+        .batch_size = batch_size,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = batch_size,
+        .throughput_unit = "samples",
+        .memory = .{
+            .peak_live_bytes = @as(u64, @intCast(telemetry.peak_live_bytes)),
+            .final_live_bytes = @as(u64, @intCast(telemetry.live_bytes)),
+            .peak_graph_arena_bytes = @as(u64, @intCast(peak_graph_arena_bytes)),
+            .final_graph_arena_bytes = @as(u64, @intCast(final_graph_arena_bytes)),
+            .peak_scratch_bytes = @as(u64, @intCast(telemetry.peak_scratch_bytes)),
+        },
         .notes = spec.notes,
     };
 }
@@ -727,6 +859,36 @@ fn oneMnistTrainingStep(
     model.zeroGrad();
 }
 
+fn oneMemoryTensorCacheCycle(
+    allocator: std.mem.Allocator,
+    device: zg.DeviceReference,
+    buffer_values: []const f32,
+    buffer_shape: []const usize,
+    retained_buffers: usize,
+) !void {
+    const Array = zg.NDArray(f32);
+    const arrays = try allocator.alloc(Array, retained_buffers);
+    defer allocator.free(arrays);
+
+    var initialized: usize = 0;
+    errdefer {
+        while (initialized > 0) {
+            initialized -= 1;
+            arrays[initialized].deinit(device);
+        }
+    }
+
+    for (0..retained_buffers) |index| {
+        arrays[index] = try Array.from_slice(buffer_values, buffer_shape, device);
+        initialized += 1;
+    }
+
+    while (initialized > 0) {
+        initialized -= 1;
+        arrays[initialized].deinit(device);
+    }
+}
+
 fn oneDqnTrainingStep(
     graph: *zg.Graph,
     device: zg.DeviceReference,
@@ -1053,6 +1215,12 @@ fn shapeMetadataFromMatrixVector(allocator: std.mem.Allocator, spec: manifest.Sp
     return shapes;
 }
 
+fn shapeMetadataFromMemoryBuffer(allocator: std.mem.Allocator, spec: manifest.Spec) ![]const result.ShapeMetadata {
+    const shapes = try allocator.alloc(result.ShapeMetadata, 1);
+    shapes[0] = .{ .name = "buffer", .dims = spec.lhs_shape.? };
+    return shapes;
+}
+
 fn shapeMetadataFromMnist(allocator: std.mem.Allocator, spec: manifest.Spec) ![]const result.ShapeMetadata {
     const label_shape_count: usize = if (spec.label_shape == null) 0 else 1;
     const shapes = try allocator.alloc(result.ShapeMetadata, 1 + label_shape_count);
@@ -1187,6 +1355,61 @@ test "run autograd matvec benchmark" {
     try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
     try std.testing.expectEqual(@as(usize, 2), output.shapes.len);
     try std.testing.expectEqualStrings("matrix", output.shapes[0].name);
+}
+
+test "run memory tensor cache benchmark" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const buffer_shape = [_]usize{ 8, 8 };
+    const spec: manifest.Spec = .{
+        .id = "test.memory.tensor-cache",
+        .suite = .memory,
+        .kind = .memory_tensor_cache_cycle,
+        .dtype = .f32,
+        .warmup_iterations = 0,
+        .measured_iterations = 1,
+        .batch_size = 4,
+        .thread_count = 1,
+        .seed = 1,
+        .lhs_shape = buffer_shape[0..],
+        .path = "inline",
+    };
+
+    const output = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
+    try std.testing.expectEqual(@as(usize, 1), output.shapes.len);
+    try std.testing.expect(output.memory != null);
+    try std.testing.expect(output.memory.?.peak_live_bytes.? > 0);
+    try std.testing.expectEqual(@as(u64, 0), output.memory.?.final_live_bytes.?);
+}
+
+test "run memory mnist training benchmark" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const input_shape = [_]usize{ 4, 1, 28, 28 };
+    const label_shape = [_]usize{ 4, 10 };
+    const spec: manifest.Spec = .{
+        .id = "test.memory.mnist-train",
+        .suite = .memory,
+        .kind = .memory_mnist_train_step,
+        .dtype = .f32,
+        .warmup_iterations = 0,
+        .measured_iterations = 1,
+        .batch_size = 4,
+        .thread_count = 1,
+        .seed = 1,
+        .input_shape = input_shape[0..],
+        .label_shape = label_shape[0..],
+        .path = "inline",
+    };
+
+    const output = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
+    try std.testing.expect(output.memory != null);
+    try std.testing.expect(output.memory.?.peak_live_bytes.? >= output.memory.?.final_live_bytes.?);
+    try std.testing.expect(output.memory.?.peak_graph_arena_bytes.? > 0);
 }
 
 test "run gcn train benchmark" {

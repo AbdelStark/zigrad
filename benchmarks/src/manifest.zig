@@ -4,6 +4,7 @@ pub const Suite = enum {
     primitive,
     blas,
     autograd,
+    memory,
     model_train,
     model_infer,
 
@@ -12,6 +13,7 @@ pub const Suite = enum {
             .primitive => "primitive",
             .blas => "blas",
             .autograd => "autograd",
+            .memory => "memory",
             .model_train => "model-train",
             .model_infer => "model-infer",
         };
@@ -25,6 +27,8 @@ pub const Kind = enum {
     blas_matvec,
     autograd_dot_backward,
     autograd_matvec_backward,
+    memory_tensor_cache_cycle,
+    memory_mnist_train_step,
     mnist_mlp_train,
     mnist_mlp_infer,
     dqn_cartpole_train,
@@ -40,6 +44,8 @@ pub const Kind = enum {
             .blas_matvec => "blas_matvec",
             .autograd_dot_backward => "autograd_dot_backward",
             .autograd_matvec_backward => "autograd_matvec_backward",
+            .memory_tensor_cache_cycle => "memory_tensor_cache_cycle",
+            .memory_mnist_train_step => "memory_mnist_train_step",
             .mnist_mlp_train => "mnist_mlp_train",
             .mnist_mlp_infer => "mnist_mlp_infer",
             .dqn_cartpole_train => "dqn_cartpole_train",
@@ -127,6 +133,13 @@ fn validate(path: []const u8, raw: RawSpec) !Spec {
         .blas_matvec, .autograd_matvec_backward => {
             try requireMatvecShapes(raw);
         },
+        .memory_tensor_cache_cycle => {
+            if (raw.lhs_shape == null) return error.MissingPrimitiveShape;
+            if (raw.batch_size == null or raw.batch_size.? == 0) return error.MissingBatchSize;
+        },
+        .memory_mnist_train_step => {
+            try requireBatchedModelShapes(raw, true);
+        },
         .mnist_mlp_train => {
             try requireBatchedModelShapes(raw, true);
         },
@@ -177,6 +190,7 @@ fn parseSuite(value: []const u8) !Suite {
     if (std.mem.eql(u8, value, "primitive")) return .primitive;
     if (std.mem.eql(u8, value, "blas")) return .blas;
     if (std.mem.eql(u8, value, "autograd")) return .autograd;
+    if (std.mem.eql(u8, value, "memory")) return .memory;
     if (std.mem.eql(u8, value, "model-train")) return .model_train;
     if (std.mem.eql(u8, value, "model-infer")) return .model_infer;
     return error.UnknownBenchmarkSuite;
@@ -189,6 +203,8 @@ fn parseKind(value: []const u8) !Kind {
     if (std.mem.eql(u8, value, "blas_matvec")) return .blas_matvec;
     if (std.mem.eql(u8, value, "autograd_dot_backward")) return .autograd_dot_backward;
     if (std.mem.eql(u8, value, "autograd_matvec_backward")) return .autograd_matvec_backward;
+    if (std.mem.eql(u8, value, "memory_tensor_cache_cycle")) return .memory_tensor_cache_cycle;
+    if (std.mem.eql(u8, value, "memory_mnist_train_step")) return .memory_mnist_train_step;
     if (std.mem.eql(u8, value, "mnist_mlp_train")) return .mnist_mlp_train;
     if (std.mem.eql(u8, value, "mnist_mlp_infer")) return .mnist_mlp_infer;
     if (std.mem.eql(u8, value, "dqn_cartpole_train")) return .dqn_cartpole_train;
@@ -297,4 +313,29 @@ test "load autograd matvec benchmark spec from json slice" {
     try std.testing.expectEqual(Kind.autograd_matvec_backward, spec.kind);
     try std.testing.expectEqual(@as(usize, 128), spec.lhs_shape.?[0]);
     try std.testing.expectEqual(@as(usize, 64), spec.rhs_shape.?[0]);
+}
+
+test "load memory benchmark spec from json slice" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const raw =
+        \\{
+        \\  "id": "memory.tensor-cache.f32.batch4",
+        \\  "suite": "memory",
+        \\  "kind": "memory_tensor_cache_cycle",
+        \\  "dtype": "f32",
+        \\  "warmup_iterations": 1,
+        \\  "measured_iterations": 2,
+        \\  "batch_size": 4,
+        \\  "lhs_shape": [64, 64]
+        \\}
+    ;
+    const parsed = try std.json.parseFromSliceLeaky(RawSpec, allocator, raw, .{});
+    const spec = try validate("inline-memory.json", parsed);
+
+    try std.testing.expectEqual(Suite.memory, spec.suite);
+    try std.testing.expectEqual(Kind.memory_tensor_cache_cycle, spec.kind);
+    try std.testing.expectEqual(@as(usize, 4), spec.batch_size.?);
+    try std.testing.expectEqual(@as(usize, 2), spec.lhs_shape.?.len);
 }

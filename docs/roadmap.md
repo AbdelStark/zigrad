@@ -68,7 +68,7 @@ documents we will implement against.
 
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, smoke CI, and synthetic BLAS/autograd/MNIST/DQN/GCN coverage are landed; future CUDA/compiler/interop suites remain. |
+| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, smoke CI, and synthetic BLAS/autograd/memory/MNIST/DQN/GCN coverage are landed; future CUDA/compiler/interop suites remain. |
 | RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Expands host performance beyond the current baseline. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Turns experimental CUDA into a supported execution backend. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
@@ -193,3 +193,24 @@ Every RFC in this folder set must maintain:
   - `zig build benchmark -- --baseline pytorch --group blas`
   - `zig build benchmark -- --baseline pytorch --group autograd`
   - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`
+
+### RFC-0001 2026-03-27 Memory Coverage
+
+- Completed:
+  - Added host caching allocator telemetry and graph arena capacity reporting
+    so benchmark records can include memory high-water marks.
+  - Added a dedicated `memory` suite with a tensor cache cycle workload and a
+    synthetic MNIST training-step workload.
+  - Extended benchmark comparison output to include memory deltas and fail on
+    threshold-exceeding memory regressions.
+- Remains:
+  - Extend the same benchmark taxonomy to CUDA memory accounting and future
+    compiler/interop workloads.
+- Blockers:
+  - PyTorch baseline coverage still does not apply to Zigrad-native memory
+    telemetry workloads.
+- Validation:
+  - `zig build test`
+  - `zig build benchmark-memory`
+  - `zig build benchmark`
+  - `zig build benchmark-compare -- --baseline benchmarks/results/memory.jsonl --candidate benchmarks/results/memory.jsonl --runner zig --json-output benchmarks/results/memory-comparison.json --report-output benchmarks/results/memory-comparison.txt`

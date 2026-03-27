@@ -51,6 +51,10 @@ pub fn deinit(self: *Graph) void {
     self.* = undefined;
 }
 
+pub fn queryArenaCapacityBytes(self: *const Graph) usize {
+    return self.builder.arena.query_capacity();
+}
+
 // Must init grad on root node before backprop
 pub fn backward(self: *Graph, root: *Node) !void {
     self.mutex.lock();

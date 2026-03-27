@@ -179,6 +179,7 @@ Regression gating should use broad thresholds first, for example:
 - [x] Primitive suite for representative tensor ops.
 - [x] BLAS dot and matvec microbenchmarks with deterministic operands.
 - [x] Autograd dot and matvec backward microbenchmarks.
+- [x] Memory suite for cache high-water mark and graph arena reuse coverage.
 - [x] MNIST train and inference benchmarks using deterministic synthetic data.
 - [x] DQN benchmark skeleton.
 - [x] Synthetic GCN train and inference coverage.
@@ -278,6 +279,29 @@ Regression gating should use broad thresholds first, for example:
     validated only the explicit skip records.
 - Validation performed:
   - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`
+
+### 2026-03-27 Memory Suite Coverage
+
+- Completed:
+  - Added allocator telemetry to the host caching allocator so benchmark runs
+    can report peak live bytes, final live bytes, and peak scratch bytes.
+  - Added graph arena capacity reporting and a new `memory` benchmark suite
+    with host tensor cache cycle and synthetic MNIST training-step workloads.
+  - Extended benchmark records and comparison reports to carry memory metrics
+    and flag memory regressions alongside latency regressions.
+- Remains:
+  - Add CUDA memory telemetry and device-transfer accounting once RFC-0003
+    moves deeper into supported-path work.
+  - Add interop and compiler memory suites when those RFCs land executable
+    workloads.
+- Blockers:
+  - Memory telemetry currently reflects Zigrad-native host allocator and graph
+    behavior only; there is no comparable PyTorch baseline for these specs yet.
+- Validation performed:
+  - `zig build test`
+  - `zig build benchmark-memory`
+  - `zig build benchmark`
+  - `zig build benchmark-compare -- --baseline benchmarks/results/memory.jsonl --candidate benchmarks/results/memory.jsonl --runner zig --json-output benchmarks/results/memory-comparison.json --report-output benchmarks/results/memory-comparison.txt`
   - `zig build test`
   - `zig build benchmark-models`
   - `zig build benchmark`

@@ -37,6 +37,14 @@ pub fn CachingAllocator(DataHandler: type) type {
             ptr: [*]u8 = undefined,
             total: usize = 0,
         } = .{},
+        telemetry: MemoryTelemetry = .{},
+
+        pub const MemoryTelemetry = struct {
+            live_bytes: usize = 0,
+            peak_live_bytes: usize = 0,
+            scratch_bytes: usize = 0,
+            peak_scratch_bytes: usize = 0,
+        };
 
         pub const Options = struct {
             large_pool_size: ?usize = null,
@@ -57,8 +65,10 @@ pub fn CachingAllocator(DataHandler: type) type {
             self.small_pool.deinit(self.data_handler, allocator);
             self.large_pool.deinit(self.data_handler, allocator);
 
-            if (self.scratch.total != 0)
+            if (self.scratch.total != 0) {
                 self.data_handler.free(self.scratch.ptr[0..self.scratch.total]);
+                self.setScratchBytes(0);
+            }
 
             self.data_handler.deinit();
 
@@ -69,10 +79,13 @@ pub fn CachingAllocator(DataHandler: type) type {
             self.small_pool.reset();
             self.large_pool.reset();
 
-            if (self.scratch.total != 0)
+            if (self.scratch.total != 0) {
                 self.data_handler.free(self.scratch.ptr[0..self.scratch.total]);
+                self.setScratchBytes(0);
+            }
 
-            self.scratch.total = 0;
+            self.telemetry.live_bytes = 0;
+            self.resetTelemetry();
 
             self.data_handler.reset();
         }
@@ -96,7 +109,10 @@ pub fn CachingAllocator(DataHandler: type) type {
             else
                 self.large_pool.alloc(T, self.data_handler, allocator, len);
 
-            return if (result) |r| r else |err| switch (err) {
+            return if (result) |r| blk: {
+                self.addLiveBytes(total_bytes);
+                break :blk r;
+            } else |err| switch (err) {
                 Allocator.Error.OutOfMemory => @panic("Page allocator ran out of memory"),
                 else => blk: {
                     logger.err("alloc - pool: {s}, {s}", .{
@@ -119,6 +135,7 @@ pub fn CachingAllocator(DataHandler: type) type {
                 @typeName(T), data.raw.len, total_bytes, if (is_small) "small" else "large",
             });
 
+            self.subLiveBytes(total_bytes);
             if (is_small)
                 self.small_pool.free(data)
             else
@@ -146,6 +163,7 @@ pub fn CachingAllocator(DataHandler: type) type {
                     @panic("Cannot allocate scratch memory");
 
                 self.scratch.total = total;
+                self.setScratchBytes(total);
             }
 
             logger.debug("alloc_scratch - type: {s}, len: {} bytes: {}", .{
@@ -155,8 +173,36 @@ pub fn CachingAllocator(DataHandler: type) type {
             return cast_to_slice(T, self.scratch.ptr, n);
         }
 
+        pub fn memoryTelemetry(self: *const Self) MemoryTelemetry {
+            return self.telemetry;
+        }
+
+        pub fn resetTelemetry(self: *Self) void {
+            self.telemetry.peak_live_bytes = self.telemetry.live_bytes;
+            self.telemetry.peak_scratch_bytes = self.telemetry.scratch_bytes;
+        }
+
         fn is_small_alloc(total_bytes: usize) bool {
             return total_bytes <= pool_threshold;
+        }
+
+        fn addLiveBytes(self: *Self, bytes: usize) void {
+            self.telemetry.live_bytes += bytes;
+            self.telemetry.peak_live_bytes = @max(self.telemetry.peak_live_bytes, self.telemetry.live_bytes);
+        }
+
+        fn subLiveBytes(self: *Self, bytes: usize) void {
+            std.debug.assert(self.telemetry.live_bytes >= bytes);
+            self.telemetry.live_bytes -= bytes;
+        }
+
+        fn setScratchBytes(self: *Self, bytes: usize) void {
+            std.debug.assert(self.telemetry.live_bytes >= self.telemetry.scratch_bytes);
+            self.telemetry.live_bytes -= self.telemetry.scratch_bytes;
+            self.telemetry.scratch_bytes = bytes;
+            self.telemetry.live_bytes += bytes;
+            self.telemetry.peak_live_bytes = @max(self.telemetry.peak_live_bytes, self.telemetry.live_bytes);
+            self.telemetry.peak_scratch_bytes = @max(self.telemetry.peak_scratch_bytes, bytes);
         }
     };
 }

@@ -16,6 +16,16 @@ pub const Classification = enum {
     new_candidate,
 };
 
+pub const MetricComparison = struct {
+    baseline: ?u64 = null,
+    candidate: ?u64 = null,
+    delta_ratio: ?f64 = null,
+
+    pub fn hasValues(self: MetricComparison) bool {
+        return self.baseline != null or self.candidate != null;
+    }
+};
+
 pub const Comparison = struct {
     benchmark_id: []const u8,
     runner: []const u8,
@@ -28,6 +38,11 @@ pub const Comparison = struct {
     baseline_throughput_per_second: ?f64 = null,
     candidate_throughput_per_second: ?f64 = null,
     throughput_delta_ratio: ?f64 = null,
+    peak_live_bytes: MetricComparison = .{},
+    final_live_bytes: MetricComparison = .{},
+    peak_graph_arena_bytes: MetricComparison = .{},
+    final_graph_arena_bytes: MetricComparison = .{},
+    peak_scratch_bytes: MetricComparison = .{},
     notes: ?[]const u8 = null,
 };
 
@@ -70,6 +85,11 @@ const TestRecordSpec = struct {
     status: result.Status = .ok,
     mean_ns: ?f64 = 100.0,
     throughput_per_second: ?f64 = 10.0,
+    peak_live_bytes: ?u64 = null,
+    final_live_bytes: ?u64 = null,
+    peak_graph_arena_bytes: ?u64 = null,
+    final_graph_arena_bytes: ?u64 = null,
+    peak_scratch_bytes: ?u64 = null,
 };
 
 pub fn runCli(allocator: std.mem.Allocator) !void {
@@ -245,6 +265,12 @@ pub fn writeTextReport(writer: anytype, report: Report) !void {
             try writer.writeByte('\n');
         }
 
+        try writeMetricLine(writer, "peak live bytes", comparison.peak_live_bytes);
+        try writeMetricLine(writer, "final live bytes", comparison.final_live_bytes);
+        try writeMetricLine(writer, "peak graph arena bytes", comparison.peak_graph_arena_bytes);
+        try writeMetricLine(writer, "final graph arena bytes", comparison.final_graph_arena_bytes);
+        try writeMetricLine(writer, "peak scratch bytes", comparison.peak_scratch_bytes);
+
         if (comparison.notes) |notes| {
             try writer.print("  notes: {s}\n", .{notes});
         }
@@ -403,6 +429,26 @@ fn comparePair(
         .candidate_mean_ns = if (candidate.stats) |stats| stats.mean_ns else null,
         .baseline_throughput_per_second = if (baseline.stats) |stats| stats.throughput_per_second else null,
         .candidate_throughput_per_second = if (candidate.stats) |stats| stats.throughput_per_second else null,
+        .peak_live_bytes = try compareU64Metric(
+            if (baseline.memory) |memory| memory.peak_live_bytes else null,
+            if (candidate.memory) |memory| memory.peak_live_bytes else null,
+        ),
+        .final_live_bytes = try compareU64Metric(
+            if (baseline.memory) |memory| memory.final_live_bytes else null,
+            if (candidate.memory) |memory| memory.final_live_bytes else null,
+        ),
+        .peak_graph_arena_bytes = try compareU64Metric(
+            if (baseline.memory) |memory| memory.peak_graph_arena_bytes else null,
+            if (candidate.memory) |memory| memory.peak_graph_arena_bytes else null,
+        ),
+        .final_graph_arena_bytes = try compareU64Metric(
+            if (baseline.memory) |memory| memory.final_graph_arena_bytes else null,
+            if (candidate.memory) |memory| memory.final_graph_arena_bytes else null,
+        ),
+        .peak_scratch_bytes = try compareU64Metric(
+            if (baseline.memory) |memory| memory.peak_scratch_bytes else null,
+            if (candidate.memory) |memory| memory.peak_scratch_bytes else null,
+        ),
     };
 
     if (!std.mem.eql(u8, baseline.suite, candidate.suite) or
@@ -435,12 +481,24 @@ fn comparePair(
             }
         }
 
-        const latency_delta = comparison.latency_delta_ratio orelse 0.0;
-        comparison.classification = if (latency_delta > thresholds.fail_ratio)
+        var saw_improvement = false;
+        var saw_warn = false;
+        var saw_fail = false;
+
+        inline for (.{ comparison.latency_delta_ratio, comparison.peak_live_bytes.delta_ratio, comparison.final_live_bytes.delta_ratio, comparison.peak_graph_arena_bytes.delta_ratio, comparison.final_graph_arena_bytes.delta_ratio, comparison.peak_scratch_bytes.delta_ratio }) |metric_delta| {
+            switch (classifyMetricDelta(metric_delta, thresholds)) {
+                .improved => saw_improvement = true,
+                .warn => saw_warn = true,
+                .fail => saw_fail = true,
+                .pass => {},
+            }
+        }
+
+        comparison.classification = if (saw_fail)
             .fail
-        else if (latency_delta > thresholds.warn_ratio)
+        else if (saw_warn)
             .warn
-        else if (latency_delta < 0.0)
+        else if (saw_improvement)
             .improved
         else
             .pass;
@@ -539,9 +597,35 @@ fn optionalStringsEqual(lhs: ?[]const u8, rhs: ?[]const u8) bool {
     return std.mem.eql(u8, lhs.?, rhs.?);
 }
 
+fn compareU64Metric(baseline: ?u64, candidate: ?u64) !MetricComparison {
+    var metric = MetricComparison{
+        .baseline = baseline,
+        .candidate = candidate,
+    };
+
+    if (baseline) |baseline_value| {
+        if (candidate) |candidate_value| {
+            metric.delta_ratio = try percentageDeltaU64(baseline_value, candidate_value);
+        }
+    }
+
+    return metric;
+}
+
 fn percentageDelta(baseline: f64, candidate: f64) !f64 {
     if (baseline <= 0.0) return error.InvalidBaselineMetric;
     return (candidate - baseline) / baseline;
+}
+
+fn percentageDeltaU64(baseline: u64, candidate: u64) !f64 {
+    if (baseline == 0) {
+        return if (candidate == 0) 0.0 else std.math.inf(f64);
+    }
+
+    return percentageDelta(
+        @as(f64, @floatFromInt(baseline)),
+        @as(f64, @floatFromInt(candidate)),
+    );
 }
 
 fn runnerMatches(record_entry: result.Record, runner_filter: ?[]const u8) bool {
@@ -567,6 +651,13 @@ fn statusLabel(status: ?result.Status) []const u8 {
     return if (status) |value| @tagName(value) else "missing";
 }
 
+const MetricTrend = enum {
+    improved,
+    pass,
+    warn,
+    fail,
+};
+
 fn signPrefix(value: f64) []const u8 {
     return if (value >= 0.0) "+" else "-";
 }
@@ -577,6 +668,35 @@ fn writeOptionalFloat(writer: anytype, value: ?f64) !void {
     } else {
         try writer.writeAll("n/a");
     }
+}
+
+fn writeOptionalU64(writer: anytype, value: ?u64) !void {
+    if (value) |number| {
+        try writer.print("{d}", .{number});
+    } else {
+        try writer.writeAll("n/a");
+    }
+}
+
+fn writeMetricLine(writer: anytype, label: []const u8, metric: MetricComparison) !void {
+    if (!metric.hasValues()) return;
+
+    try writer.print("  {s}: ", .{label});
+    try writeOptionalU64(writer, metric.baseline);
+    try writer.writeAll(" -> ");
+    try writeOptionalU64(writer, metric.candidate);
+    if (metric.delta_ratio) |delta| {
+        try writer.print(" ({s}{d:.2}%)", .{ signPrefix(delta), @abs(delta) * 100.0 });
+    }
+    try writer.writeByte('\n');
+}
+
+fn classifyMetricDelta(delta_ratio: ?f64, thresholds: Thresholds) MetricTrend {
+    const delta = delta_ratio orelse return .pass;
+    if (delta > thresholds.fail_ratio) return .fail;
+    if (delta > thresholds.warn_ratio) return .warn;
+    if (delta < 0.0) return .improved;
+    return .pass;
 }
 
 fn appendTestRecord(
@@ -601,13 +721,33 @@ fn appendTestRecord(
     else
         "null";
 
+    const memory_json = if (spec.peak_live_bytes != null or
+        spec.final_live_bytes != null or
+        spec.peak_graph_arena_bytes != null or
+        spec.final_graph_arena_bytes != null or
+        spec.peak_scratch_bytes != null)
+        try std.fmt.allocPrint(
+            allocator,
+            "{{\"peak_live_bytes\":{s},\"final_live_bytes\":{s},\"peak_graph_arena_bytes\":{s},\"final_graph_arena_bytes\":{s},\"peak_scratch_bytes\":{s}}}",
+            .{
+                if (spec.peak_live_bytes) |value| try std.fmt.allocPrint(allocator, "{d}", .{value}) else "null",
+                if (spec.final_live_bytes) |value| try std.fmt.allocPrint(allocator, "{d}", .{value}) else "null",
+                if (spec.peak_graph_arena_bytes) |value| try std.fmt.allocPrint(allocator, "{d}", .{value}) else "null",
+                if (spec.final_graph_arena_bytes) |value| try std.fmt.allocPrint(allocator, "{d}", .{value}) else "null",
+                if (spec.peak_scratch_bytes) |value| try std.fmt.allocPrint(allocator, "{d}", .{value}) else "null",
+            },
+        )
+    else
+        "null";
+
     try builder.writer(allocator).print(
-        "{{\"benchmark_id\":\"{s}\",\"suite\":\"primitive\",\"kind\":\"primitive_add\",\"runner\":\"{s}\",\"status\":\"{s}\",\"dtype\":\"f32\",\"warmup_iterations\":1,\"measured_iterations\":2,\"batch_size\":null,\"seed\":1,\"shapes\":[{{\"name\":\"lhs\",\"dims\":[1]}}],\"runtime\":{{\"timestamp_unix_ms\":0,\"git_commit\":\"deadbeef\",\"git_dirty\":false,\"zig_version\":\"0.15.2\",\"harness_version\":\"0.1.0\"}},\"system\":{{\"os\":\"linux\",\"kernel\":\"test\",\"arch\":\"x86_64\",\"cpu_model\":\"cpu\",\"cpu_logical_cores\":1,\"total_memory_bytes\":null}},\"backend\":{{\"device\":\"host\",\"host_provider\":\"blas\",\"thread_count\":1,\"accelerator\":null}},\"setup_latency_ns\":10,\"stats\":{s},\"notes\":null}}\n",
+        "{{\"benchmark_id\":\"{s}\",\"suite\":\"primitive\",\"kind\":\"primitive_add\",\"runner\":\"{s}\",\"status\":\"{s}\",\"dtype\":\"f32\",\"warmup_iterations\":1,\"measured_iterations\":2,\"batch_size\":null,\"seed\":1,\"shapes\":[{{\"name\":\"lhs\",\"dims\":[1]}}],\"runtime\":{{\"timestamp_unix_ms\":0,\"git_commit\":\"deadbeef\",\"git_dirty\":false,\"zig_version\":\"0.15.2\",\"harness_version\":\"0.1.0\"}},\"system\":{{\"os\":\"linux\",\"kernel\":\"test\",\"arch\":\"x86_64\",\"cpu_model\":\"cpu\",\"cpu_logical_cores\":1,\"total_memory_bytes\":null}},\"backend\":{{\"device\":\"host\",\"host_provider\":\"blas\",\"thread_count\":1,\"accelerator\":null}},\"setup_latency_ns\":10,\"stats\":{s},\"memory\":{s},\"notes\":null}}\n",
         .{
             spec.benchmark_id,
             spec.runner,
             @tagName(spec.status),
             stats_json,
+            memory_json,
         },
     );
 }
@@ -666,6 +806,51 @@ test "comparison thresholds classify improvements warnings and failures" {
     try std.testing.expectEqual(@as(usize, 1), report.summary.warned);
     try std.testing.expectEqual(@as(usize, 1), report.summary.failed);
     try std.testing.expectEqual(@as(usize, 1), report.summary.improved);
+}
+
+test "comparison flags memory regressions" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var baseline = try loadTestRecords(allocator, &.{
+        .{
+            .benchmark_id = "bench.memory",
+            .mean_ns = 100.0,
+            .throughput_per_second = 20.0,
+            .peak_live_bytes = 1024,
+            .final_live_bytes = 256,
+            .peak_graph_arena_bytes = 512,
+        },
+    });
+    defer baseline.deinit();
+
+    var candidate = try loadTestRecords(allocator, &.{
+        .{
+            .benchmark_id = "bench.memory",
+            .mean_ns = 101.0,
+            .throughput_per_second = 19.5,
+            .peak_live_bytes = 1280,
+            .final_live_bytes = 320,
+            .peak_graph_arena_bytes = 768,
+        },
+    });
+    defer candidate.deinit();
+
+    const report = try buildReport(
+        allocator,
+        "baseline.jsonl",
+        "candidate.jsonl",
+        baseline.records,
+        candidate.records,
+        null,
+        .{},
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), report.comparisons.len);
+    try std.testing.expectEqual(Classification.fail, report.comparisons[0].classification);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25), report.comparisons[0].peak_live_bytes.delta_ratio.?, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.5), report.comparisons[0].peak_graph_arena_bytes.delta_ratio.?, 1e-9);
 }
 
 test "comparison handles missing new and non-ok records" {

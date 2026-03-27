@@ -23,6 +23,7 @@ const Error = @import("../allocators.zig").Error;
 const BoundedArray = @import("../utils/bounded_array.zig").BoundedArray;
 const opspec = @import("opspec.zig");
 pub const Options = CachingAllocator.Options;
+pub const CacheMemoryTelemetry = CachingAllocator.MemoryTelemetry;
 const zg = @import("../zigrad.zig");
 
 pub const using_mkl_blas: bool = blk: {
@@ -194,6 +195,14 @@ pub fn init_advanced(opts: CachingAllocator.Options) Self {
 pub fn deinit(self: *Self) void {
     self.cache.deinit();
     self.* = undefined;
+}
+
+pub fn cacheTelemetry(self: *const Self) CacheMemoryTelemetry {
+    return self.cache.memoryTelemetry();
+}
+
+pub fn resetCacheTelemetry(self: *Self) void {
+    self.cache.resetTelemetry();
 }
 
 // callback to replace host reference to union

@@ -169,6 +169,14 @@ pub fn build(b: *Build) !void {
     const benchmark_autograd_step = b.step("benchmark-autograd", "Run autograd benchmark specs");
     benchmark_autograd_step.dependOn(&run_benchmark_autograd.step);
 
+    const run_benchmark_memory = b.addRunArtifact(benchmark_exe);
+    run_benchmark_memory.addArgs(&.{ "--group", "memory", "--output", "benchmarks/results/memory.jsonl" });
+    if (b.args) |args| {
+        run_benchmark_memory.addArgs(args);
+    }
+    const benchmark_memory_step = b.step("benchmark-memory", "Run memory benchmark specs");
+    benchmark_memory_step.dependOn(&run_benchmark_memory.step);
+
     const run_benchmark_models = b.addRunArtifact(benchmark_exe);
     run_benchmark_models.addArgs(&.{ "--group", "models", "--output", "benchmarks/results/models.jsonl" });
     if (b.args) |args| {

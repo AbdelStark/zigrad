@@ -65,6 +65,7 @@ For smoke-scope changes, rerun the standard entrypoints:
 zig build benchmark-primitive
 zig build benchmark-blas
 zig build benchmark-autograd
+zig build benchmark-memory
 zig build benchmark-models
 zig build benchmark
 ```
