@@ -109,9 +109,66 @@ pub const Record = struct {
     notes: ?[]const u8 = null,
 };
 
+pub const LoadedFile = struct {
+    arena: std.heap.ArenaAllocator,
+    records: []const Record,
+
+    pub fn loadFromFile(parent_allocator: std.mem.Allocator, path: []const u8) !LoadedFile {
+        var arena = std.heap.ArenaAllocator.init(parent_allocator);
+        errdefer arena.deinit();
+        const allocator = arena.allocator();
+
+        const file = try std.fs.cwd().openFile(path, .{});
+        defer file.close();
+
+        const bytes = try file.readToEndAlloc(allocator, 64 * 1024 * 1024);
+        return .{
+            .arena = arena,
+            .records = try parseJsonLines(allocator, bytes),
+        };
+    }
+
+    pub fn loadFromSlice(parent_allocator: std.mem.Allocator, bytes: []const u8) !LoadedFile {
+        var arena = std.heap.ArenaAllocator.init(parent_allocator);
+        errdefer arena.deinit();
+        const allocator = arena.allocator();
+        const owned_bytes = try allocator.dupe(u8, bytes);
+
+        return .{
+            .arena = arena,
+            .records = try parseJsonLines(allocator, owned_bytes),
+        };
+    }
+
+    pub fn deinit(self: *LoadedFile) void {
+        self.arena.deinit();
+        self.* = undefined;
+    }
+};
+
 pub fn writeJsonLine(writer: anytype, record: Record) !void {
     try std.json.Stringify.value(record, .{}, writer);
     try writer.writeByte('\n');
+}
+
+fn parseJsonLines(allocator: std.mem.Allocator, bytes: []const u8) ![]const Record {
+    var records = std.ArrayList(Record){};
+    errdefer records.deinit(allocator);
+
+    var lines = std.mem.splitScalar(u8, bytes, '\n');
+    while (lines.next()) |raw_line| {
+        const line = std.mem.trim(u8, raw_line, " \t\r");
+        if (line.len == 0) continue;
+
+        try records.append(
+            allocator,
+            try std.json.parseFromSliceLeaky(Record, allocator, line, .{
+                .ignore_unknown_fields = true,
+            }),
+        );
+    }
+
+    return records.toOwnedSlice(allocator);
 }
 
 fn insertionSort(values: []u64) void {
@@ -136,4 +193,17 @@ test "summary stats compute deterministic aggregates" {
     try std.testing.expectEqual(@as(u64, 5), stats.max_ns);
     try std.testing.expectApproxEqAbs(@as(f64, 3), stats.mean_ns, 1e-9);
     try std.testing.expect(stats.throughput_per_second != null);
+}
+
+test "load jsonl records from slice" {
+    const allocator = std.testing.allocator;
+    var loaded = try LoadedFile.loadFromSlice(allocator,
+        \\{"benchmark_id":"primitive.add.f32.1x1","suite":"primitive","kind":"primitive_add","runner":"zig","status":"ok","dtype":"f32","warmup_iterations":1,"measured_iterations":2,"batch_size":null,"seed":1,"shapes":[{"name":"lhs","dims":[1]},{"name":"rhs","dims":[1]}],"runtime":{"timestamp_unix_ms":0,"git_commit":"deadbeef","git_dirty":false,"zig_version":"0.15.2","harness_version":"0.1.0"},"system":{"os":"linux","kernel":"test","arch":"x86_64","cpu_model":"cpu","cpu_logical_cores":1,"total_memory_bytes":null},"backend":{"device":"host","host_provider":"blas","thread_count":1,"accelerator":null},"setup_latency_ns":10,"stats":{"min_ns":10,"median_ns":10,"mean_ns":10.0,"p95_ns":10,"max_ns":10,"throughput_per_second":100.0,"throughput_unit":"elements"},"notes":null}
+    );
+    defer loaded.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), loaded.records.len);
+    try std.testing.expectEqualStrings("primitive.add.f32.1x1", loaded.records[0].benchmark_id);
+    try std.testing.expectEqual(Status.ok, loaded.records[0].status);
+    try std.testing.expectApproxEqAbs(@as(f64, 10.0), loaded.records[0].stats.?.mean_ns, 1e-9);
 }

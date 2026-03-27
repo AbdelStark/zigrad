@@ -15,6 +15,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install OpenBLAS
         run: |
@@ -29,11 +31,67 @@ jobs:
           cache-key: zig-benchmark-smoke-${{ runner.os }}-0.15.2
           cache-size-limit: 2048
 
-      - name: Run benchmark smoke suite
+      - name: Resolve baseline revision
+        id: baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            baseline_sha="${{ github.event.pull_request.base.sha }}"
+          elif [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            baseline_sha="${{ github.event.before }}"
+          else
+            baseline_sha=""
+          fi
+          echo "sha=$baseline_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Run candidate benchmark smoke suite
         run: zig build benchmark
+
+      - name: Prepare baseline worktree
+        if: steps.baseline.outputs.sha != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add ../zigrad-baseline "${{ steps.baseline.outputs.sha }}"
+
+      - name: Run baseline benchmark smoke suite
+        if: steps.baseline.outputs.sha != ''
+        working-directory: ../zigrad-baseline
+        run: zig build benchmark
+
+      - name: Copy baseline benchmark results
+        if: steps.baseline.outputs.sha != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp ../zigrad-baseline/benchmarks/results/latest.jsonl benchmarks/results/baseline.jsonl
+
+      - name: Compare benchmark smoke results
+        if: steps.baseline.outputs.sha != ''
+        run: |
+          zig build benchmark-compare -- \
+            --baseline benchmarks/results/baseline.jsonl \
+            --candidate benchmarks/results/latest.jsonl \
+            --runner zig \
+            --json-output benchmarks/results/comparison.json \
+            --report-output benchmarks/results/comparison.txt
+
+      - name: Baseline unavailable
+        if: steps.baseline.outputs.sha == ''
+        run: echo "No baseline revision available; skipping benchmark comparison."
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results
-          path: benchmarks/results/latest.jsonl
+          path: |
+            benchmarks/results/latest.jsonl
+            benchmarks/results/baseline.jsonl
+            benchmarks/results/comparison.json
+            benchmarks/results/comparison.txt
+
+      - name: Remove baseline worktree
+        if: always() && steps.baseline.outputs.sha != ''
+        shell: bash
+        run: git worktree remove --force ../zigrad-baseline

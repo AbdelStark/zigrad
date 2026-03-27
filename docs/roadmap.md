@@ -68,7 +68,7 @@ documents we will implement against.
 
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, initial primitive/MNIST specs, and smoke CI are landed; comparison/regression policy remains. |
+| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, and smoke CI are landed; DQN/GCN coverage remains. |
 | RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Expands host performance beyond the current baseline. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Turns experimental CUDA into a supported execution backend. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
@@ -135,8 +135,14 @@ Every RFC in this folder set must maintain:
     `torch` is unavailable.
   - Added benchmark smoke CI in
     [`.github/workflows/benchmark-smoke.yml`](../.github/workflows/benchmark-smoke.yml).
+  - Added benchmark result comparison tooling with threshold-based regression
+    classification, `zig build benchmark-compare`, and JSON/text comparison
+    outputs for local runs and CI.
+  - Added the benchmark authoring guide in
+    [`benchmarks/AUTHORING.md`](../benchmarks/AUTHORING.md).
+  - Updated smoke CI to benchmark the base revision and current checkout on the
+    same runner, compare results, and upload comparison artifacts.
 - Remains:
-  - Result-to-result comparison tooling and regression thresholds.
   - Broader model coverage including DQN/GCN and cross-platform baseline data.
   - Published benchmark reporting pages or artifacts beyond uploaded CI JSONL.
 - Blockers:
@@ -144,6 +150,10 @@ Every RFC in this folder set must maintain:
     validated only the explicit `skipped` path.
 - Validation:
   - `zig build test`
+  - `zig build benchmark-compare -- --help`
+  - `zig build benchmark`
+  - `zig build benchmark-compare -- --baseline benchmarks/results/latest.jsonl --candidate benchmarks/results/latest.jsonl --runner zig --json-output benchmarks/results/comparison.json --report-output benchmarks/results/comparison.txt`
   - `zig build benchmark-primitive`
   - `zig build benchmark-models`
-  - `zig build benchmark`
+  - `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/benchmark-smoke.yml"); puts "workflow ok"'`
+  - `python3 -c "import json, pathlib; print(pathlib.Path('benchmarks/results/comparison.json').exists())"`

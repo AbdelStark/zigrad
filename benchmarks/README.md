@@ -10,6 +10,7 @@ From the repository root:
 zig build benchmark
 zig build benchmark-primitive
 zig build benchmark-models
+zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl
 ```
 
 The default build steps write JSON-lines results into [`benchmarks/results/`](./results/).
@@ -19,6 +20,19 @@ You can also pass runtime arguments through the benchmark executable:
 ```sh
 zig build benchmark -- --baseline pytorch
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic.json
+```
+
+The comparison utility reads two JSONL files and classifies regressions using
+the RFC-0001 default policy of warning above 5 percent and failing above 10
+percent mean-latency regression:
+
+```sh
+zig build benchmark-compare -- \
+  --baseline benchmarks/results/baseline.jsonl \
+  --candidate benchmarks/results/latest.jsonl \
+  --runner zig \
+  --json-output benchmarks/results/comparison.json \
+  --report-output benchmarks/results/comparison.txt
 ```
 
 ## Current Coverage
@@ -97,3 +111,8 @@ The optional PyTorch runner lives under
 If `torch` is not installed, the runner emits a `skipped` record instead of
 failing the whole benchmark run. This keeps the default path dependency-light
 while still allowing direct framework comparisons on prepared machines.
+
+## Authoring
+
+Benchmark authoring rules and validation expectations live in
+[`benchmarks/AUTHORING.md`](./AUTHORING.md).

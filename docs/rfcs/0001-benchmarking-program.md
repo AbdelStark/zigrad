@@ -183,9 +183,9 @@ Regression gating should use broad thresholds first, for example:
 
 ### Milestone C: Regression Policy
 
-- [ ] JSON result comparison utility.
+- [x] JSON result comparison utility.
 - [x] CI smoke suite.
-- [ ] Published benchmark authoring guide.
+- [x] Published benchmark authoring guide.
 
 ## Acceptance Criteria
 
@@ -222,21 +222,37 @@ Regression gating should use broad thresholds first, for example:
     records when `torch` is unavailable.
   - Added CI smoke execution in
     [`.github/workflows/benchmark-smoke.yml`](../../.github/workflows/benchmark-smoke.yml).
+  - Added the benchmark comparison utility under
+    [`benchmarks/src/compare.zig`](../../benchmarks/src/compare.zig) with
+    threshold-based pass/warn/fail classification, JSON and text reports, and a
+    `zig build benchmark-compare` entrypoint.
+  - Added the benchmark authoring guide in
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md).
+  - Updated benchmark smoke CI to compare the current checkout against the base
+    revision on the same runner and upload comparison artifacts.
 - Remains:
-  - Implement result comparison utilities and threshold-based regression policy.
   - Expand benchmark coverage to DQN, GCN, and future CUDA/compiler/interop
     suites.
-  - Publish authoring guidance and reporting artifacts beyond raw JSONL.
+  - Add richer reporting and historical storage beyond per-run JSON/text
+    artifacts.
 - Blockers:
   - No local `torch` install was available during this run, so the PyTorch
     runner was only validated through its explicit skip path.
 - Validation performed:
   - `zig build test`
+  - `zig build benchmark-compare -- --help`
+  - `zig build benchmark`
+  - `zig build benchmark-compare -- --baseline benchmarks/results/latest.jsonl --candidate benchmarks/results/latest.jsonl --runner zig --json-output benchmarks/results/comparison.json --report-output benchmarks/results/comparison.txt`
   - `zig build benchmark-primitive`
   - `zig build benchmark-models`
-  - `zig build benchmark`
+  - `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/benchmark-smoke.yml"); puts "workflow ok"'`
+  - `python3 -c "import json, pathlib; print(pathlib.Path('benchmarks/results/comparison.json').exists())"`
 - Exact commands:
   - `zig build test`
+  - `zig build benchmark-compare -- --help`
+  - `zig build benchmark`
+  - `zig build benchmark-compare -- --baseline benchmarks/results/latest.jsonl --candidate benchmarks/results/latest.jsonl --runner zig --json-output benchmarks/results/comparison.json --report-output benchmarks/results/comparison.txt`
   - `zig build benchmark-primitive`
   - `zig build benchmark-models`
-  - `zig build benchmark`
+  - `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/benchmark-smoke.yml"); puts "workflow ok"'`
+  - `python3 -c "import json, pathlib; print(pathlib.Path('benchmarks/results/comparison.json').exists())"`

@@ -1,2 +1,4 @@
 *.jsonl
+comparison.json
+comparison.txt
 !.gitignore

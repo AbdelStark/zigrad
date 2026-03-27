@@ -54,12 +54,14 @@ https://github.com/user-attachments/assets/3842aa72-9b16-4c25-8789-eac7159e3768
 
 The benchmark harness now lives in
 [`benchmarks/`](./benchmarks/)
-and emits machine-readable JSONL results with hardware and backend metadata:
+and emits machine-readable JSONL results with hardware and backend metadata,
+plus a comparison tool for base-vs-candidate regression checks:
 
 ```shell
 zig build benchmark
 zig build benchmark-primitive
 zig build benchmark-models
+zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl
 ```
 
 Optional PyTorch baseline execution is available per spec:
@@ -67,6 +69,9 @@ Optional PyTorch baseline execution is available per spec:
 ```shell
 zig build benchmark -- --baseline pytorch
 ```
+
+Benchmark authoring and smoke-policy guidance live in
+[`benchmarks/AUTHORING.md`](./benchmarks/AUTHORING.md).
 
 **Flexible**
 Zigrad supports research workflows with high level abstractions for rapid prototyping, and integrations like Tensorboard and Mujoco. Zigrad supports the transition of research code to training infrastructure. 
