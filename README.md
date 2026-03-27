@@ -52,6 +52,22 @@ https://github.com/user-attachments/assets/3842aa72-9b16-4c25-8789-eac7159e3768
 
 <sub>*Tensorflow excluded for scaling purposes (too slow).</sub>
 
+The benchmark harness now lives in
+[`benchmarks/`](./benchmarks/)
+and emits machine-readable JSONL results with hardware and backend metadata:
+
+```shell
+zig build benchmark
+zig build benchmark-primitive
+zig build benchmark-models
+```
+
+Optional PyTorch baseline execution is available per spec:
+
+```shell
+zig build benchmark -- --baseline pytorch
+```
+
 **Flexible**
 Zigrad supports research workflows with high level abstractions for rapid prototyping, and integrations like Tensorboard and Mujoco. Zigrad supports the transition of research code to training infrastructure. 
 

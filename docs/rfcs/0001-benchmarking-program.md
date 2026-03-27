@@ -170,21 +170,22 @@ Regression gating should use broad thresholds first, for example:
 
 ### Milestone A: Harness
 
-- Create benchmark directory structure.
-- Define benchmark manifest schema.
-- Add local CLI/build entrypoints.
+- [x] Create benchmark directory structure.
+- [x] Define benchmark manifest schema.
+- [x] Add local CLI/build entrypoints.
 
 ### Milestone B: Initial Coverage
 
-- Primitive suite for representative tensor ops.
-- MNIST train and inference benchmarks.
-- DQN benchmark skeleton.
+- [x] Primitive suite for representative tensor ops.
+- [x] MNIST train and inference benchmarks using deterministic synthetic data.
+- [ ] DQN benchmark skeleton.
+- [x] Optional PyTorch baseline runner hook for model benchmarks.
 
 ### Milestone C: Regression Policy
 
-- JSON result comparison utility.
-- CI smoke suite.
-- Published benchmark authoring guide.
+- [ ] JSON result comparison utility.
+- [x] CI smoke suite.
+- [ ] Published benchmark authoring guide.
 
 ## Acceptance Criteria
 
@@ -207,3 +208,35 @@ Regression gating should use broad thresholds first, for example:
 - Do we want per-operator flop accounting in the initial version?
 - Should result archives live in the main repo or an external artifact store?
 
+## Agentic Context
+
+### 2026-03-27
+
+- Completed:
+  - Added the benchmark harness under [`benchmarks/`](../benchmarks/) with
+    manifest parsing, deterministic workload execution, JSON-lines result
+    emission, metadata capture, and `zig build benchmark*` entrypoints.
+  - Added initial benchmark specs for primitive add/matmul and synthetic
+    MNIST-style MLP train/infer workloads.
+  - Added an optional PyTorch baseline runner that emits compatible `skipped`
+    records when `torch` is unavailable.
+  - Added CI smoke execution in
+    [`.github/workflows/benchmark-smoke.yml`](../../.github/workflows/benchmark-smoke.yml).
+- Remains:
+  - Implement result comparison utilities and threshold-based regression policy.
+  - Expand benchmark coverage to DQN, GCN, and future CUDA/compiler/interop
+    suites.
+  - Publish authoring guidance and reporting artifacts beyond raw JSONL.
+- Blockers:
+  - No local `torch` install was available during this run, so the PyTorch
+    runner was only validated through its explicit skip path.
+- Validation performed:
+  - `zig build test`
+  - `zig build benchmark-primitive`
+  - `zig build benchmark-models`
+  - `zig build benchmark`
+- Exact commands:
+  - `zig build test`
+  - `zig build benchmark-primitive`
+  - `zig build benchmark-models`
+  - `zig build benchmark`

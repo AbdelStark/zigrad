@@ -68,7 +68,7 @@ documents we will implement against.
 
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Required for proving every later performance claim. |
+| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, initial primitive/MNIST specs, and smoke CI are landed; comparison/regression policy remains. |
 | RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Expands host performance beyond the current baseline. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Turns experimental CUDA into a supported execution backend. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
@@ -119,3 +119,31 @@ Every RFC in this folder set must maintain:
 - measurable acceptance criteria,
 - test and benchmark requirements,
 - a section describing what will not be done in the RFC.
+
+## Agentic Context
+
+### RFC-0001 Snapshot
+
+- Completed:
+  - Added the benchmark harness under [`benchmarks/`](../benchmarks/) with JSON
+    spec loading, JSON-lines result emission, runtime/system/backend metadata
+    capture, and build entrypoints.
+  - Landed initial `primitive`, `model-train`, and `model-infer` specs covering
+    deterministic add, deterministic matmul, synthetic MNIST-style MLP train,
+    and synthetic MNIST-style MLP infer.
+  - Added an optional PyTorch baseline runner that emits `skipped` records when
+    `torch` is unavailable.
+  - Added benchmark smoke CI in
+    [`.github/workflows/benchmark-smoke.yml`](../.github/workflows/benchmark-smoke.yml).
+- Remains:
+  - Result-to-result comparison tooling and regression thresholds.
+  - Broader model coverage including DQN/GCN and cross-platform baseline data.
+  - Published benchmark reporting pages or artifacts beyond uploaded CI JSONL.
+- Blockers:
+  - No local PyTorch installation was present in this run, so baseline execution
+    validated only the explicit `skipped` path.
+- Validation:
+  - `zig build test`
+  - `zig build benchmark-primitive`
+  - `zig build benchmark-models`
+  - `zig build benchmark`

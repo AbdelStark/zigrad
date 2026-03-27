@@ -1,0 +1,39 @@
+name: Benchmark Smoke
+
+on:
+  pull_request:
+  push:
+    branches: [ "main" ]
+
+concurrency:
+  group: benchmark-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OpenBLAS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopenblas-dev
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+          use-cache: true
+          cache-key: zig-benchmark-smoke-${{ runner.os }}-0.15.2
+          cache-size-limit: 2048
+
+      - name: Run benchmark smoke suite
+        run: zig build benchmark
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmarks/results/latest.jsonl

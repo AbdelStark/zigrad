@@ -95,6 +95,56 @@ pub fn build(b: *Build) !void {
     link(target, exe, enable_mkl);
     b.installArtifact(exe);
 
+    const benchmark_module = b.addModule("benchmarking", .{
+        .root_source_file = b.path("benchmarks/src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zigrad", .module = zigrad },
+            .{ .name = "build_options", .module = build_options_module },
+        },
+    });
+
+    const benchmark_exe = b.addExecutable(.{
+        .name = "benchmark",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("benchmarks/src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .imports = &.{
+                .{ .name = "benchmarking", .module = benchmark_module },
+            },
+        }),
+    });
+
+    link(target, benchmark_exe, enable_mkl);
+    b.installArtifact(benchmark_exe);
+
+    const run_benchmark = b.addRunArtifact(benchmark_exe);
+    run_benchmark.addArgs(&.{ "--output", "benchmarks/results/latest.jsonl" });
+    if (b.args) |args| {
+        run_benchmark.addArgs(args);
+    }
+    const benchmark_step = b.step("benchmark", "Run the benchmark harness");
+    benchmark_step.dependOn(&run_benchmark.step);
+
+    const run_benchmark_primitive = b.addRunArtifact(benchmark_exe);
+    run_benchmark_primitive.addArgs(&.{ "--group", "primitive", "--output", "benchmarks/results/primitive.jsonl" });
+    if (b.args) |args| {
+        run_benchmark_primitive.addArgs(args);
+    }
+    const benchmark_primitive_step = b.step("benchmark-primitive", "Run primitive benchmark specs");
+    benchmark_primitive_step.dependOn(&run_benchmark_primitive.step);
+
+    const run_benchmark_models = b.addRunArtifact(benchmark_exe);
+    run_benchmark_models.addArgs(&.{ "--group", "models", "--output", "benchmarks/results/models.jsonl" });
+    if (b.args) |args| {
+        run_benchmark_models.addArgs(args);
+    }
+    const benchmark_models_step = b.step("benchmark-models", "Run model benchmark specs");
+    benchmark_models_step.dependOn(&run_benchmark_models.step);
+
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
 
@@ -113,6 +163,13 @@ pub fn build(b: *Build) !void {
     const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_unit_tests.step);
+
+    const benchmark_tests = b.addTest(.{
+        .name = "benchmarks",
+        .root_module = benchmark_module,
+    });
+    const run_benchmark_tests = b.addRunArtifact(benchmark_tests);
+    test_step.dependOn(&run_benchmark_tests.step);
 
     const safetensors_unit_tests = b.addTest(.{
         .name = "safetensors_zg",

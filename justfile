@@ -51,7 +51,13 @@ mnist args="":
 dqn +args="":
   cd examples/dqn && make {{args}}
 
-benchmark +verbose="":
+benchmark +args="":
+  zig build benchmark -- {{args}}
+
+benchmark-models +args="":
+  zig build benchmark-models -- {{args}}
+
+benchmark-legacy +verbose="":
   @uv run examples/mnist/mnist_data.py
   @echo "Running pytorch mnist"
   uv run src/nn/tests/test_mnist.py -t --batch_size=64 --num_epochs=3 --model_variant=simple \
