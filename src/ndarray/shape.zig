@@ -383,13 +383,13 @@ pub fn strides(self: Shape) Strides {
     };
 }
 
-pub fn format(
-    shape: Shape,
-    comptime _: []const u8,
-    _: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    try writer.print("{d}", .{shape.slice()});
+pub fn format(shape: Shape, writer: *std.io.Writer) std.io.Writer.Error!void {
+    try writer.writeByte('[');
+    for (shape.slice(), 0..) |dim, i| {
+        if (i != 0) try writer.writeAll(", ");
+        try writer.print("{}", .{dim});
+    }
+    try writer.writeByte(']');
 }
 
 pub fn MatchedSlice(T: type) type {

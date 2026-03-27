@@ -11,6 +11,15 @@ pub fn build(b: *Build) !void {
     build_options.step.name = "Zigrad build options";
     const build_options_module = build_options.createModule();
 
+    const safetensors_build_options = b.addOptions();
+    safetensors_build_options.step.name = "Vendored safetensors-zg build options";
+    safetensors_build_options.addOption(
+        bool,
+        "enable_sort",
+        b.option(bool, "safetensors_enable_sort", "Sort tensors before safetensors serialization.") orelse true,
+    );
+    const safetensors_build_options_module = safetensors_build_options.createModule();
+
     build_options.addOption(
         std.log.Level,
         "log_level",
@@ -35,8 +44,15 @@ pub fn build(b: *Build) !void {
             .{ .name = "build_options", .module = build_options_module },
         },
     });
-    const safetensors_zg_dep = b.dependency("safetensors_zg", .{});
-    zigrad.addImport("safetensors_zg", safetensors_zg_dep.module("safetensors_zg"));
+    const safetensors_module = b.addModule("safetensors_zg", .{
+        .root_source_file = b.path("src/third_party/safetensors_zg/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "build_options", .module = safetensors_build_options_module },
+        },
+    });
+    zigrad.addImport("safetensors_zg", safetensors_module);
 
     switch (target.result.os.tag) {
         .linux => {
@@ -97,6 +113,29 @@ pub fn build(b: *Build) !void {
     const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_unit_tests.step);
+
+    const safetensors_unit_tests = b.addTest(.{
+        .name = "safetensors_zg",
+        .root_module = safetensors_module,
+    });
+    const run_safetensors_unit_tests = b.addRunArtifact(safetensors_unit_tests);
+    test_step.dependOn(&run_safetensors_unit_tests.step);
+
+    const safetensors_benchmark = b.addExecutable(.{
+        .name = "safetensors_benchmark",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/third_party/safetensors_zg/benchmark.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .imports = &.{
+                .{ .name = "build_options", .module = safetensors_build_options_module },
+            },
+        }),
+    });
+    const run_safetensors_benchmark = b.addRunArtifact(safetensors_benchmark);
+    const safetensors_benchmark_step = b.step("safetensors-benchmark", "Run the vendored safetensors benchmark");
+    safetensors_benchmark_step.dependOn(&run_safetensors_benchmark.step);
 
     // doc gen
     const docs_step = b.addInstallDirectory(.{

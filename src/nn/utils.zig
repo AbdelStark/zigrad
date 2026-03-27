@@ -166,7 +166,7 @@ pub fn render_d2(
     allocator: std.mem.Allocator,
     output_file: []const u8,
 ) !void {
-    var d2_code = std.ArrayList(u8).init(allocator);
+    var d2_code = std.array_list.Managed(u8).init(allocator);
     defer d2_code.deinit();
 
     var label_gen = LabelGenerator.init(allocator);

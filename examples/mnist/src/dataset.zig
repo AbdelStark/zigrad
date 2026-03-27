@@ -16,8 +16,8 @@ pub fn MnistDataset(comptime T: type) type {
             const file_contents = try file.readToEndAlloc(allocator, file_size);
             defer allocator.free(file_contents);
 
-            var images = std.ArrayList(*zg.NDTensor(T)).init(allocator);
-            var labels = std.ArrayList(*zg.NDTensor(T)).init(allocator);
+            var images = std.array_list.Managed(*zg.NDTensor(T)).init(allocator);
+            var labels = std.array_list.Managed(*zg.NDTensor(T)).init(allocator);
 
             var lines = std.mem.splitScalar(u8, file_contents, '\n');
             var batch_images = try allocator.alloc(T, batch_size * 784);

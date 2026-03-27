@@ -9,7 +9,7 @@ pub const enable_callstack = enable and build_options.tracy_callstack_enable;
 pub const callstack_depth = if (enable_callstack and build_options.tracy_callstack_depth > 0) build_options.tracy_callstack_depth else 10;
 
 pub fn main() !void {
-    const stdout_file = std.io.getStdOut().writer();
+    const stdout_file = std.fs.File.stdout().deprecatedWriter();
     var i: usize = 5;
     while (i > 0) : (i -= 1) {
         try stdout_file.print("Starting in {d} secs", .{i});

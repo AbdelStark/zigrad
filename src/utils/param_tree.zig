@@ -147,12 +147,12 @@ pub fn ParamTree(comptime T: type) type {
                 @compileError("Visitor must have a 'visit' method with signature: visit(self, path: []const u8, tensor: *T) !void");
             }
 
-            var path_parts = std.ArrayList([]const u8).init(self.allocator);
+            var path_parts = std.array_list.Managed([]const u8).init(self.allocator);
             defer path_parts.deinit();
             try self.for_each_recursive(&path_parts, visitor);
         }
 
-        fn for_each_recursive(self: *Self, path_parts: *std.ArrayList([]const u8), callback_obj: anytype) !void {
+        fn for_each_recursive(self: *Self, path_parts: *std.array_list.Managed([]const u8), callback_obj: anytype) !void {
             switch (self.data) {
                 .subtree => |*subtrees| {
                     var iter = subtrees.iterator();
@@ -224,14 +224,14 @@ pub fn ParamTree(comptime T: type) type {
 
         /// Serialize the parameter tree to safetensors format
         pub fn serialize(self: *Self, allocator: std.mem.Allocator) ![]u8 {
-            var tensor_list = std.ArrayList(stz.Tensor).init(allocator);
+            var tensor_list = std.array_list.Managed(stz.Tensor).init(allocator);
             defer tensor_list.deinit();
             defer for (tensor_list.items) |tensor| {
                 allocator.free(tensor.name);
             };
 
             const TensorCollector = struct {
-                tensor_list: *std.ArrayList(stz.Tensor),
+                tensor_list: *std.array_list.Managed(stz.Tensor),
                 allocator: std.mem.Allocator,
 
                 pub fn visit(_self: *@This(), path: []const u8, tensor: *T) !void {

@@ -63,15 +63,12 @@ pub fn default_callback(
 ) void {
     const level_txt = comptime message_level.asText();
     const prefix2 = "(" ++ @tagName(scope) ++ "): ";
-    const stderr = std.io.getStdErr().writer();
-    var bw = std.io.bufferedWriter(stderr);
-    const writer = bw.writer();
+    const stderr = std.fs.File.stderr().deprecatedWriter();
 
     std.debug.lockStdErr();
     defer std.debug.unlockStdErr();
     nosuspend {
-        writer.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
-        bw.flush() catch return;
+        stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
     }
 }
 

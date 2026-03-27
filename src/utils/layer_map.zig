@@ -19,6 +19,7 @@ const rtti = @import("../utils/rtti.zig");
 const ClosurePointer = rtti.ClosurePointer;
 const TypeID = rtti.TypeID;
 const ArenaUnmanaged = @import("../allocators.zig").ArenaUnmanaged;
+const BoundedArray = @import("../utils/bounded_array.zig").BoundedArray;
 const TensorOpts = @import("../zigrad.zig").TensorOpts;
 
 const Self = @This();
@@ -231,7 +232,7 @@ pub fn print_tree(self: *Self) void {
     const keys = sorted_keys;
     const prefix: [128]u8 = @splat(' ');
 
-    var stack: std.BoundedArray(usize, 64) = .{};
+    var stack: BoundedArray(usize, 64) = .{};
     var key_idx: usize = 0;
     var key_pos: usize = 0;
 
@@ -280,7 +281,7 @@ pub fn print_tree(self: *Self) void {
     }
 }
 
-const PathBuffer = std.BoundedArray(u8, 1024);
+const PathBuffer = BoundedArray(u8, 1024);
 const PopulateError = error{BadPathKey};
 
 /// Populates an existing struct with entries from the map.
@@ -395,7 +396,7 @@ pub fn serialize(
     var collector = TensorCollector{
         .tensor_list = try std.ArrayList(stz.Tensor).initCapacity(self.allocator, self.map.count()),
     };
-    defer collector.tensor_list.deinit();
+    defer collector.tensor_list.deinit(self.allocator);
 
     self.for_each(&collector);
 
@@ -620,5 +621,5 @@ test {
     };
     //// TODO: proper error handling for extract(). try passing a bad prefix (e.g., "") to see what I mean.
     const la = try lmap.extract(LayerA, "layer_a", .{});
-    std.debug.print("Extracted struct: {}\n", .{la});
+    std.debug.print("Extracted struct: {any}\n", .{la});
 }

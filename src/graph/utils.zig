@@ -1,9 +1,10 @@
 const std = @import("std");
 const zg = @import("../zigrad.zig");
+const BoundedArray = @import("../utils/bounded_array.zig").BoundedArray;
 const DeviceReference = zg.DeviceReference;
 
 const LABEL_SIZE: usize = zg.settings.label_capacity;
-pub const Label = std.BoundedArray(u8, LABEL_SIZE);
+pub const Label = BoundedArray(u8, LABEL_SIZE);
 
 pub fn as_label(slice: ?[]const u8) Label {
     const l = slice orelse return .{};

@@ -94,7 +94,7 @@ pub fn NDArray(comptime T: type) type {
         }
 
         pub fn log_shape(self: Self, comptime msg: ?[]const u8) void {
-            log.debug("{s} shape: {d}", .{ if (msg) |n| n else "", self.shape.slice() });
+            log.debug("{s} shape: {any}", .{ if (msg) |n| n else "", self.shape.slice() });
         }
 
         pub fn reshape(self: *const Self, new_shape: []const usize) Shape {
@@ -112,7 +112,7 @@ pub fn NDArray(comptime T: type) type {
         }
 
         pub fn print(self: Self, device: DeviceReference) void {
-            self.print_to_writer(std.io.getStdErr().writer(), device) catch @panic("print failure");
+            self.print_to_writer(std.fs.File.stderr().deprecatedWriter(), device) catch @panic("print failure");
         }
 
         pub fn print_to_writer(self: Self, writer: anytype, device: DeviceReference) !void {
@@ -230,7 +230,7 @@ pub fn NDArray(comptime T: type) type {
 
         inline fn elwise(x: *const Self, y: *const Self, z: *Self, device: DeviceReference, Op: type) !void {
             if (builtin.mode == .Debug and !x.shape.compatible(y.shape)) {
-                log.err("_" ++ Op.__name__ ++ "() self.shape={} other.shape={}", .{ x.shape, y.shape });
+                log.err("_" ++ Op.__name__ ++ "() self.shape={f} other.shape={f}", .{ x.shape, y.shape });
                 return error.IncompatibleShapes;
             }
             device.dispatch(Op{ .x = x.get_data(), .y = y.get_data(), .z = z.get_data() });
@@ -857,12 +857,12 @@ fn bmm_acc_impl(
     if (builtin.mode == .Debug) {
         if (accumulator) |_| {
             if (!C.shape.compatible(C_shape)) {
-                std.debug.panic("Expected accumulator shape {} but got {}", .{ C_shape, C.shape });
+                std.debug.panic("Expected accumulator shape {f} but got {f}", .{ C_shape, C.shape });
             }
         }
 
         if ((if (trans_a) a_rows else a_cols) != (if (trans_b) b_cols else b_rows)) {
-            std.debug.panic("Incompatible matrix dimensions for matmul: {}x{} and {}x{} bcasted batch dims {} (trans_a={}, trans_b={})", .{
+            std.debug.panic("Incompatible matrix dimensions for matmul: {}x{} and {}x{} bcasted batch dims {f} (trans_a={}, trans_b={})", .{
                 a_rows, a_cols, b_rows, b_cols, broadcast_batch_dims, trans_a, trans_b,
             });
         }

@@ -2,6 +2,7 @@
     .name = .hello_world,
     .fingerprint = 0xf73eae9164c8bf58,
     .version = "0.0.0",
+    .minimum_zig_version = "0.15.0",
     .dependencies = .{
         .zigrad = .{ .path = "../../" },
     },

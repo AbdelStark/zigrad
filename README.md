@@ -136,6 +136,18 @@ make help
 make
 ```
 
+## Vendored Dependencies
+
+`safetensors-zg` is now vendored directly in this repository under `src/third_party/safetensors_zg/` with attribution and upstream licensing material in `third_party/safetensors_zg/`. The vendored source was imported from <https://github.com/Marco-Christiani/safetensors-zg> at commit `15787b35b541a4493630ec383750242eef422b64`.
+
+`tensorboard/` also vendors the `zig-protobuf` runtime it builds against under `tensorboard/src/third_party/protobuf/`, with attribution and licensing material in `tensorboard/third_party/protobuf/`.
+
+Run the vendored benchmark with:
+
+```shell
+zig build safetensors-benchmark
+```
+
 ## Roadmap
 
 A lot is planned and hoping for support from the Zig community so we can accomplish some of the more ambitious goals.

@@ -29,7 +29,7 @@ pub fn expectApproxEqRelSlices(
 
     if (index == expected.len and expected.len == actual.len) return;
 
-    const stderr = std.io.getStdErr();
+    const stderr = std.fs.File.stderr();
     const ttyconf = std.io.tty.detectConfig(stderr);
 
     print("slices differ (relative tolerance = {}). First mismatch at index {d} (0x{X})\n", .{
@@ -61,7 +61,9 @@ fn printFloatSliceWindow(
     color_diff: bool,
     tolerance: T,
 ) !void {
-    const writer = std.io.getStdErr().writer();
+    var stderr_buffer: [1024]u8 = undefined;
+    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+    const writer = &stderr_writer.interface;
     for (primary, 0..) |val, i| {
         const idx = start_index + i;
         const mismatch = i >= other.len or !std.math.approxEqRel(T, val, other[i], tolerance);
@@ -70,6 +72,7 @@ fn printFloatSliceWindow(
         try writer.print("[{d}]: {e}\n", .{ idx, val });
         if (color_diff and mismatch) try ttyconf.setColor(writer, .reset);
     }
+    try writer.flush();
 }
 
 test "expectApproxEqRelSlices" {

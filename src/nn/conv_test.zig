@@ -22,7 +22,7 @@ pub const zigrad_settings = zg.Settings{
 };
 
 pub fn main() !void {
-    std.log.warn("zigrad.settings: {}", .{zg.settings});
+    std.log.warn("zigrad.settings: {any}", .{zg.settings});
     // try test_conv_model();
     try test_model_fwd_bwd();
 }
@@ -64,7 +64,7 @@ fn test_conv_model() !void {
     // forward pass
     const output = try model.forward(input, allocator);
     std.debug.print("Output shape: {any}\n", .{output.data.shape.shape});
-    std.debug.print("Output: {d}\n", .{output.data.data});
+    std.debug.print("Output: {any}\n", .{output.data.data});
 
     // train step with Trainer
 
@@ -148,7 +148,7 @@ fn test_model_fwd_bwd() !void {
 
     // forward pass
     const output = try model.forward(input);
-    std.debug.print("Output: {d}\n", .{output.data.data});
+    std.debug.print("Output: {any}\n", .{output.data.data});
     std.debug.print("Output shape: {any}\n", .{output.data.shape.shape});
     const loss = try mse_loss(f32, output, target, model.allocator);
     std.debug.print("Output shape: {any}\n", .{output.data.shape.shape});

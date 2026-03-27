@@ -456,7 +456,7 @@ pub fn NDTensor(comptime T: type) type {
         }
 
         pub fn log_shape(self: *const Self, comptime msg: ?[]const u8) void {
-            log.debug("{s}{s} data shape: {d} grad shape: {?d}", .{
+            log.debug("{s}{s} data shape: {any} grad shape: {?any}", .{
                 if (msg) |n| n else "",
                 if (self.get_label()) |l| l else "",
                 self.data.shape.slice(),
@@ -661,8 +661,8 @@ pub fn NDTensor(comptime T: type) type {
         }
 
         pub fn print(self: *const Self) void {
-            // self.print_to_writer(std.io.getStdOut().writer());
-            self.print_to_writer(std.io.getStdErr().writer()) catch @panic("Failed to print tensor");
+            // self.print_to_writer(std.fs.File.stdout().deprecatedWriter());
+            self.print_to_writer(std.fs.File.stderr().deprecatedWriter()) catch @panic("Failed to print tensor");
         }
 
         pub fn print_to_writer(self: *const Self, writer: anytype) !void {

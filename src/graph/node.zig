@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const debug: bool = (builtin.mode == .Debug);
 const Graph = @import("../graph.zig");
 const zg = @import("../zigrad.zig");
+const BoundedArray = @import("../utils/bounded_array.zig").BoundedArray;
 const TypeID = @import("../utils/rtti.zig").TypeID;
 
 const Node = @This();
@@ -440,7 +441,7 @@ const StoragePointer = struct {
 };
 
 const LABEL_SIZE: usize = zg.settings.label_capacity;
-pub const Label = std.BoundedArray(u8, LABEL_SIZE);
+pub const Label = BoundedArray(u8, LABEL_SIZE);
 
 pub fn as_label(slice: ?[]const u8) Label {
     const l = slice orelse return .{};

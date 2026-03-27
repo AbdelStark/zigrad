@@ -115,7 +115,7 @@ fn logFn(
 
     const level_txt = comptime level.asText();
     const scope_txt = comptime @tagName(scope);
-    const stderr = std.io.getStdErr().writer();
+    const stderr = std.fs.File.stderr().deprecatedWriter();
     std.debug.lockStdErr();
     defer std.debug.unlockStdErr();
 

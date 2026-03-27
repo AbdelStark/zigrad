@@ -19,7 +19,7 @@ const ParamEntry = struct {
 
 /// Every optimizer backend will have a ParamList that
 /// tracks objects that the Optimizer has attached to.
-const ParamList = std.ArrayList(ParamEntry);
+const ParamList = std.array_list.Managed(ParamEntry);
 
 /// Generic interface for handling optimizers. You can think
 /// of this as being similar to an Allocator interface. Each

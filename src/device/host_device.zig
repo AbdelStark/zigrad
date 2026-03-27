@@ -20,6 +20,7 @@ const adjust_map_size = @import("../allocators.zig").adjust_map_size;
 const CachingAllocator = @import("../allocators.zig").CachingAllocator(DataHandler);
 const DeviceData = @import("../allocators.zig").DeviceData;
 const Error = @import("../allocators.zig").Error;
+const BoundedArray = @import("../utils/bounded_array.zig").BoundedArray;
 const opspec = @import("opspec.zig");
 pub const Options = CachingAllocator.Options;
 const zg = @import("../zigrad.zig");
@@ -708,7 +709,7 @@ fn _prod(sizes: []const usize) usize {
 
 pub fn unbroadcast(self: *Self, T: type, p: opspec.unbroadcast(T)) void {
     const local = @import("reduce.zig");
-    const Array = std.BoundedArray(usize, 8);
+    const Array = BoundedArray(usize, 8);
 
     if (p.x.len == p.y.len) {
         return local.scaled_copy(T, .{

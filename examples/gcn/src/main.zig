@@ -154,7 +154,7 @@ pub fn run_cora(data_dir: []const u8) !void {
         .total_test_fbs_trimmed_ms = total_test_time_ms_trimmed,
     }, .{ .whitespace = .indent_2 });
     defer allocator.free(json_obj);
-    const stdout = std.io.getStdOut().writer();
+    const stdout = std.fs.File.stdout().deprecatedWriter();
     try stdout.print("{s}\n", .{json_obj});
 }
 

@@ -12,15 +12,18 @@ const ArenaUnmanaged = @This();
 /// to snake case. Not including independent "free" function because we don't have
 /// a use-case for that in zigrad. This will typically be used to contain and
 /// teardown whole computation graphs. This exists to facility "create" and "reset".
-const BufNode = std.SinglyLinkedList(usize).Node;
-const BufNode_alignment: mem.Alignment = .fromByteUnits(@alignOf(BufNode));
+const BufNode = struct {
+    data: usize,
+    node: std.SinglyLinkedList.Node = .{},
+};
+const BufNode_alignment: mem.Alignment = .of(BufNode);
 
 pub const empty: ArenaUnmanaged = .{
     .buffer_list = .{},
     .end_index = 0,
 };
 
-buffer_list: std.SinglyLinkedList(usize),
+buffer_list: std.SinglyLinkedList,
 end_index: usize,
 
 pub fn deinit(self: ArenaUnmanaged, allocator: Allocator) void {
@@ -28,7 +31,8 @@ pub fn deinit(self: ArenaUnmanaged, allocator: Allocator) void {
     while (it) |node| {
         // this has to occur before the free because the free frees node
         const next_it = node.next;
-        const alloc_buf = @as([*]u8, @ptrCast(node))[0..node.data];
+        const buf_node: *BufNode = @fieldParentPtr("node", node);
+        const alloc_buf = @as([*]u8, @ptrCast(buf_node))[0..buf_node.data];
         allocator.rawFree(alloc_buf, BufNode_alignment, @returnAddress());
         it = next_it;
     }
@@ -43,7 +47,8 @@ pub fn alloc(self: *ArenaUnmanaged, allocator: Allocator, comptime T: type, n: u
 /// Modified from standard library arena allocator
 pub fn free(self: *ArenaUnmanaged, slice: anytype) void {
     const cur_node = self.buffer_list.first orelse return;
-    const cur_buf = @as([*]u8, @ptrCast(cur_node))[@sizeOf(BufNode)..cur_node.data];
+    const buf_node: *BufNode = @fieldParentPtr("node", cur_node);
+    const cur_buf = @as([*]u8, @ptrCast(buf_node))[@sizeOf(BufNode)..buf_node.data];
     const buf = std.mem.sliceAsBytes(slice);
 
     if (@intFromPtr(cur_buf.ptr) + self.end_index == @intFromPtr(buf.ptr) + buf.len) {
@@ -66,7 +71,8 @@ pub fn create(self: *ArenaUnmanaged, allocator: Allocator, comptime T: type) Err
 /// Modified from standard library arena allocator
 pub fn destroy(self: *ArenaUnmanaged, ptr: anytype) void {
     const cur_node = self.buffer_list.first orelse return;
-    const cur_buf = @as([*]u8, @ptrCast(cur_node))[@sizeOf(BufNode)..cur_node.data];
+    const buf_node: *BufNode = @fieldParentPtr("node", cur_node);
+    const cur_buf = @as([*]u8, @ptrCast(buf_node))[@sizeOf(BufNode)..buf_node.data];
     const buf = std.mem.asBytes(ptr);
 
     if (@intFromPtr(cur_buf.ptr) + self.end_index == @intFromPtr(buf.ptr) + buf.len) {
@@ -82,7 +88,8 @@ pub fn query_capacity(self: ArenaUnmanaged) usize {
     while (it) |node| : (it = node.next) {
         // Compute the actually allocated size excluding the
         // linked list node.
-        size += node.data - @sizeOf(BufNode);
+        const buf_node: *BufNode = @fieldParentPtr("node", node);
+        size += buf_node.data - @sizeOf(BufNode);
     }
     return size;
 }
@@ -112,7 +119,8 @@ pub fn reset(self: *ArenaUnmanaged, allocator: Allocator, mode: Mode) bool {
         const next_it = node.next;
         if (next_it == null)
             break node;
-        const alloc_buf = @as([*]u8, @ptrCast(node))[0..node.data];
+        const buf_node: *BufNode = @fieldParentPtr("node", node);
+        const alloc_buf = @as([*]u8, @ptrCast(buf_node))[0..buf_node.data];
         allocator.rawFree(alloc_buf, BufNode_alignment, @returnAddress());
         it = next_it;
     } else null;
@@ -122,12 +130,13 @@ pub fn reset(self: *ArenaUnmanaged, allocator: Allocator, mode: Mode) bool {
     if (maybe_first_node) |first_node| {
         self.buffer_list.first = first_node;
         // perfect, no need to invoke the child_allocator
-        if (first_node.data == total_size)
+        const first_buf_node: *BufNode = @fieldParentPtr("node", first_node);
+        if (first_buf_node.data == total_size)
             return true;
-        const first_alloc_buf = @as([*]u8, @ptrCast(first_node))[0..first_node.data];
+        const first_alloc_buf = @as([*]u8, @ptrCast(first_buf_node))[0..first_buf_node.data];
         if (allocator.rawResize(first_alloc_buf, BufNode_alignment, total_size, @returnAddress())) {
             // successful resize
-            first_node.data = total_size;
+            first_buf_node.data = total_size;
         } else {
             // manual realloc
             const new_ptr = allocator.rawAlloc(total_size, BufNode_alignment, @returnAddress()) orelse {
@@ -135,9 +144,9 @@ pub fn reset(self: *ArenaUnmanaged, allocator: Allocator, mode: Mode) bool {
                 return false;
             };
             allocator.rawFree(first_alloc_buf, BufNode_alignment, @returnAddress());
-            const node: *BufNode = @ptrCast(@alignCast(new_ptr));
-            node.* = .{ .data = total_size };
-            self.buffer_list.first = node;
+            const buf_node: *BufNode = @ptrCast(@alignCast(new_ptr));
+            buf_node.* = .{ .data = total_size };
+            self.buffer_list.first = &buf_node.node;
         }
     }
     return true;
@@ -151,7 +160,7 @@ fn create_node(self: *ArenaUnmanaged, allocator: Allocator, prev_len: usize, min
         return null;
     const buf_node: *BufNode = @ptrCast(@alignCast(ptr));
     buf_node.* = .{ .data = len };
-    self.buffer_list.prepend(buf_node);
+    self.buffer_list.prepend(&buf_node.node);
     self.end_index = 0;
     return buf_node;
 }
@@ -174,8 +183,8 @@ fn alloc_bytes_with_alignment(
 
 fn raw_alloc(self: *ArenaUnmanaged, allocator: Allocator, n: usize, alignment: mem.Alignment) ?[*]u8 {
     const ptr_align = alignment.toByteUnits();
-    var cur_node = if (self.buffer_list.first) |first_node|
-        first_node
+    var cur_node: *BufNode = if (self.buffer_list.first) |first_node|
+        @fieldParentPtr("node", first_node)
     else
         (self.create_node(allocator, 0, n + ptr_align) orelse return null);
     while (true) {

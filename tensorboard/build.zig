@@ -4,50 +4,32 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const protobuf_dep = b.dependency("protobuf", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
     const tensorboard = b.addModule("tensorboard", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
-    tensorboard.addImport("protobuf", protobuf_dep.module("protobuf"));
-
-    const lib = b.addStaticLibrary(.{
-        .name = "tensorboard",
-        .root_source_file = tensorboard.root_source_file,
+    const protobuf = b.addModule("protobuf", .{
+        .root_source_file = b.path("src/third_party/protobuf/protobuf.zig"),
         .target = target,
         .optimize = optimize,
     });
+    tensorboard.addImport("protobuf", protobuf);
 
-    const gen_proto = b.step("gen-proto", "generates zig files from protocol buffer definitions");
-    const protobuf = @import("protobuf");
-    const protoc_step = protobuf.RunProtocStep.create(b, protobuf_dep.builder, target, .{
-        .destination_directory = b.path("src/gen_proto/"),
-        .source_files = &.{
-            "proto/event.proto",
-        },
-        .include_directories = &.{},
+    const lib = b.addLibrary(.{
+        .name = "tensorboard",
+        .root_module = tensorboard,
+        .linkage = .static,
     });
 
-    gen_proto.dependOn(&protoc_step.step);
-    lib.step.dependOn(gen_proto);
     b.installArtifact(lib);
 
     const lib_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = tensorboard,
     });
-    lib_unit_tests.root_module.addImport("protobuf", protobuf_dep.module("protobuf"));
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
-
-    test_step.dependOn(gen_proto);
 }
