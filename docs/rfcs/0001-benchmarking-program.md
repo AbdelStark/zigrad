@@ -177,10 +177,12 @@ Regression gating should use broad thresholds first, for example:
 ### Milestone B: Initial Coverage
 
 - [x] Primitive suite for representative tensor ops.
+- [x] BLAS dot and matvec microbenchmarks with deterministic operands.
+- [x] Autograd dot and matvec backward microbenchmarks.
 - [x] MNIST train and inference benchmarks using deterministic synthetic data.
 - [x] DQN benchmark skeleton.
 - [x] Synthetic GCN train and inference coverage.
-- [x] Optional PyTorch baseline runner hook for model benchmarks.
+- [x] Optional PyTorch baseline runner hook for comparable suites.
 
 ### Milestone C: Regression Policy
 
@@ -280,3 +282,43 @@ Regression gating should use broad thresholds first, for example:
   - `zig build benchmark-models`
   - `zig build benchmark`
   - `zig build benchmark-models -- --baseline pytorch`
+
+### 2026-03-27 BLAS + Autograd Linear Algebra Coverage
+
+- Completed:
+  - Added dedicated `blas` benchmark kinds for deterministic dot and matvec
+    workloads plus JSON specs under
+    [`benchmarks/specs/blas/`](../../benchmarks/specs/blas/).
+  - Added dedicated `autograd` benchmark kinds for deterministic dot and
+    matvec forward+backward workloads plus JSON specs under
+    [`benchmarks/specs/autograd/`](../../benchmarks/specs/autograd/).
+  - Extended the manifest parser, CLI group loading, and `zig build`
+    entrypoints to support the new suites.
+  - Implemented the Zig workloads and benchmark tests for BLAS forward and
+    autograd backward execution paths.
+  - Expanded the optional PyTorch runner so prepared machines can emit baseline
+    records for BLAS and autograd suites in addition to the model suites.
+- Remains:
+  - Add CUDA-specific suites once RFC-0003 begins landing measurable kernels.
+  - Add compiler, interop, and memory suites to cover the rest of the RFC-0001
+    taxonomy.
+- Blockers:
+  - Local validation still lacked a `torch` installation, so PyTorch execution
+    validated the explicit skip path and Python compilation rather than live
+    parity timings.
+- Validation performed:
+  - `zig build test`
+  - `zig build benchmark-blas`
+  - `zig build benchmark-autograd`
+  - `zig build benchmark`
+  - `zig build benchmark -- --baseline pytorch --group blas`
+  - `zig build benchmark -- --baseline pytorch --group autograd`
+  - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`
+- Exact commands:
+  - `zig build test`
+  - `zig build benchmark-blas`
+  - `zig build benchmark-autograd`
+  - `zig build benchmark`
+  - `zig build benchmark -- --baseline pytorch --group blas`
+  - `zig build benchmark -- --baseline pytorch --group autograd`
+  - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`

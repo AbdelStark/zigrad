@@ -68,7 +68,7 @@ documents we will implement against.
 
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, smoke CI, and synthetic MNIST/DQN/GCN coverage are landed; future CUDA/compiler/interop suites remain. |
+| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, smoke CI, and synthetic BLAS/autograd/MNIST/DQN/GCN coverage are landed; future CUDA/compiler/interop suites remain. |
 | RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Expands host performance beyond the current baseline. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Turns experimental CUDA into a supported execution backend. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
@@ -162,3 +162,34 @@ Every RFC in this folder set must maintain:
   - `zig build benchmark-primitive`
   - `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/benchmark-smoke.yml"); puts "workflow ok"'`
   - `python3 -c "import json, pathlib; print(pathlib.Path('benchmarks/results/comparison.json').exists())"`
+
+### RFC-0001 2026-03-27 BLAS + Autograd Coverage
+
+- Completed:
+  - Added dedicated `blas` and `autograd` benchmark suites with deterministic
+    dot and matvec workloads under [`benchmarks/specs/`](../benchmarks/specs/).
+  - Extended the harness manifest, CLI grouping, and `zig build` entrypoints
+    so `benchmark`, `benchmark-blas`, and `benchmark-autograd` execute the new
+    coverage.
+  - Added Zig workload implementations for BLAS forward coverage and autograd
+    backward coverage in
+    [`benchmarks/src/workload.zig`](../benchmarks/src/workload.zig).
+  - Expanded the optional PyTorch baseline runner to emit comparable records
+    for the new BLAS and autograd benchmark kinds.
+- Remains:
+  - Add CUDA-targeted suites and backend-specific parity checks once RFC-0003
+    work begins.
+  - Add compiler, interop, and memory suites to cover the remaining RFC-0001
+    benchmark taxonomy.
+- Blockers:
+  - No local `torch` install was available during this run, so PyTorch parity
+    was validated through runner compilation and skip-path behavior rather than
+    executed framework comparisons.
+- Validation:
+  - `zig build test`
+  - `zig build benchmark-blas`
+  - `zig build benchmark-autograd`
+  - `zig build benchmark`
+  - `zig build benchmark -- --baseline pytorch --group blas`
+  - `zig build benchmark -- --baseline pytorch --group autograd`
+  - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`

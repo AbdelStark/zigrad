@@ -36,12 +36,168 @@ pub fn run(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
     return switch (spec.kind) {
         .primitive_add => runPrimitiveAdd(allocator, spec),
         .primitive_matmul => runPrimitiveMatmul(allocator, spec),
+        .blas_dot => runBlasDot(allocator, spec),
+        .blas_matvec => runBlasMatvec(allocator, spec),
+        .autograd_dot_backward => runAutogradDotBackward(allocator, spec),
+        .autograd_matvec_backward => runAutogradMatvecBackward(allocator, spec),
         .mnist_mlp_train => runMnistTrain(allocator, spec),
         .mnist_mlp_infer => runMnistInfer(allocator, spec),
         .dqn_cartpole_train => runDqnTrain(allocator, spec),
         .dqn_cartpole_infer => runDqnInfer(allocator, spec),
         .gcn_train => runGcnTrain(allocator, spec),
         .gcn_infer => runGcnInfer(allocator, spec),
+    };
+}
+
+fn runBlasDot(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+    const Array = zg.NDArray(f32);
+    var host = zg.device.HostDevice.init();
+    defer host.deinit();
+    const device = host.reference();
+
+    const lhs_data = try makeDeterministicSlice(allocator, countElements(spec.lhs_shape.?), spec.seed);
+    defer allocator.free(lhs_data);
+    const rhs_data = try makeDeterministicSlice(allocator, countElements(spec.rhs_shape.?), spec.seed +% 1);
+    defer allocator.free(rhs_data);
+
+    var timer = try std.time.Timer.start();
+    var lhs = try Array.from_slice(lhs_data, spec.lhs_shape.?, device);
+    defer lhs.deinit(device);
+    var rhs = try Array.from_slice(rhs_data, spec.rhs_shape.?, device);
+    defer rhs.deinit(device);
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    for (0..spec.warmup_iterations) |_| {
+        var output = try lhs.dot(rhs, device);
+        output.deinit(device);
+    }
+    for (timings) |*timing| {
+        timer.reset();
+        var output = try lhs.dot(rhs, device);
+        timing.* = timer.read();
+        output.deinit(device);
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromVectorPair(allocator, spec),
+        .batch_size = null,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = countElements(spec.lhs_shape.?),
+        .throughput_unit = "elements",
+        .notes = spec.notes,
+    };
+}
+
+fn runBlasMatvec(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+    const Array = zg.NDArray(f32);
+    var host = zg.device.HostDevice.init();
+    defer host.deinit();
+    const device = host.reference();
+
+    const matrix_data = try makeDeterministicSlice(allocator, countElements(spec.lhs_shape.?), spec.seed);
+    defer allocator.free(matrix_data);
+    const vector_data = try makeDeterministicSlice(allocator, countElements(spec.rhs_shape.?), spec.seed +% 1);
+    defer allocator.free(vector_data);
+
+    var timer = try std.time.Timer.start();
+    var matrix = try Array.from_slice(matrix_data, spec.lhs_shape.?, device);
+    defer matrix.deinit(device);
+    var vector = try Array.from_slice(vector_data, spec.rhs_shape.?, device);
+    defer vector.deinit(device);
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    for (0..spec.warmup_iterations) |_| {
+        var output = try matrix.matvec(vector, device, .{});
+        output.deinit(device);
+    }
+    for (timings) |*timing| {
+        timer.reset();
+        var output = try matrix.matvec(vector, device, .{});
+        timing.* = timer.read();
+        output.deinit(device);
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromMatrixVector(allocator, spec),
+        .batch_size = null,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = countElements(spec.lhs_shape.?),
+        .throughput_unit = "matrix-elements",
+        .notes = spec.notes,
+    };
+}
+
+fn runAutogradDotBackward(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+    var host = zg.device.HostDevice.init();
+    defer host.deinit();
+    const device = host.reference();
+
+    const lhs_data = try makeDeterministicSlice(allocator, countElements(spec.lhs_shape.?), spec.seed);
+    defer allocator.free(lhs_data);
+    const rhs_data = try makeDeterministicSlice(allocator, countElements(spec.rhs_shape.?), spec.seed +% 1);
+    defer allocator.free(rhs_data);
+
+    var timer = try std.time.Timer.start();
+    try prepareAutogradDotOperands(allocator, device, lhs_data, rhs_data, spec.lhs_shape.?, spec.rhs_shape.?);
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    for (0..spec.warmup_iterations) |_| {
+        try oneAutogradDotBackwardStep(allocator, device, lhs_data, rhs_data, spec.lhs_shape.?, spec.rhs_shape.?);
+    }
+    for (timings) |*timing| {
+        timer.reset();
+        try oneAutogradDotBackwardStep(allocator, device, lhs_data, rhs_data, spec.lhs_shape.?, spec.rhs_shape.?);
+        timing.* = timer.read();
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromVectorPair(allocator, spec),
+        .batch_size = null,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = countElements(spec.lhs_shape.?),
+        .throughput_unit = "elements",
+        .notes = spec.notes,
+    };
+}
+
+fn runAutogradMatvecBackward(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+    var host = zg.device.HostDevice.init();
+    defer host.deinit();
+    const device = host.reference();
+
+    const matrix_data = try makeDeterministicSlice(allocator, countElements(spec.lhs_shape.?), spec.seed);
+    defer allocator.free(matrix_data);
+    const vector_data = try makeDeterministicSlice(allocator, countElements(spec.rhs_shape.?), spec.seed +% 1);
+    defer allocator.free(vector_data);
+
+    var timer = try std.time.Timer.start();
+    try prepareAutogradMatvecOperands(allocator, device, matrix_data, vector_data, spec.lhs_shape.?, spec.rhs_shape.?);
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    for (0..spec.warmup_iterations) |_| {
+        try oneAutogradMatvecBackwardStep(allocator, device, matrix_data, vector_data, spec.lhs_shape.?, spec.rhs_shape.?);
+    }
+    for (timings) |*timing| {
+        timer.reset();
+        try oneAutogradMatvecBackwardStep(allocator, device, matrix_data, vector_data, spec.lhs_shape.?, spec.rhs_shape.?);
+        timing.* = timer.read();
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromMatrixVector(allocator, spec),
+        .batch_size = null,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = countElements(spec.lhs_shape.?),
+        .throughput_unit = "matrix-elements",
+        .notes = spec.notes,
     };
 }
 
@@ -671,6 +827,106 @@ fn oneGcnTrainingStep(
     model.zeroGrad();
 }
 
+fn prepareAutogradDotOperands(
+    allocator: std.mem.Allocator,
+    device: zg.DeviceReference,
+    lhs_values: []const f32,
+    rhs_values: []const f32,
+    lhs_shape: []const usize,
+    rhs_shape: []const usize,
+) !void {
+    const Tensor = zg.NDTensor(f32);
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    const opts: zg.TensorOpts = .{
+        .requires_grad = true,
+        .graph = &graph,
+    };
+    const lhs = try Tensor.from_slice(device, lhs_values, lhs_shape, opts);
+    defer lhs.deinit();
+    const rhs = try Tensor.from_slice(device, rhs_values, rhs_shape, opts);
+    defer rhs.deinit();
+    try lhs.setup_grad(0);
+    try rhs.setup_grad(0);
+}
+
+fn oneAutogradDotBackwardStep(
+    allocator: std.mem.Allocator,
+    device: zg.DeviceReference,
+    lhs_values: []const f32,
+    rhs_values: []const f32,
+    lhs_shape: []const usize,
+    rhs_shape: []const usize,
+) !void {
+    const Tensor = zg.NDTensor(f32);
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    const opts: zg.TensorOpts = .{
+        .requires_grad = true,
+        .graph = &graph,
+    };
+    const lhs = try Tensor.from_slice(device, lhs_values, lhs_shape, opts);
+    defer lhs.deinit();
+    const rhs = try Tensor.from_slice(device, rhs_values, rhs_shape, opts);
+    defer rhs.deinit();
+
+    const output = try lhs.dot(rhs);
+    defer output.deinit();
+    try output.backward();
+}
+
+fn prepareAutogradMatvecOperands(
+    allocator: std.mem.Allocator,
+    device: zg.DeviceReference,
+    matrix_values: []const f32,
+    vector_values: []const f32,
+    matrix_shape: []const usize,
+    vector_shape: []const usize,
+) !void {
+    const Tensor = zg.NDTensor(f32);
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    const opts: zg.TensorOpts = .{
+        .requires_grad = true,
+        .graph = &graph,
+    };
+    const matrix = try Tensor.from_slice(device, matrix_values, matrix_shape, opts);
+    defer matrix.deinit();
+    const vector = try Tensor.from_slice(device, vector_values, vector_shape, opts);
+    defer vector.deinit();
+    try matrix.setup_grad(0);
+    try vector.setup_grad(0);
+}
+
+fn oneAutogradMatvecBackwardStep(
+    allocator: std.mem.Allocator,
+    device: zg.DeviceReference,
+    matrix_values: []const f32,
+    vector_values: []const f32,
+    matrix_shape: []const usize,
+    vector_shape: []const usize,
+) !void {
+    const Tensor = zg.NDTensor(f32);
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    const opts: zg.TensorOpts = .{
+        .requires_grad = true,
+        .graph = &graph,
+    };
+    const matrix = try Tensor.from_slice(device, matrix_values, matrix_shape, opts);
+    defer matrix.deinit();
+    const vector = try Tensor.from_slice(device, vector_values, vector_shape, opts);
+    defer vector.deinit();
+
+    const output = try matrix.matvec(vector, .{});
+    defer output.deinit();
+    try output.backward();
+}
+
 fn countElements(shape: []const usize) usize {
     var total: usize = 1;
     for (shape) |dim| total *= dim;
@@ -783,6 +1039,20 @@ fn shapeMetadataFromPrimitive(allocator: std.mem.Allocator, spec: manifest.Spec)
     return shapes;
 }
 
+fn shapeMetadataFromVectorPair(allocator: std.mem.Allocator, spec: manifest.Spec) ![]const result.ShapeMetadata {
+    const shapes = try allocator.alloc(result.ShapeMetadata, 2);
+    shapes[0] = .{ .name = "lhs", .dims = spec.lhs_shape.? };
+    shapes[1] = .{ .name = "rhs", .dims = spec.rhs_shape.? };
+    return shapes;
+}
+
+fn shapeMetadataFromMatrixVector(allocator: std.mem.Allocator, spec: manifest.Spec) ![]const result.ShapeMetadata {
+    const shapes = try allocator.alloc(result.ShapeMetadata, 2);
+    shapes[0] = .{ .name = "matrix", .dims = spec.lhs_shape.? };
+    shapes[1] = .{ .name = "vector", .dims = spec.rhs_shape.? };
+    return shapes;
+}
+
 fn shapeMetadataFromMnist(allocator: std.mem.Allocator, spec: manifest.Spec) ![]const result.ShapeMetadata {
     const label_shape_count: usize = if (spec.label_shape == null) 0 else 1;
     const shapes = try allocator.alloc(result.ShapeMetadata, 1 + label_shape_count);
@@ -865,6 +1135,58 @@ test "run dqn infer benchmark" {
     try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
     try std.testing.expectEqual(@as(usize, 1), output.shapes.len);
     try std.testing.expectEqual(@as(usize, 8), output.batch_size.?);
+}
+
+test "run blas dot benchmark" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const lhs_shape = [_]usize{16};
+    const rhs_shape = [_]usize{16};
+    const spec: manifest.Spec = .{
+        .id = "test.blas.dot",
+        .suite = .blas,
+        .kind = .blas_dot,
+        .dtype = .f32,
+        .warmup_iterations = 0,
+        .measured_iterations = 1,
+        .thread_count = 1,
+        .seed = 1,
+        .lhs_shape = lhs_shape[0..],
+        .rhs_shape = rhs_shape[0..],
+        .path = "inline",
+    };
+
+    const output = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
+    try std.testing.expectEqual(@as(usize, 2), output.shapes.len);
+    try std.testing.expectEqualStrings("lhs", output.shapes[0].name);
+}
+
+test "run autograd matvec benchmark" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const matrix_shape = [_]usize{ 8, 4 };
+    const vector_shape = [_]usize{4};
+    const spec: manifest.Spec = .{
+        .id = "test.autograd.matvec",
+        .suite = .autograd,
+        .kind = .autograd_matvec_backward,
+        .dtype = .f32,
+        .warmup_iterations = 0,
+        .measured_iterations = 1,
+        .thread_count = 1,
+        .seed = 1,
+        .lhs_shape = matrix_shape[0..],
+        .rhs_shape = vector_shape[0..],
+        .path = "inline",
+    };
+
+    const output = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
+    try std.testing.expectEqual(@as(usize, 2), output.shapes.len);
+    try std.testing.expectEqualStrings("matrix", output.shapes[0].name);
 }
 
 test "run gcn train benchmark" {

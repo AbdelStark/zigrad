@@ -102,6 +102,18 @@ def cpu_model() -> str:
 
 def shape_metadata(spec: dict):
     kind = spec["kind"]
+    if kind in {"blas_dot", "autograd_dot_backward"}:
+        return [
+            {"name": "lhs", "dims": spec["lhs_shape"]},
+            {"name": "rhs", "dims": spec["rhs_shape"]},
+        ]
+
+    if kind in {"blas_matvec", "autograd_matvec_backward"}:
+        return [
+            {"name": "matrix", "dims": spec["lhs_shape"]},
+            {"name": "vector", "dims": spec["rhs_shape"]},
+        ]
+
     input_shape = spec.get("input_shape")
     batch_size = spec.get("batch_size")
 
@@ -194,6 +206,10 @@ def summarize_timings(timings_ns: list[int], throughput_items: int | None, throu
 
 def throughput_shape(spec: dict):
     kind = spec["kind"]
+    if kind in {"blas_dot", "autograd_dot_backward"}:
+        return spec["lhs_shape"][0], "elements"
+    if kind in {"blas_matvec", "autograd_matvec_backward"}:
+        return math.prod(spec["lhs_shape"]), "matrix-elements"
     if kind in {"mnist_mlp_train", "mnist_mlp_infer", "dqn_cartpole_train", "dqn_cartpole_infer"}:
         return spec["batch_size"], "samples"
     if kind in {"gcn_train", "gcn_infer"}:
@@ -216,6 +232,10 @@ def main() -> int:
 
     kind = spec["kind"]
     supported_kinds = {
+        "blas_dot",
+        "blas_matvec",
+        "autograd_dot_backward",
+        "autograd_matvec_backward",
         "mnist_mlp_train",
         "mnist_mlp_infer",
         "dqn_cartpole_train",
@@ -302,10 +322,67 @@ def main() -> int:
             x = F.relu(self.layer(x, edge_index, self.w0, self.b0))
             return self.layer(x, edge_index, self.w1, self.b1)
 
+    def make_leaf_tensor(values, shape):
+        return torch.tensor(values, dtype=torch.float32).reshape(*shape).clone().detach().requires_grad_(True)
+
     setup_start = time.perf_counter_ns()
     step = None
 
-    if kind in {"mnist_mlp_train", "mnist_mlp_infer"}:
+    if kind in {"blas_dot", "blas_matvec", "autograd_dot_backward", "autograd_matvec_backward"}:
+        lhs_shape = spec["lhs_shape"]
+        rhs_shape = spec["rhs_shape"]
+        lhs_values = deterministic_vector(math.prod(lhs_shape), seed)
+        rhs_values = deterministic_vector(math.prod(rhs_shape), seed + 1)
+
+        if kind == "blas_dot":
+            lhs = torch.tensor(lhs_values, dtype=torch.float32).reshape(*lhs_shape)
+            rhs = torch.tensor(rhs_values, dtype=torch.float32).reshape(*rhs_shape)
+
+            def dot_step():
+                with torch.no_grad():
+                    _ = torch.dot(lhs, rhs)
+
+            step = dot_step
+
+        elif kind == "blas_matvec":
+            matrix = torch.tensor(lhs_values, dtype=torch.float32).reshape(*lhs_shape)
+            vector = torch.tensor(rhs_values, dtype=torch.float32).reshape(*rhs_shape)
+
+            def matvec_step():
+                with torch.no_grad():
+                    _ = torch.mv(matrix, vector)
+
+            step = matvec_step
+
+        elif kind == "autograd_dot_backward":
+            lhs = make_leaf_tensor(lhs_values, lhs_shape)
+            rhs = make_leaf_tensor(rhs_values, rhs_shape)
+
+            def autograd_dot_step():
+                if lhs.grad is not None:
+                    lhs.grad.zero_()
+                if rhs.grad is not None:
+                    rhs.grad.zero_()
+                output = torch.dot(lhs, rhs)
+                output.backward()
+
+            step = autograd_dot_step
+
+        else:
+            matrix = make_leaf_tensor(lhs_values, lhs_shape)
+            vector = make_leaf_tensor(rhs_values, rhs_shape)
+
+            def autograd_matvec_step():
+                if matrix.grad is not None:
+                    matrix.grad.zero_()
+                if vector.grad is not None:
+                    vector.grad.zero_()
+                output = torch.mv(matrix, vector)
+                output.backward(torch.ones_like(output))
+
+            step = autograd_matvec_step
+
+    elif kind in {"mnist_mlp_train", "mnist_mlp_infer"}:
         batch_size = spec["batch_size"]
         input_shape = spec["input_shape"]
         model = MnistMLP()

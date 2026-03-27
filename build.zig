@@ -153,6 +153,22 @@ pub fn build(b: *Build) !void {
     const benchmark_primitive_step = b.step("benchmark-primitive", "Run primitive benchmark specs");
     benchmark_primitive_step.dependOn(&run_benchmark_primitive.step);
 
+    const run_benchmark_blas = b.addRunArtifact(benchmark_exe);
+    run_benchmark_blas.addArgs(&.{ "--group", "blas", "--output", "benchmarks/results/blas.jsonl" });
+    if (b.args) |args| {
+        run_benchmark_blas.addArgs(args);
+    }
+    const benchmark_blas_step = b.step("benchmark-blas", "Run BLAS benchmark specs");
+    benchmark_blas_step.dependOn(&run_benchmark_blas.step);
+
+    const run_benchmark_autograd = b.addRunArtifact(benchmark_exe);
+    run_benchmark_autograd.addArgs(&.{ "--group", "autograd", "--output", "benchmarks/results/autograd.jsonl" });
+    if (b.args) |args| {
+        run_benchmark_autograd.addArgs(args);
+    }
+    const benchmark_autograd_step = b.step("benchmark-autograd", "Run autograd benchmark specs");
+    benchmark_autograd_step.dependOn(&run_benchmark_autograd.step);
+
     const run_benchmark_models = b.addRunArtifact(benchmark_exe);
     run_benchmark_models.addArgs(&.{ "--group", "models", "--output", "benchmarks/results/models.jsonl" });
     if (b.args) |args| {

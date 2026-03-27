@@ -2,12 +2,16 @@ const std = @import("std");
 
 pub const Suite = enum {
     primitive,
+    blas,
+    autograd,
     model_train,
     model_infer,
 
     pub fn asString(self: Suite) []const u8 {
         return switch (self) {
             .primitive => "primitive",
+            .blas => "blas",
+            .autograd => "autograd",
             .model_train => "model-train",
             .model_infer => "model-infer",
         };
@@ -17,6 +21,10 @@ pub const Suite = enum {
 pub const Kind = enum {
     primitive_add,
     primitive_matmul,
+    blas_dot,
+    blas_matvec,
+    autograd_dot_backward,
+    autograd_matvec_backward,
     mnist_mlp_train,
     mnist_mlp_infer,
     dqn_cartpole_train,
@@ -28,6 +36,10 @@ pub const Kind = enum {
         return switch (self) {
             .primitive_add => "primitive_add",
             .primitive_matmul => "primitive_matmul",
+            .blas_dot => "blas_dot",
+            .blas_matvec => "blas_matvec",
+            .autograd_dot_backward => "autograd_dot_backward",
+            .autograd_matvec_backward => "autograd_matvec_backward",
             .mnist_mlp_train => "mnist_mlp_train",
             .mnist_mlp_infer => "mnist_mlp_infer",
             .dqn_cartpole_train => "dqn_cartpole_train",
@@ -109,6 +121,12 @@ fn validate(path: []const u8, raw: RawSpec) !Spec {
                 return error.MissingPrimitiveShape;
             }
         },
+        .blas_dot, .autograd_dot_backward => {
+            try requireDotShapes(raw);
+        },
+        .blas_matvec, .autograd_matvec_backward => {
+            try requireMatvecShapes(raw);
+        },
         .mnist_mlp_train => {
             try requireBatchedModelShapes(raw, true);
         },
@@ -157,6 +175,8 @@ fn validate(path: []const u8, raw: RawSpec) !Spec {
 
 fn parseSuite(value: []const u8) !Suite {
     if (std.mem.eql(u8, value, "primitive")) return .primitive;
+    if (std.mem.eql(u8, value, "blas")) return .blas;
+    if (std.mem.eql(u8, value, "autograd")) return .autograd;
     if (std.mem.eql(u8, value, "model-train")) return .model_train;
     if (std.mem.eql(u8, value, "model-infer")) return .model_infer;
     return error.UnknownBenchmarkSuite;
@@ -165,6 +185,10 @@ fn parseSuite(value: []const u8) !Suite {
 fn parseKind(value: []const u8) !Kind {
     if (std.mem.eql(u8, value, "primitive_add")) return .primitive_add;
     if (std.mem.eql(u8, value, "primitive_matmul")) return .primitive_matmul;
+    if (std.mem.eql(u8, value, "blas_dot")) return .blas_dot;
+    if (std.mem.eql(u8, value, "blas_matvec")) return .blas_matvec;
+    if (std.mem.eql(u8, value, "autograd_dot_backward")) return .autograd_dot_backward;
+    if (std.mem.eql(u8, value, "autograd_matvec_backward")) return .autograd_matvec_backward;
     if (std.mem.eql(u8, value, "mnist_mlp_train")) return .mnist_mlp_train;
     if (std.mem.eql(u8, value, "mnist_mlp_infer")) return .mnist_mlp_infer;
     if (std.mem.eql(u8, value, "dqn_cartpole_train")) return .dqn_cartpole_train;
@@ -187,6 +211,18 @@ fn requireBatchedModelShapes(raw: RawSpec, require_labels: bool) !void {
         if (raw.label_shape == null) return error.MissingModelShape;
         if (raw.label_shape.?[0] != raw.batch_size.?) return error.InvalidLabelShape;
     }
+}
+
+fn requireDotShapes(raw: RawSpec) !void {
+    if (raw.lhs_shape == null or raw.rhs_shape == null) return error.MissingPrimitiveShape;
+    if (raw.lhs_shape.?.len != 1 or raw.rhs_shape.?.len != 1) return error.InvalidLinearAlgebraShape;
+    if (raw.lhs_shape.?[0] != raw.rhs_shape.?[0]) return error.IncompatibleLinearAlgebraShape;
+}
+
+fn requireMatvecShapes(raw: RawSpec) !void {
+    if (raw.lhs_shape == null or raw.rhs_shape == null) return error.MissingPrimitiveShape;
+    if (raw.lhs_shape.?.len != 2 or raw.rhs_shape.?.len != 1) return error.InvalidLinearAlgebraShape;
+    if (raw.lhs_shape.?[1] != raw.rhs_shape.?[0]) return error.IncompatibleLinearAlgebraShape;
 }
 
 test "load benchmark spec from json slice" {
@@ -236,4 +272,29 @@ test "load dqn benchmark spec from json slice" {
 
     try std.testing.expectEqual(Kind.dqn_cartpole_train, spec.kind);
     try std.testing.expectEqual(@as(usize, 32), spec.batch_size.?);
+}
+
+test "load autograd matvec benchmark spec from json slice" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const raw =
+        \\{
+        \\  "id": "autograd.matvec-backward.f32.128x64",
+        \\  "suite": "autograd",
+        \\  "kind": "autograd_matvec_backward",
+        \\  "dtype": "f32",
+        \\  "warmup_iterations": 1,
+        \\  "measured_iterations": 2,
+        \\  "lhs_shape": [128, 64],
+        \\  "rhs_shape": [64]
+        \\}
+    ;
+    const parsed = try std.json.parseFromSliceLeaky(RawSpec, allocator, raw, .{});
+    const spec = try validate("inline-autograd-matvec.json", parsed);
+
+    try std.testing.expectEqual(Suite.autograd, spec.suite);
+    try std.testing.expectEqual(Kind.autograd_matvec_backward, spec.kind);
+    try std.testing.expectEqual(@as(usize, 128), spec.lhs_shape.?[0]);
+    try std.testing.expectEqual(@as(usize, 64), spec.rhs_shape.?[0]);
 }

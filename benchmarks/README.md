@@ -10,6 +10,8 @@ From the repository root:
 ```sh
 zig build benchmark
 zig build benchmark-primitive
+zig build benchmark-blas
+zig build benchmark-autograd
 zig build benchmark-models
 zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl
 ```
@@ -41,6 +43,12 @@ zig build benchmark-compare -- \
 - `primitive`
   - deterministic contiguous add
   - deterministic square matmul
+- `blas`
+  - deterministic vector dot product
+  - deterministic matrix-vector multiply
+- `autograd`
+  - deterministic dot forward+backward
+  - deterministic matvec forward+backward
 - `model-train`
   - synthetic MNIST-style MLP training step
   - synthetic CartPole-shaped DQN training step
@@ -61,7 +69,7 @@ Benchmark specs live under [`benchmarks/specs/`](./specs/) as JSON files.
 Common fields:
 
 - `id`: stable benchmark identifier
-- `suite`: `primitive`, `model-train`, or `model-infer`
+- `suite`: `primitive`, `blas`, `autograd`, `model-train`, or `model-infer`
 - `kind`: workload selector
 - `dtype`: currently `f32`
 - `warmup_iterations`
@@ -72,7 +80,8 @@ Common fields:
 
 Workload-specific fields:
 
-- `lhs_shape`, `rhs_shape` for primitive add/matmul
+- `lhs_shape`, `rhs_shape` for primitive add/matmul, BLAS dot/matvec, and
+  autograd dot/matvec backward
 - `batch_size`, `input_shape`, `label_shape` for batched model workloads
 - `input_shape`, optional `label_shape`, and derived synthetic graph topology
   for GCN workloads
@@ -117,7 +126,8 @@ The optional PyTorch runner lives under
 
 If `torch` is not installed, the runner emits a `skipped` record instead of
 failing the whole benchmark run. This keeps the default path dependency-light
-while still allowing direct framework comparisons on prepared machines.
+while still allowing direct framework comparisons on prepared machines for the
+BLAS, autograd, and model suites.
 
 ## Authoring
 

@@ -56,12 +56,15 @@ Run the narrowest meaningful validation first:
 ```sh
 zig build test
 zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json
+zig build benchmark -- --spec benchmarks/specs/blas/dot-f32-262144.json
 ```
 
 For smoke-scope changes, rerun the standard entrypoints:
 
 ```sh
 zig build benchmark-primitive
+zig build benchmark-blas
+zig build benchmark-autograd
 zig build benchmark-models
 zig build benchmark
 ```

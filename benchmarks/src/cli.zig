@@ -130,6 +130,12 @@ fn loadSpecs(allocator: std.mem.Allocator, options: Options) ![]const manifest.S
         if (matchesGroup(options.group, "primitive")) {
             try appendSuiteSpecs(allocator, &specs, options.spec_root, "primitive");
         }
+        if (matchesGroup(options.group, "blas")) {
+            try appendSuiteSpecs(allocator, &specs, options.spec_root, "blas");
+        }
+        if (matchesGroup(options.group, "autograd")) {
+            try appendSuiteSpecs(allocator, &specs, options.spec_root, "autograd");
+        }
         if (matchesGroup(options.group, "model-train")) {
             try appendSuiteSpecs(allocator, &specs, options.spec_root, "model-train");
         }
