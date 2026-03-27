@@ -152,6 +152,11 @@ zig build safetensors-benchmark
 
 A lot is planned and hoping for support from the Zig community so we can accomplish some of the more ambitious goals.
 
+The detailed implementation plan now lives in
+[`docs/roadmap.md`](./docs/roadmap.md),
+with per-initiative RFCs in
+[`docs/rfcs/`](./docs/rfcs/).
+
 - More comprehensive MKL and CUDA support (in progress)
 - Support for popular formats like ONNX and ggml.
 - Standardized benchmarking procedures (always an ongoing effort)
