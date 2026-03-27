@@ -1032,6 +1032,8 @@ pub fn NDTensor(comptime T: type) type {
         const BmmOpts = struct {
             trans_a: bool = false,
             trans_b: bool = false,
+            alpha: T = 1.0,
+            beta: T = 0.0,
         };
 
         /// Matrix multiplication. COM.
@@ -1040,8 +1042,8 @@ pub fn NDTensor(comptime T: type) type {
                 .data = try self.data.bmm(other.data, self.device, .{
                     .trans_a = opts.trans_a,
                     .trans_b = opts.trans_b,
-                    .alpha = 1.0,
-                    .beta = 0.0,
+                    .alpha = opts.alpha,
+                    .beta = opts.beta,
                 }),
                 .children = &.{ &self.node, &other.node },
                 .device = self.device,
@@ -1055,8 +1057,8 @@ pub fn NDTensor(comptime T: type) type {
             try self.data.bmm_acc_(other.data, &out.data, self.device, .{
                 .trans_a = opts.trans_a,
                 .trans_b = opts.trans_b,
-                .alpha = 1.0,
-                .beta = 0.0,
+                .alpha = opts.alpha,
+                .beta = opts.beta,
             });
 
             return create_dependent(BmmAccBwd, .{
@@ -1989,6 +1991,62 @@ test "tensor/Graph/matmul_backward non-square" {
         try std.testing.expectEqualSlices(T, expected_grad_t1, t1_case4.assume_grad_data());
         try std.testing.expectEqualSlices(T, expected_grad_t2, t2_case4.assume_grad_data());
     }
+}
+
+test "tensor/Graph/matmul_backward nested broadcast batches" {
+    var cpu = zg.device.HostDevice.init_advanced(TestOpts);
+    defer cpu.deinit();
+
+    const device = cpu.reference();
+
+    var graph = Graph.init(std.testing.allocator, .{});
+    defer graph.deinit();
+
+    const opts: TensorOpts = .{
+        .requires_grad = true,
+        .graph = &graph,
+    };
+
+    const T = f32;
+    const Tensor = NDTensor(T);
+
+    var t1 = try Tensor.from_slice(device, &.{
+        1,  2,  3,  4,  5,  6,
+        7,  8,  9,  10, 11, 12,
+        13, 14, 15, 16, 17, 18,
+        19, 20, 21, 22, 23, 24,
+    }, &.{ 2, 2, 2, 3 }, opts);
+    defer t1.deinit();
+
+    var t2 = try Tensor.from_slice(device, &.{
+        1,  2,  3,  4,  5,  6,
+        7,  8,  9,  10, 11, 12,
+    }, &.{ 2, 1, 3, 2 }, opts);
+    defer t2.deinit();
+
+    var t3 = try t1.bmm(t2, .{});
+    defer t3.deinit();
+
+    try t3.backward();
+
+    const expected_out = &[_]T{
+        22, 28, 49, 64, 76, 100, 103, 136,
+        382, 424, 463, 514, 544, 604, 625, 694,
+    };
+    const expected_grad_t1 = &[_]T{
+        3,  7,  11, 3,  7,  11,
+        3,  7,  11, 3,  7,  11,
+        15, 19, 23, 15, 19, 23,
+        15, 19, 23, 15, 19, 23,
+    };
+    const expected_grad_t2 = &[_]T{
+        22, 22, 26, 26, 30, 30,
+        70, 70, 74, 74, 78, 78,
+    };
+
+    try std.testing.expectEqualSlices(T, expected_out, t3.get_data());
+    try std.testing.expectEqualSlices(T, expected_grad_t1, t1.assume_grad_data());
+    try std.testing.expectEqualSlices(T, expected_grad_t2, t2.assume_grad_data());
 }
 
 test "tensor/Graph/matmul_backward" {

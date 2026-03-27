@@ -4,7 +4,7 @@ Status: `Ready`
 Priority: `P0`  
 Depends on: RFC-0001  
 Blocks: RFC-0006, RFC-0012  
-Last updated: `2026-03-27`
+Last updated: `2026-03-28`
 
 ## Summary
 
@@ -108,9 +108,10 @@ regardless of provider:
 
 ### Workstream B: Kernel Coverage
 
-- GEMM and GEMV for `f32`, `f64`.
-- Batched GEMM if supported efficiently by the provider.
-- Audit conv and linear layers to ensure provider-backed paths are taken.
+- [x] GEMM and GEMV for `f32`, `f64`.
+- [x] Batched GEMM with correct nested batch-broadcast semantics, preserving
+  direct batched dispatch for modulo-safe layouts.
+- [ ] Audit conv and linear layers to ensure provider-backed paths are taken.
 
 ### Workstream C: Correctness and Debuggability
 
@@ -186,3 +187,45 @@ regardless of provider:
     `first = json.loads(Path("benchmarks/results/latest.jsonl").read_text().splitlines()[0])`
     `print(first["backend"]["host_provider"])`
     `PY`
+
+### 2026-03-28 Batched GEMM Broadcast Correctness
+
+- Completed:
+  - Fixed batched matmul broadcast indexing in
+    [`src/ndarray.zig`](../../src/ndarray.zig) so nested batch broadcasts such
+    as `[2,2,...] x [2,1,...]` now match PyTorch-style semantics instead of the
+    previous flatten-and-modulo shortcut.
+  - Added a generic per-batch `matmul` fallback for non-modulo-safe broadcast
+    layouts while preserving the existing direct batched dispatch for common
+    safe layouts, including linear-layer style `[batch,...] x [weight]` cases.
+  - Fixed accumulation into broadcast-compatible outputs in `bmm_acc_`, which
+    is required for backward passes that reduce repeated batch contributions
+    into a smaller gradient tensor.
+  - Updated [`src/ndtensor.zig`](../../src/ndtensor.zig) so batched matmul
+    options forward `alpha`/`beta`, making the existing backward accumulation
+    call sites behave as intended.
+  - Added nested broadcast forward and backward regression tests in
+    [`src/ndarray.zig`](../../src/ndarray.zig) and
+    [`src/ndtensor.zig`](../../src/ndtensor.zig).
+  - Updated the example build entrypoints under [`examples/`](../../examples/)
+    to accept `-Dhost_blas=...` directly while preserving `-Denable_mkl=true`
+    as a local compatibility alias.
+  - Updated [`examples/gcn/src/main.zig`](../../examples/gcn/src/main.zig) to
+    use the current `std.json.Stringify` API so the GCN example builds again on
+    the current Zig toolchain.
+- Remains:
+  - Validate OpenBLAS and oneMKL builds on Linux/x86 hardware and add
+    cross-provider numerical parity coverage.
+  - Audit conv and linear call paths beyond the matmul broadcast fix and add
+    example/runtime smoke coverage for the provider-sensitive paths.
+  - Add runtime smoke coverage for the example portfolio now that the explicit
+    `host_blas` entrypoints are aligned.
+- Blockers:
+  - This run still had no Linux OpenBLAS/oneMKL environment, so provider parity
+    remains unexecuted locally.
+- Validation performed:
+  - `zig build test`
+  - `cd examples/hello-world && zig build -Dhost_blas=accelerate`
+  - `cd examples/mnist && zig build -Dhost_blas=accelerate`
+  - `cd examples/dqn && zig build -Dhost_blas=accelerate`
+  - `cd examples/gcn && zig build -Dhost_blas=accelerate`

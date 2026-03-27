@@ -6,13 +6,14 @@ pub fn build(b: *std.Build) void {
 
     const enable_cuda = b.option(bool, "enable_cuda", "Enable CUDA") orelse false;
     const rebuild_cuda = b.option(bool, "rebuild_cuda", "Rebuild CUDA") orelse false;
-    const enable_mkl = b.option(bool, "enable_mkl", "Enable MKL") orelse false;
+    const legacy_enable_mkl = b.option(bool, "enable_mkl", "Deprecated: use -Dhost_blas=mkl.") orelse false;
+    const host_blas = b.option([]const u8, "host_blas", "Host BLAS provider: auto|accelerate|openblas|mkl.") orelse if (legacy_enable_mkl) "mkl" else "auto";
     const log_level = b.option(std.log.Level, "log_level", "Log level") orelse .info;
 
     const zigrad_dep = b.dependency("zigrad", .{
         .target = target,
         .optimize = optimize,
-        .enable_mkl = enable_mkl,
+        .host_blas = host_blas,
         .log_level = log_level,
         .enable_cuda = enable_cuda,
         .rebuild_cuda = rebuild_cuda,

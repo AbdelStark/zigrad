@@ -143,7 +143,10 @@ pub fn run_cora(data_dir: []const u8) !void {
         total_test_time_ms_trimmed,
     });
 
-    const json_obj = try std.json.stringifyAlloc(allocator, .{
+    var json_out: std.io.Writer.Allocating = .init(allocator);
+    defer json_out.deinit();
+
+    try std.json.Stringify.value(.{
         .avg_epoch_train_fbs_ms = total_train_time / num_epochs,
         .avg_epoch_test_fbs_ms = total_test_time / num_epochs,
         .total_train_fbs_ms = total_train_time,
@@ -152,10 +155,10 @@ pub fn run_cora(data_dir: []const u8) !void {
         .avg_epoch_test_fbs_trimmed_ms = total_test_time_ms_trimmed / (num_epochs - 1),
         .total_train_fbs_trimmed_ms = total_train_time_ms_trimmed,
         .total_test_fbs_trimmed_ms = total_test_time_ms_trimmed,
-    }, .{ .whitespace = .indent_2 });
-    defer allocator.free(json_obj);
+    }, .{ .whitespace = .indent_2 }, &json_out.writer);
+
     const stdout = std.fs.File.stdout().deprecatedWriter();
-    try stdout.print("{s}\n", .{json_obj});
+    try stdout.print("{s}\n", .{json_out.written()});
 }
 
 pub fn main() !void {

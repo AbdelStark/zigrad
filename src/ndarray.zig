@@ -807,6 +807,51 @@ pub fn NDArray(comptime T: type) type {
 
 // Moved out of ndarray so we don't export it as the
 // public facing api.
+fn canUseModuloBatchMapping(source_batch_dims: Shape, target_batch_dims: Shape) bool {
+    if (target_batch_dims.len == 0 or source_batch_dims.size() == 1 or source_batch_dims.equal(target_batch_dims)) {
+        return true;
+    }
+
+    if (source_batch_dims.len > target_batch_dims.len) return false;
+
+    const pad: usize = target_batch_dims.len - source_batch_dims.len;
+    var seen_non_broadcast = false;
+
+    for (0..target_batch_dims.len) |i| {
+        const source_dim = if (i < pad) 1 else source_batch_dims.get(i - pad);
+        const target_dim = target_batch_dims.get(i);
+
+        if (source_dim != target_dim and source_dim != 1) return false;
+
+        if (source_dim != 1) {
+            seen_non_broadcast = true;
+        } else if (seen_non_broadcast and target_dim != 1) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+fn batchIndexForOutput(source_batch_dims: Shape, target_batch_dims: Shape, output_batch_index: usize) usize {
+    if (target_batch_dims.len == 0 or source_batch_dims.size() == 1) return 0;
+
+    std.debug.assert(source_batch_dims.len <= target_batch_dims.len);
+
+    const target_coord = target_batch_dims.strides().offset_to_pos(output_batch_index);
+    var source_coord = Shape.Indices.empty;
+    source_coord.len = source_batch_dims.len;
+
+    const pad: usize = target_batch_dims.len - source_batch_dims.len;
+
+    for (0..source_batch_dims.len) |i| {
+        const source_dim = source_batch_dims.get(i);
+        source_coord.set(i, if (source_dim == 1) 0 else target_coord.get(pad + i));
+    }
+
+    return @intCast(source_batch_dims.strides().pos_to_offset(source_coord));
+}
+
 fn bmm_acc_impl(
     T: type,
     A: *const NDArray(T),
@@ -849,15 +894,15 @@ fn bmm_acc_impl(
     const K = if (trans_a) a_rows else a_cols;
     const N = if (trans_b) b_rows else b_cols;
 
-    const C_shape = Shape.merge(&.{ broadcast_batch_dims.slice(), &.{ M, N } });
+    const logical_C_shape = Shape.merge(&.{ broadcast_batch_dims.slice(), &.{ M, N } });
 
-    var C: Self = if (accumulator) |acc| acc.* else try Self.empty(C_shape.slice(), device);
+    var C: Self = if (accumulator) |acc| acc.* else try Self.empty(logical_C_shape.slice(), device);
     errdefer if (accumulator == null) C.deinit(device);
 
     if (builtin.mode == .Debug) {
         if (accumulator) |_| {
-            if (!C.shape.compatible(C_shape)) {
-                std.debug.panic("Expected accumulator shape {f} but got {f}", .{ C_shape, C.shape });
+            if (!C.shape.compatible(logical_C_shape)) {
+                std.debug.panic("Expected accumulator shape {f} but got {f}", .{ logical_C_shape, C.shape });
             }
         }
 
@@ -866,27 +911,93 @@ fn bmm_acc_impl(
                 a_rows, a_cols, b_rows, b_cols, broadcast_batch_dims, trans_a, trans_b,
             });
         }
+
+        const c_matrix_dims = C.shape.tail(2);
+        if (c_matrix_dims[0] != M or c_matrix_dims[1] != N) {
+            std.debug.panic("Expected output matrix dims {}x{} but got {f}", .{
+                M,
+                N,
+                C.shape,
+            });
+        }
+    }
+
+    if (accumulator == null and beta != 0) {
+        C.fill(0, device);
     }
 
     const n_batches_a = a_batch_dims.size();
     const n_batches_b = b_batch_dims.size();
     const n_batches_c = broadcast_batch_dims.size();
+    const c_batch_dims = Shape.init(if (C.shape.len > 2) C.shape.crop(0, 2) else &.{1});
+    const use_batched_dispatch = C.shape.equal(logical_C_shape) and
+        canUseModuloBatchMapping(a_batch_dims, broadcast_batch_dims) and
+        canUseModuloBatchMapping(b_batch_dims, broadcast_batch_dims);
 
-    device.dispatch(opspec.bmm_acc(T){
-        .A = A.get_data(),
-        .A_shape = &.{ n_batches_a, M, K },
-        .B = B.get_data(),
-        .B_shape = &.{ n_batches_b, K, N },
-        .C = C.get_data(),
-        .C_shape = &.{ n_batches_c, M, N },
-        .trans_a = trans_a,
-        .trans_b = trans_b,
-        .lda = a_cols,
-        .ldb = b_cols,
-        .ldc = N,
-        .alpha = alpha,
-        .beta = beta,
-    });
+    if (use_batched_dispatch) {
+        device.dispatch(opspec.bmm_acc(T){
+            .A = A.get_data(),
+            .A_shape = &.{ n_batches_a, M, K },
+            .B = B.get_data(),
+            .B_shape = &.{ n_batches_b, K, N },
+            .C = C.get_data(),
+            .C_shape = &.{ n_batches_c, M, N },
+            .trans_a = trans_a,
+            .trans_b = trans_b,
+            .lda = a_cols,
+            .ldb = b_cols,
+            .ldc = N,
+            .alpha = alpha,
+            .beta = beta,
+        });
+        return C;
+    }
+
+    const a_chunk = a_rows * a_cols;
+    const b_chunk = b_rows * b_cols;
+    const c_chunk = M * N;
+
+    const c_batch_count: usize = @intCast(c_batch_dims.size());
+    var c_written: ?[]bool = null;
+    defer if (c_written) |written| std.heap.smp_allocator.free(written);
+
+    if (accumulator != null) {
+        c_written = try std.heap.smp_allocator.alloc(bool, c_batch_count);
+        @memset(c_written.?, false);
+    }
+
+    for (0..@as(usize, @intCast(n_batches_c))) |batch_index| {
+        const a_batch_index = batchIndexForOutput(a_batch_dims, broadcast_batch_dims, batch_index);
+        const b_batch_index = batchIndexForOutput(b_batch_dims, broadcast_batch_dims, batch_index);
+        const c_batch_index = batchIndexForOutput(c_batch_dims, broadcast_batch_dims, batch_index);
+
+        const a_start = a_batch_index * a_chunk;
+        const b_start = b_batch_index * b_chunk;
+        const c_start = c_batch_index * c_chunk;
+
+        const batch_beta: T = if (accumulator == null) 0 else blk: {
+            const written = c_written.?;
+            if (written[c_batch_index]) break :blk 1;
+            written[c_batch_index] = true;
+            break :blk beta;
+        };
+
+        device.dispatch(opspec.matmul(T){
+            .A = A.get_data()[a_start .. a_start + a_chunk],
+            .B = B.get_data()[b_start .. b_start + b_chunk],
+            .C = C.get_data()[c_start .. c_start + c_chunk],
+            .m = M,
+            .n = N,
+            .k = K,
+            .trans_a = trans_a,
+            .trans_b = trans_b,
+            .lda = a_cols,
+            .ldb = b_cols,
+            .ldc = N,
+            .alpha = alpha,
+            .beta = batch_beta,
+        });
+    }
 
     return C;
 }
@@ -1194,19 +1305,19 @@ test "NDArray.matmul" {
         try std.testing.expectEqualSlices(T, expected8.get_data(), C1.get_data());
     }
 
-    // Test 9: 2x2x2x3 * 2x1x3x2 = 2x2x2x2 (4D broadcasting)
-    // FIXME: mm edge case pytorch parity, when this works test 7b should break
-    // {
-    //     const A1 = try Array.from_slice(&.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24 }, &[_]usize{ 2, 2, 2, 3 }, alloc);
-    //     const B1 = try Array.from_slice(&.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 }, &[_]usize{ 2, 1, 3, 2 }, alloc);
-    //     const C1 = try A1.matmul(B1, false, false, alloc);
-    //     const expected9 = try Array.from_slice(&.{ 22, 28, 49, 64, 76, 100, 103, 136, 382, 424, 463, 514, 544, 604, 625, 694 }, &[_]usize{ 2, 2, 2, 2 }, alloc);
-    //     expected9.print();
-    //     C1.print();
-    //     try std.testing.expectEqualDeep(expected9.data, C1.data);
-    //     try std.testing.expectEqualDeep(expected9.shape.shape, C1.shape.shape);
-    //     try std.testing.expectEqualDeep(expected9, C1);
-    // }
+    // Test 9: 2x2x2x3 * 2x1x3x2 = 2x2x2x2 (nested 4D broadcasting)
+    {
+        var A1 = try Array.from_slice(&.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24 }, &[_]usize{ 2, 2, 2, 3 }, device);
+        defer A1.deinit(device);
+        var B1 = try Array.from_slice(&.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 }, &[_]usize{ 2, 1, 3, 2 }, device);
+        defer B1.deinit(device);
+        var C1 = try A1.bmm(B1, device, .{});
+        defer C1.deinit(device);
+        var expected9 = try Array.from_slice(&.{ 22, 28, 49, 64, 76, 100, 103, 136, 382, 424, 463, 514, 544, 604, 625, 694 }, &[_]usize{ 2, 2, 2, 2 }, device);
+        defer expected9.deinit(device);
+        try std.testing.expectEqualSlices(T, expected9.get_data(), C1.get_data());
+        try std.testing.expectEqualSlices(u64, expected9.shape.slice(), C1.shape.slice());
+    }
 }
 
 test "NDArray.matmul with accumulation" {

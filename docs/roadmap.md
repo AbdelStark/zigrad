@@ -69,7 +69,7 @@ documents we will implement against.
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
 | RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, smoke CI, and synthetic BLAS/autograd/memory/MNIST/DQN/GCN coverage are landed; future CUDA/compiler/interop suites remain. |
-| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, runtime metadata, and documented oneMKL path overrides are landed; Linux OpenBLAS/oneMKL parity and performance validation remain. |
+| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, and example `host_blas` propagation are landed; Linux OpenBLAS/oneMKL parity and performance validation remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Turns experimental CUDA into a supported execution backend. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
 | RFC-0005 | ggml/GGUF Interop | `Planned` | P1 | RFC-0001, RFC-0012 | Critical for LLM examples and inference compatibility. |
@@ -245,3 +245,32 @@ Every RFC in this folder set must maintain:
     `first = json.loads(Path("benchmarks/results/latest.jsonl").read_text().splitlines()[0])`
     `print(first["backend"]["host_provider"])`
     `PY`
+
+### RFC-0002 2026-03-28 Batched GEMM Broadcast Correctness
+
+- Completed:
+  - Fixed nested batch-broadcast indexing in
+    [`src/ndarray.zig`](../src/ndarray.zig) so broadcasted batched matmul no
+    longer relies on incorrect flatten-and-modulo mapping.
+  - Added a per-batch `matmul` fallback for non-modulo-safe layouts while
+    keeping the direct batched dispatch fast path for safe host/CUDA cases.
+  - Fixed accumulation into smaller broadcast-compatible outputs and forwarded
+    `alpha`/`beta` through [`src/ndtensor.zig`](../src/ndtensor.zig), which
+    makes broadcasted batched-matmul backward passes accumulate correctly.
+  - Added forward/backward regression coverage for the `[2,2,2,3] x [2,1,3,2]`
+    case and propagated `-Dhost_blas=...` through the example build entrypoints
+    under [`examples/`](../examples/).
+  - Updated [`examples/gcn/src/main.zig`](../examples/gcn/src/main.zig) to the
+    current `std.json.Stringify` API so the GCN example builds again.
+- Remains:
+  - Add Linux OpenBLAS/oneMKL numerical parity coverage and benchmark tables.
+  - Audit conv and linear example/runtime paths beyond the batched matmul core.
+  - Add runtime smoke coverage for the refreshed example entrypoints.
+- Blockers:
+  - No Linux OpenBLAS or oneMKL runtime was available in this run.
+- Validation:
+  - `zig build test`
+  - `cd examples/hello-world && zig build -Dhost_blas=accelerate`
+  - `cd examples/mnist && zig build -Dhost_blas=accelerate`
+  - `cd examples/dqn && zig build -Dhost_blas=accelerate`
+  - `cd examples/gcn && zig build -Dhost_blas=accelerate`
