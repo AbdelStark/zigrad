@@ -8,6 +8,8 @@ This guide describes the RFC-0001 workflow for adding or updating benchmarks in
 - Keep the default path reproducible from a clean checkout.
 - Prefer deterministic synthetic inputs unless a dataset manifest is part of the
   benchmark contract.
+- For graph or RL-style workloads, keep synthetic topology and transition
+  generation deterministic and documented in the workload implementation.
 - Record stable `benchmark_id` values. Renaming an existing smoke benchmark
   breaks historical comparisons and should be intentional.
 - Separate setup cost from steady-state timing.
@@ -43,7 +45,9 @@ Required fields:
 - `seed`
 
 Shape and batch fields depend on the workload kind. The manifest validator
-should reject incomplete specs with clear errors.
+should reject incomplete specs with clear errors. Batched workloads should make
+their leading dimension explicit through `batch_size`; graph workloads may omit
+`batch_size` when node count is carried by `input_shape[0]`.
 
 ## Validation Workflow
 

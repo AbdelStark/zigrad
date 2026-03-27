@@ -68,7 +68,7 @@ documents we will implement against.
 
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, and smoke CI are landed; DQN/GCN coverage remains. |
+| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, smoke CI, and synthetic MNIST/DQN/GCN coverage are landed; future CUDA/compiler/interop suites remain. |
 | RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Expands host performance beyond the current baseline. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Turns experimental CUDA into a supported execution backend. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
@@ -130,9 +130,11 @@ Every RFC in this folder set must maintain:
     capture, and build entrypoints.
   - Landed initial `primitive`, `model-train`, and `model-infer` specs covering
     deterministic add, deterministic matmul, synthetic MNIST-style MLP train,
-    and synthetic MNIST-style MLP infer.
+    synthetic MNIST-style MLP infer, synthetic CartPole-style DQN train/infer,
+    and synthetic two-layer GCN train/infer.
   - Added an optional PyTorch baseline runner that emits `skipped` records when
-    `torch` is unavailable.
+    `torch` is unavailable and now understands the expanded model benchmark
+    kinds.
   - Added benchmark smoke CI in
     [`.github/workflows/benchmark-smoke.yml`](../.github/workflows/benchmark-smoke.yml).
   - Added benchmark result comparison tooling with threshold-based regression
@@ -143,17 +145,20 @@ Every RFC in this folder set must maintain:
   - Updated smoke CI to benchmark the base revision and current checkout on the
     same runner, compare results, and upload comparison artifacts.
 - Remains:
-  - Broader model coverage including DQN/GCN and cross-platform baseline data.
+  - Cross-platform baseline data with `torch` installed and broader
+    CUDA/compiler/interop workload coverage.
   - Published benchmark reporting pages or artifacts beyond uploaded CI JSONL.
 - Blockers:
   - No local PyTorch installation was present in this run, so baseline execution
     validated only the explicit `skipped` path.
 - Validation:
   - `zig build test`
+  - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`
+  - `zig build benchmark-models`
   - `zig build benchmark-compare -- --help`
   - `zig build benchmark`
+  - `zig build benchmark-models -- --baseline pytorch`
   - `zig build benchmark-compare -- --baseline benchmarks/results/latest.jsonl --candidate benchmarks/results/latest.jsonl --runner zig --json-output benchmarks/results/comparison.json --report-output benchmarks/results/comparison.txt`
   - `zig build benchmark-primitive`
-  - `zig build benchmark-models`
   - `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/benchmark-smoke.yml"); puts "workflow ok"'`
   - `python3 -c "import json, pathlib; print(pathlib.Path('benchmarks/results/comparison.json').exists())"`

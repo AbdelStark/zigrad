@@ -178,7 +178,8 @@ Regression gating should use broad thresholds first, for example:
 
 - [x] Primitive suite for representative tensor ops.
 - [x] MNIST train and inference benchmarks using deterministic synthetic data.
-- [ ] DQN benchmark skeleton.
+- [x] DQN benchmark skeleton.
+- [x] Synthetic GCN train and inference coverage.
 - [x] Optional PyTorch baseline runner hook for model benchmarks.
 
 ### Milestone C: Regression Policy
@@ -231,8 +232,7 @@ Regression gating should use broad thresholds first, for example:
   - Updated benchmark smoke CI to compare the current checkout against the base
     revision on the same runner and upload comparison artifacts.
 - Remains:
-  - Expand benchmark coverage to DQN, GCN, and future CUDA/compiler/interop
-    suites.
+  - Expand benchmark coverage further into CUDA, compiler, and interop suites.
   - Add richer reporting and historical storage beyond per-run JSON/text
     artifacts.
 - Blockers:
@@ -249,10 +249,34 @@ Regression gating should use broad thresholds first, for example:
   - `python3 -c "import json, pathlib; print(pathlib.Path('benchmarks/results/comparison.json').exists())"`
 - Exact commands:
   - `zig build test`
+  - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`
+  - `zig build benchmark-models`
   - `zig build benchmark-compare -- --help`
   - `zig build benchmark`
+  - `zig build benchmark-models -- --baseline pytorch`
   - `zig build benchmark-compare -- --baseline benchmarks/results/latest.jsonl --candidate benchmarks/results/latest.jsonl --runner zig --json-output benchmarks/results/comparison.json --report-output benchmarks/results/comparison.txt`
   - `zig build benchmark-primitive`
-  - `zig build benchmark-models`
   - `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/benchmark-smoke.yml"); puts "workflow ok"'`
   - `python3 -c "import json, pathlib; print(pathlib.Path('benchmarks/results/comparison.json').exists())"`
+
+### 2026-03-27 Synthetic DQN + GCN Coverage
+
+- Completed:
+  - Added synthetic CartPole-style DQN train/infer benchmark kinds and specs.
+  - Added synthetic two-layer GCN train/infer benchmark kinds and specs with a
+    deterministic ring-plus-skip graph topology.
+  - Expanded the optional PyTorch runner to understand DQN and GCN specs while
+    preserving explicit `skipped` behavior when `torch` is unavailable.
+  - Added benchmark tests covering DQN infer and GCN train execution paths.
+- Remains:
+  - Exercise the expanded PyTorch runner on a machine with `torch` installed.
+  - Add additional suites for CUDA, compiler, and interop milestones.
+- Blockers:
+  - Local validation still lacked a `torch` installation, so baseline execution
+    validated only the explicit skip records.
+- Validation performed:
+  - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`
+  - `zig build test`
+  - `zig build benchmark-models`
+  - `zig build benchmark`
+  - `zig build benchmark-models -- --baseline pytorch`

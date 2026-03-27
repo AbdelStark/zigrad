@@ -19,6 +19,10 @@ pub const Kind = enum {
     primitive_matmul,
     mnist_mlp_train,
     mnist_mlp_infer,
+    dqn_cartpole_train,
+    dqn_cartpole_infer,
+    gcn_train,
+    gcn_infer,
 
     pub fn asString(self: Kind) []const u8 {
         return switch (self) {
@@ -26,6 +30,10 @@ pub const Kind = enum {
             .primitive_matmul => "primitive_matmul",
             .mnist_mlp_train => "mnist_mlp_train",
             .mnist_mlp_infer => "mnist_mlp_infer",
+            .dqn_cartpole_train => "dqn_cartpole_train",
+            .dqn_cartpole_infer => "dqn_cartpole_infer",
+            .gcn_train => "gcn_train",
+            .gcn_infer => "gcn_infer",
         };
     }
 };
@@ -102,14 +110,27 @@ fn validate(path: []const u8, raw: RawSpec) !Spec {
             }
         },
         .mnist_mlp_train => {
+            try requireBatchedModelShapes(raw, true);
+        },
+        .mnist_mlp_infer => {
+            try requireBatchedModelShapes(raw, false);
+        },
+        .dqn_cartpole_train => {
+            try requireBatchedModelShapes(raw, false);
+        },
+        .dqn_cartpole_infer => {
+            try requireBatchedModelShapes(raw, false);
+        },
+        .gcn_train => {
             if (raw.input_shape == null or raw.label_shape == null) {
                 return error.MissingModelShape;
             }
-            if (raw.batch_size == null) return error.MissingBatchSize;
+            if (raw.input_shape.?[0] != raw.label_shape.?[0]) {
+                return error.InvalidLabelShape;
+            }
         },
-        .mnist_mlp_infer => {
+        .gcn_infer => {
             if (raw.input_shape == null) return error.MissingModelShape;
-            if (raw.batch_size == null) return error.MissingBatchSize;
         },
     }
 
@@ -146,12 +167,26 @@ fn parseKind(value: []const u8) !Kind {
     if (std.mem.eql(u8, value, "primitive_matmul")) return .primitive_matmul;
     if (std.mem.eql(u8, value, "mnist_mlp_train")) return .mnist_mlp_train;
     if (std.mem.eql(u8, value, "mnist_mlp_infer")) return .mnist_mlp_infer;
+    if (std.mem.eql(u8, value, "dqn_cartpole_train")) return .dqn_cartpole_train;
+    if (std.mem.eql(u8, value, "dqn_cartpole_infer")) return .dqn_cartpole_infer;
+    if (std.mem.eql(u8, value, "gcn_train")) return .gcn_train;
+    if (std.mem.eql(u8, value, "gcn_infer")) return .gcn_infer;
     return error.UnknownBenchmarkKind;
 }
 
 fn parseDType(value: []const u8) !DType {
     if (std.mem.eql(u8, value, "f32")) return .f32;
     return error.UnsupportedBenchmarkDType;
+}
+
+fn requireBatchedModelShapes(raw: RawSpec, require_labels: bool) !void {
+    if (raw.input_shape == null) return error.MissingModelShape;
+    if (raw.batch_size == null) return error.MissingBatchSize;
+    if (raw.input_shape.?[0] != raw.batch_size.?) return error.InvalidBatchSize;
+    if (require_labels) {
+        if (raw.label_shape == null) return error.MissingModelShape;
+        if (raw.label_shape.?[0] != raw.batch_size.?) return error.InvalidLabelShape;
+    }
 }
 
 test "load benchmark spec from json slice" {
@@ -178,4 +213,27 @@ test "load benchmark spec from json slice" {
     try std.testing.expectEqual(Kind.primitive_add, spec.kind);
     try std.testing.expectEqual(DType.f32, spec.dtype);
     try std.testing.expectEqual(@as(usize, 2), spec.lhs_shape.?.len);
+}
+
+test "load dqn benchmark spec from json slice" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const raw =
+        \\{
+        \\  "id": "model-train.dqn-cartpole.synthetic.f32.batch32",
+        \\  "suite": "model-train",
+        \\  "kind": "dqn_cartpole_train",
+        \\  "dtype": "f32",
+        \\  "warmup_iterations": 1,
+        \\  "measured_iterations": 2,
+        \\  "batch_size": 32,
+        \\  "input_shape": [32, 4]
+        \\}
+    ;
+    const parsed = try std.json.parseFromSliceLeaky(RawSpec, allocator, raw, .{});
+    const spec = try validate("inline-dqn.json", parsed);
+
+    try std.testing.expectEqual(Kind.dqn_cartpole_train, spec.kind);
+    try std.testing.expectEqual(@as(usize, 32), spec.batch_size.?);
 }

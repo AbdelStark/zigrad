@@ -1,0 +1,14 @@
+{
+  "id": "model-infer.dqn-cartpole.synthetic.f32.batch128",
+  "suite": "model-infer",
+  "kind": "dqn_cartpole_infer",
+  "dtype": "f32",
+  "warmup_iterations": 3,
+  "measured_iterations": 10,
+  "batch_size": 128,
+  "thread_count": 1,
+  "seed": 81761,
+  "input_shape": [128, 4],
+  "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py",
+  "notes": "Synthetic CartPole-shaped DQN forward-pass benchmark."
+}

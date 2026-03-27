@@ -55,7 +55,9 @@ https://github.com/user-attachments/assets/3842aa72-9b16-4c25-8789-eac7159e3768
 The benchmark harness now lives in
 [`benchmarks/`](./benchmarks/)
 and emits machine-readable JSONL results with hardware and backend metadata,
-plus a comparison tool for base-vs-candidate regression checks:
+plus a comparison tool for base-vs-candidate regression checks. The current
+smoke suite covers deterministic primitive, MNIST MLP, CartPole-style DQN, and
+two-layer GCN workloads:
 
 ```shell
 zig build benchmark

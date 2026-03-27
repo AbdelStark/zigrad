@@ -1,0 +1,13 @@
+{
+  "id": "model-infer.gcn.synthetic.f32.nodes128.features64",
+  "suite": "model-infer",
+  "kind": "gcn_infer",
+  "dtype": "f32",
+  "warmup_iterations": 2,
+  "measured_iterations": 6,
+  "thread_count": 1,
+  "seed": 81761,
+  "input_shape": [128, 64],
+  "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py",
+  "notes": "Synthetic two-layer GCN forward-pass benchmark on a deterministic ring-plus-skip graph."
+}

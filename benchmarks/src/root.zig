@@ -7,6 +7,9 @@ pub const workload = @import("workload.zig");
 
 test {
     _ = @import("compare.zig");
+    _ = @import("dqn_bench_model.zig");
+    _ = @import("gcn_bench_model.zig");
     _ = @import("manifest.zig");
     _ = @import("result.zig");
+    _ = @import("workload.zig");
 }

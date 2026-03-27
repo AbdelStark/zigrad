@@ -27,12 +27,42 @@ def deterministic_vector(count: int, seed: int):
     return values
 
 
+def deterministic_indices(count: int, modulus: int, seed: int):
+    values = []
+    for index in range(count):
+        values.append(splitmix64(seed + index) % modulus)
+    return values
+
+
 def one_hot(batch_size: int, classes: int, seed: int):
     values = [0.0] * (batch_size * classes)
     for row in range(batch_size):
         class_index = splitmix64(seed + row) % classes
         values[row * classes + class_index] = 1.0
     return values
+
+
+def reward_values(batch_size: int, seed: int):
+    return [value * 0.5 for value in deterministic_vector(batch_size, seed)]
+
+
+def done_values(batch_size: int, seed: int):
+    values = []
+    for row in range(batch_size):
+        values.append(1.0 if splitmix64(seed + row) % 7 == 0 else 0.0)
+    return values
+
+
+def ring_skip_edges(node_count: int, fanout: int = 4):
+    src = []
+    tgt = []
+    for node in range(node_count):
+        src.extend([node] * fanout)
+        tgt.append(node)
+        tgt.append(node_count - 1 if node == 0 else node - 1)
+        tgt.append((node + 1) % node_count)
+        tgt.append((node + 2) % node_count)
+    return src, tgt
 
 
 def host_provider() -> str:
@@ -70,6 +100,40 @@ def cpu_model() -> str:
     return platform.processor() or platform.machine()
 
 
+def shape_metadata(spec: dict):
+    kind = spec["kind"]
+    input_shape = spec.get("input_shape")
+    batch_size = spec.get("batch_size")
+
+    if kind in {"mnist_mlp_train", "mnist_mlp_infer"}:
+        shapes = [{"name": "input", "dims": input_shape}]
+        if spec.get("label_shape"):
+            shapes.append({"name": "labels", "dims": spec["label_shape"]})
+        return shapes
+
+    if kind == "dqn_cartpole_train":
+        return [
+            {"name": "state", "dims": input_shape},
+            {"name": "next_state", "dims": input_shape},
+            {"name": "action", "dims": [batch_size, 1]},
+            {"name": "reward", "dims": [batch_size, 1]},
+            {"name": "done", "dims": [batch_size, 1]},
+        ]
+
+    if kind == "dqn_cartpole_infer":
+        return [{"name": "state", "dims": input_shape}]
+
+    node_count = input_shape[0]
+    edge_count = node_count * 4
+    shapes = [
+        {"name": "node_features", "dims": input_shape},
+        {"name": "edge_index", "dims": [2, edge_count]},
+    ]
+    if kind == "gcn_train":
+        shapes.append({"name": "labels", "dims": spec["label_shape"]})
+    return shapes
+
+
 def make_record(spec: dict, status: str, notes: str, stats: dict | None):
     return {
         "benchmark_id": spec["id"],
@@ -82,10 +146,7 @@ def make_record(spec: dict, status: str, notes: str, stats: dict | None):
         "measured_iterations": spec.get("measured_iterations", 0),
         "batch_size": spec.get("batch_size"),
         "seed": spec.get("seed", 81761),
-        "shapes": [
-            {"name": "input", "dims": spec.get("input_shape")}
-        ]
-        + ([{"name": "labels", "dims": spec.get("label_shape")}] if spec.get("label_shape") else []),
+        "shapes": shape_metadata(spec),
         "runtime": {
             "timestamp_unix_ms": int(time.time() * 1000),
             "git_commit": git_commit(),
@@ -131,6 +192,15 @@ def summarize_timings(timings_ns: list[int], throughput_items: int | None, throu
     }
 
 
+def throughput_shape(spec: dict):
+    kind = spec["kind"]
+    if kind in {"mnist_mlp_train", "mnist_mlp_infer", "dqn_cartpole_train", "dqn_cartpole_infer"}:
+        return spec["batch_size"], "samples"
+    if kind in {"gcn_train", "gcn_infer"}:
+        return spec["input_shape"][0], "nodes"
+    return None, None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--spec", required=True)
@@ -144,16 +214,21 @@ def main() -> int:
         print(json.dumps(make_record(spec, "skipped", f"PyTorch unavailable: {exc}", None)))
         return 0
 
-    if spec["kind"] not in {"mnist_mlp_train", "mnist_mlp_infer"}:
+    kind = spec["kind"]
+    supported_kinds = {
+        "mnist_mlp_train",
+        "mnist_mlp_infer",
+        "dqn_cartpole_train",
+        "dqn_cartpole_infer",
+        "gcn_train",
+        "gcn_infer",
+    }
+    if kind not in supported_kinds:
         print(json.dumps(make_record(spec, "skipped", "PyTorch baseline not implemented for this benchmark kind.", None)))
         return 0
 
-    batch_size = spec["batch_size"]
-    input_shape = spec["input_shape"]
-    classes = 10
     seed = spec.get("seed", 81761)
     thread_count = spec.get("thread_count")
-
     if thread_count:
         torch.set_num_threads(thread_count)
 
@@ -178,34 +253,166 @@ def main() -> int:
             x = F.relu(F.linear(x, self.w1, self.b1))
             return F.linear(x, self.w2, self.b2)
 
+    class DQNModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.w0 = torch.nn.Parameter(linear_weight(128, 4, seed + 1))
+            self.b0 = torch.nn.Parameter(torch.zeros(128, dtype=torch.float32))
+            self.w1 = torch.nn.Parameter(linear_weight(128, 128, seed + 2))
+            self.b1 = torch.nn.Parameter(torch.zeros(128, dtype=torch.float32))
+            self.w2 = torch.nn.Parameter(linear_weight(2, 128, seed + 3))
+            self.b2 = torch.nn.Parameter(torch.zeros(2, dtype=torch.float32))
+
+        def forward(self, x):
+            x = x.reshape(x.shape[0], -1)
+            x = F.relu(F.linear(x, self.w0, self.b0))
+            x = F.relu(F.linear(x, self.w1, self.b1))
+            return F.linear(x, self.w2, self.b2)
+
+    class GCNModel(torch.nn.Module):
+        def __init__(self, in_features: int, out_features: int):
+            super().__init__()
+            self.w0 = torch.nn.Parameter(linear_weight(16, in_features, seed + 1))
+            self.b0 = torch.nn.Parameter(torch.zeros(16, dtype=torch.float32))
+            self.w1 = torch.nn.Parameter(linear_weight(out_features, 16, seed + 2))
+            self.b1 = torch.nn.Parameter(torch.zeros(out_features, dtype=torch.float32))
+
+        @staticmethod
+        def propagate(h, edge_index):
+            src = edge_index[0]
+            tgt = edge_index[1]
+            node_count = h.shape[0]
+            deg = torch.ones(node_count, dtype=h.dtype)
+            deg.index_add_(0, tgt, torch.ones_like(tgt, dtype=h.dtype))
+            deg_norm = deg.rsqrt()
+
+            src_scale = deg_norm.index_select(0, src).unsqueeze(-1)
+            tgt_scale = deg_norm.index_select(0, tgt).unsqueeze(-1)
+            messages = h.index_select(0, src) * src_scale * tgt_scale
+
+            out = torch.zeros((node_count, h.shape[1]), dtype=h.dtype)
+            out.index_add_(0, tgt, messages)
+            return out
+
+        def layer(self, x, edge_index, weight, bias):
+            h = F.linear(x, weight, None)
+            return self.propagate(h, edge_index) + bias
+
+        def forward(self, x, edge_index):
+            x = F.relu(self.layer(x, edge_index, self.w0, self.b0))
+            return self.layer(x, edge_index, self.w1, self.b1)
+
     setup_start = time.perf_counter_ns()
-    model = MnistMLP()
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
-    inputs = torch.tensor(
-        deterministic_vector(math.prod(input_shape), seed + 11),
-        dtype=torch.float32,
-    ).reshape(*input_shape)
-    label_tensor = None
-    if spec["kind"] == "mnist_mlp_train":
-        label_tensor = torch.tensor(one_hot(batch_size, classes, seed + 17), dtype=torch.float32).reshape(batch_size, classes)
+    step = None
+
+    if kind in {"mnist_mlp_train", "mnist_mlp_infer"}:
+        batch_size = spec["batch_size"]
+        input_shape = spec["input_shape"]
+        model = MnistMLP()
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+        inputs = torch.tensor(
+            deterministic_vector(math.prod(input_shape), seed + 11),
+            dtype=torch.float32,
+        ).reshape(*input_shape)
+        labels = None
+        if kind == "mnist_mlp_train":
+            labels = torch.tensor(one_hot(batch_size, 10, seed + 17), dtype=torch.float32).reshape(batch_size, 10)
+
+        def train_step():
+            logits = model(inputs)
+            loss = -(labels * torch.log_softmax(logits, dim=-1)).sum(dim=-1).mean()
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad(set_to_none=False)
+
+        def infer_step():
+            with torch.no_grad():
+                _ = model(inputs)
+
+        step = train_step if kind == "mnist_mlp_train" else infer_step
+
+    elif kind in {"dqn_cartpole_train", "dqn_cartpole_infer"}:
+        batch_size = spec["batch_size"]
+        input_shape = spec["input_shape"]
+        policy = DQNModel()
+        optimizer = torch.optim.Adam(policy.parameters(), lr=1e-4, betas=(0.9, 0.999), eps=1e-8)
+        states = torch.tensor(
+            deterministic_vector(math.prod(input_shape), seed + 31),
+            dtype=torch.float32,
+        ).reshape(*input_shape)
+
+        if kind == "dqn_cartpole_train":
+            target = DQNModel()
+            target.load_state_dict(policy.state_dict())
+            next_states = torch.tensor(
+                deterministic_vector(math.prod(input_shape), seed + 37),
+                dtype=torch.float32,
+            ).reshape(*input_shape)
+            actions = torch.tensor(deterministic_indices(batch_size, 2, seed + 41), dtype=torch.int64).reshape(batch_size, 1)
+            rewards = torch.tensor(reward_values(batch_size, seed + 43), dtype=torch.float32).reshape(batch_size, 1)
+            dones = torch.tensor(done_values(batch_size, seed + 47), dtype=torch.float32).reshape(batch_size, 1)
+
+            def train_step():
+                with torch.no_grad():
+                    next_q = target(next_states)
+                    max_next_q = next_q.max(dim=1, keepdim=True).values
+                    targets = rewards + 0.99 * max_next_q * (1.0 - dones)
+
+                all_q = policy(states)
+                selected_q = all_q.gather(1, actions)
+                loss = F.smooth_l1_loss(selected_q, targets, reduction="mean")
+                loss.backward()
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=False)
+
+            step = train_step
+        else:
+
+            def infer_step():
+                with torch.no_grad():
+                    _ = policy(states)
+
+            step = infer_step
+
+    else:
+        input_shape = spec["input_shape"]
+        node_count = input_shape[0]
+        feature_count = input_shape[1]
+        output_features = spec.get("label_shape", [node_count, 7])[1]
+        src, tgt = ring_skip_edges(node_count)
+        edge_index = torch.tensor([src, tgt], dtype=torch.int64)
+        inputs = torch.tensor(
+            deterministic_vector(math.prod(input_shape), seed + 59),
+            dtype=torch.float32,
+        ).reshape(*input_shape)
+        model = GCNModel(feature_count, output_features)
+        if kind == "gcn_train":
+            optimizer = torch.optim.Adam(model.parameters(), lr=0.01, betas=(0.9, 0.999), eps=1e-8)
+            labels = torch.tensor(one_hot(node_count, output_features, seed + 61), dtype=torch.float32).reshape(
+                node_count, output_features
+            )
+
+            def train_step():
+                logits = model(inputs, edge_index)
+                loss = -(labels * torch.log_softmax(logits, dim=-1)).sum(dim=-1).mean()
+                loss.backward()
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=False)
+
+            step = train_step
+        else:
+
+            def infer_step():
+                with torch.no_grad():
+                    _ = model(inputs, edge_index)
+
+            step = infer_step
+
     setup_latency_ns = time.perf_counter_ns() - setup_start
 
     warmup_iterations = spec["warmup_iterations"]
     measured_iterations = spec["measured_iterations"]
     timings_ns: list[int] = []
-
-    def train_step():
-        logits = model(inputs)
-        loss = -(label_tensor * torch.log_softmax(logits, dim=-1)).sum(dim=-1).mean()
-        loss.backward()
-        optimizer.step()
-        optimizer.zero_grad(set_to_none=False)
-
-    def infer_step():
-        with torch.no_grad():
-            _ = model(inputs)
-
-    step = train_step if spec["kind"] == "mnist_mlp_train" else infer_step
 
     for _ in range(warmup_iterations):
         step()
@@ -214,11 +421,8 @@ def main() -> int:
         step()
         timings_ns.append(time.perf_counter_ns() - start)
 
-    stats = summarize_timings(
-        timings_ns,
-        batch_size if spec["kind"].startswith("mnist_mlp") else None,
-        "samples" if spec["kind"].startswith("mnist_mlp") else None,
-    )
+    throughput_items, throughput_unit = throughput_shape(spec)
+    stats = summarize_timings(timings_ns, throughput_items, throughput_unit)
     stats["setup_latency_ns"] = setup_latency_ns
     print(json.dumps(make_record(spec, "ok", spec.get("notes", ""), stats)))
     return 0

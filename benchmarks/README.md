@@ -1,6 +1,7 @@
 # Benchmark Harness
 
-This directory contains the RFC-0001 benchmark harness and its initial specs.
+This directory contains the RFC-0001 benchmark harness and its current
+synthetic smoke-scale specs.
 
 ## Entry Points
 
@@ -42,12 +43,16 @@ zig build benchmark-compare -- \
   - deterministic square matmul
 - `model-train`
   - synthetic MNIST-style MLP training step
+  - synthetic CartPole-shaped DQN training step
+  - synthetic two-layer GCN training step on a deterministic graph
 - `model-infer`
   - synthetic MNIST-style MLP inference step
+  - synthetic CartPole-shaped DQN inference step
+  - synthetic two-layer GCN inference step on a deterministic graph
 
-The MLP architecture matches the reference MNIST example dimensions while using
-deterministic synthetic inputs and labels so the suite runs from a clean
-checkout without dataset downloads.
+These model benchmarks mirror the repository's reference families while using
+deterministic synthetic inputs, transitions, labels, and graphs so the suite
+runs from a clean checkout without dataset downloads or simulator setup.
 
 ## Spec Format
 
@@ -68,7 +73,9 @@ Common fields:
 Workload-specific fields:
 
 - `lhs_shape`, `rhs_shape` for primitive add/matmul
-- `batch_size`, `input_shape`, `label_shape` for model workloads
+- `batch_size`, `input_shape`, `label_shape` for batched model workloads
+- `input_shape`, optional `label_shape`, and derived synthetic graph topology
+  for GCN workloads
 - `pytorch_runner` for optional baseline execution
 
 ## Output Schema

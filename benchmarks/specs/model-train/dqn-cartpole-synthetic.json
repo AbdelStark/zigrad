@@ -1,0 +1,14 @@
+{
+  "id": "model-train.dqn-cartpole.synthetic.f32.batch128",
+  "suite": "model-train",
+  "kind": "dqn_cartpole_train",
+  "dtype": "f32",
+  "warmup_iterations": 1,
+  "measured_iterations": 4,
+  "batch_size": 128,
+  "thread_count": 1,
+  "seed": 81761,
+  "input_shape": [128, 4],
+  "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py",
+  "notes": "Synthetic CartPole-shaped DQN training step with deterministic transitions."
+}
