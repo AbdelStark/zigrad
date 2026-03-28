@@ -1,6 +1,7 @@
 const std = @import("std");
 const zg = @import("zigrad");
 const conv_utils = zg.conv_utils;
+const test_support = @import("test_support.zig");
 
 const MnistModel = @import("examples_mnist_model").MnistModel;
 const DQNModel = @import("examples_dqn_model").DQNModel;
@@ -20,57 +21,6 @@ fn expectDispatchTelemetry(
     try std.testing.expectEqual(expected.direct_bmm_dispatches, actual.direct_bmm_dispatches);
     try std.testing.expectEqual(expected.fallback_bmm_dispatches, actual.fallback_bmm_dispatches);
     try std.testing.expectEqual(expected.fallback_bmm_batches, actual.fallback_bmm_batches);
-}
-
-fn countElements(shape: []const usize) usize {
-    var total: usize = 1;
-    for (shape) |dim| total *= dim;
-    return total;
-}
-
-fn splitmix64(state: u64) u64 {
-    var z = state +% 0x9E3779B97F4A7C15;
-    z = (z ^ (z >> 30)) *% 0xBF58476D1CE4E5B9;
-    z = (z ^ (z >> 27)) *% 0x94D049BB133111EB;
-    return z ^ (z >> 31);
-}
-
-fn makeDeterministicSlice(
-    allocator: std.mem.Allocator,
-    count: usize,
-    seed: u64,
-) ![]f32 {
-    const values = try allocator.alloc(f32, count);
-    for (values, 0..) |*value, index| {
-        const mixed = splitmix64(seed +% @as(u64, index));
-        const normalized = (@as(f64, @floatFromInt(mixed % 10_000)) / 10_000.0) - 0.5;
-        value.* = @as(f32, @floatCast(normalized * 0.25));
-    }
-    return values;
-}
-
-fn makeGraphEdgeIndex(
-    allocator: std.mem.Allocator,
-    node_count: usize,
-    fanout: usize,
-) ![]usize {
-    const edge_count = node_count * fanout;
-    const values = try allocator.alloc(usize, edge_count * 2);
-
-    for (0..node_count) |node| {
-        for (0..fanout) |slot| {
-            const edge_index = (node * fanout) + slot;
-            values[edge_index] = node;
-            values[edge_count + edge_index] = switch (slot) {
-                0 => node,
-                1 => if (node == 0) node_count - 1 else node - 1,
-                2 => (node + 1) % node_count,
-                else => (node + 2) % node_count,
-            };
-        }
-    }
-
-    return values;
 }
 
 test "host BLAS telemetry tracks direct dot matvec and batched matmul dispatch" {
@@ -135,7 +85,11 @@ test "mnist example forward uses three host batched matmul dispatches" {
     var model = try MnistModel(f32).initWithGraph(device, &graph);
     defer model.deinit();
 
-    const input_values = try makeDeterministicSlice(allocator, countElements(&input_shape), 11);
+    const input_values = try test_support.makeDeterministicSlice(
+        allocator,
+        test_support.countElements(&input_shape),
+        11,
+    );
     defer allocator.free(input_values);
 
     const input = try Tensor.from_slice(device, input_values, &input_shape, .{ .graph = &graph });
@@ -173,7 +127,11 @@ test "dqn example forward uses three host batched matmul dispatches" {
     var model = try DQNModel(f32, 3).initWithGraph(device, 4, 128, 2, &graph);
     defer model.deinit();
 
-    const input_values = try makeDeterministicSlice(allocator, countElements(&input_shape), 29);
+    const input_values = try test_support.makeDeterministicSlice(
+        allocator,
+        test_support.countElements(&input_shape),
+        29,
+    );
     defer allocator.free(input_values);
 
     const input = try Tensor.from_slice(device, input_values, &input_shape, .{ .graph = &graph });
@@ -211,9 +169,13 @@ test "gcn example forward uses two host batched matmul dispatches" {
     var model = try GCN(f32).init(device, input_shape[1], 2, .{ .graph = &graph });
     defer model.deinit();
 
-    const input_values = try makeDeterministicSlice(allocator, countElements(&input_shape), 47);
+    const input_values = try test_support.makeDeterministicSlice(
+        allocator,
+        test_support.countElements(&input_shape),
+        47,
+    );
     defer allocator.free(input_values);
-    const edge_values = try makeGraphEdgeIndex(allocator, input_shape[0], 4);
+    const edge_values = try test_support.makeGraphEdgeIndex(allocator, input_shape[0], 4);
     defer allocator.free(edge_values);
 
     const input = try Tensor.from_slice(device, input_values, &input_shape, .{ .graph = &graph });
@@ -250,9 +212,17 @@ test "legacy conv2d im2col path uses one batched dispatch across the batch" {
     const input_shape = [_]usize{ 2, 1, 4, 4 };
     const weight_shape = [_]usize{ 2, 1, 2, 2 };
 
-    const input_values = try makeDeterministicSlice(std.testing.allocator, countElements(&input_shape), 71);
+    const input_values = try test_support.makeDeterministicSlice(
+        std.testing.allocator,
+        test_support.countElements(&input_shape),
+        71,
+    );
     defer std.testing.allocator.free(input_values);
-    const weight_values = try makeDeterministicSlice(std.testing.allocator, countElements(&weight_shape), 73);
+    const weight_values = try test_support.makeDeterministicSlice(
+        std.testing.allocator,
+        test_support.countElements(&weight_shape),
+        73,
+    );
     defer std.testing.allocator.free(weight_values);
 
     var input = try Array.from_slice(input_values, &input_shape, device);

@@ -69,7 +69,7 @@ documents we will implement against.
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
 | RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, smoke CI, and synthetic BLAS/autograd/memory/MNIST/DQN/GCN plus conv-lowering and broadcast-fallback matmul coverage are landed; Zig JSONL output now carries host BLAS dispatch telemetry, while future CUDA/compiler/interop suites remain. |
-| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, and legacy Conv2D lowering audit are landed; Linux OpenBLAS/oneMKL parity and performance validation remain. |
+| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, and a provider-sensitive numerical parity suite are landed; oneMKL execution and provider comparison benchmarking remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Turns experimental CUDA into a supported execution backend. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
 | RFC-0005 | ggml/GGUF Interop | `Planned` | P1 | RFC-0001, RFC-0012 | Critical for LLM examples and inference compatibility. |
@@ -299,6 +299,41 @@ Every RFC in this folder set must maintain:
     `first = json.loads(Path("benchmarks/results/latest.jsonl").read_text().splitlines()[0])`
     `print(first["backend"]["host_provider"])`
     `PY`
+
+### RFC-0002 2026-03-28 Host Provider Numerical Parity Suite
+
+- Completed:
+  - Added shared seeded-fixture and tolerance helpers in
+    [`benchmarks/src/test_support.zig`](../benchmarks/src/test_support.zig)
+    so provider-facing benchmark tests reuse deterministic data generation.
+  - Added
+    [`benchmarks/src/provider_parity.zig`](../benchmarks/src/provider_parity.zig)
+    with numeric parity coverage for host GEMV alpha/beta semantics,
+    direct batched `bmm_acc`, nested-broadcast batched matmul
+    forward/backward, and legacy Conv2D im2col lowering against pure reference
+    math.
+  - Fixed [`src/nn/conv_utils.zig`](../src/nn/conv_utils.zig) so multi-channel
+    Conv2D bias is applied across the full spatial slice for each output
+    channel rather than cycling incorrectly through a flat broadcast.
+  - Added `zig build test-provider-parity` in
+    [`build.zig`](../build.zig) and wired the same suite into
+    [`.github/workflows/benchmark-smoke.yml`](../.github/workflows/benchmark-smoke.yml)
+    under `-Dhost_blas=openblas`, giving RFC-0002 a reusable Linux/OpenBLAS
+    correctness gate instead of only macOS-local validation.
+- Remains:
+  - Execute the parity suite on oneMKL-configured Linux/x86 hardware.
+  - Publish OpenBLAS vs oneMKL provider comparison tables for representative
+    models once both environments are available.
+  - Land runtime logging hooks for provider/fallback mode outside test and
+    benchmark surfaces.
+- Blockers:
+  - Local execution still only had the macOS Accelerate backend, so the new
+    suite was validated under one provider locally and prepared for OpenBLAS CI
+    rather than exercised across all target providers in this run.
+- Validation:
+  - `zig build test-provider-parity`
+  - `zig build test`
+  - `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/benchmark-smoke.yml"); puts "workflow ok"'`
 
 ### RFC-0002 2026-03-28 Batched GEMM Broadcast Correctness
 

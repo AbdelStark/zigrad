@@ -9,6 +9,7 @@ From the repository root:
 
 ```sh
 zig build benchmark
+zig build test-provider-parity
 zig build benchmark-primitive
 zig build benchmark-blas
 zig build benchmark-autograd
@@ -22,6 +23,8 @@ Host BLAS selection follows the main build graph:
 ```sh
 zig build benchmark -Dhost_blas=openblas
 zig build benchmark -Dhost_blas=mkl -Dmkl_include_dir=/opt/intel/oneapi/mkl/latest/include -Dmkl_library_dir=/opt/intel/oneapi/mkl/latest/lib
+zig build test-provider-parity -Dhost_blas=openblas
+zig build test-provider-parity -Dhost_blas=mkl -Dmkl_include_dir=/opt/intel/oneapi/mkl/latest/include -Dmkl_library_dir=/opt/intel/oneapi/mkl/latest/lib
 ```
 
 The default build steps write JSON-lines results into [`benchmarks/results/`](./results/).

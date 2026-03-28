@@ -116,7 +116,7 @@ regardless of provider:
 
 ### Workstream C: Correctness and Debuggability
 
-- Cross-provider test suite with numeric tolerances.
+- [x] Cross-provider test suite with numeric tolerances.
 - Logging hooks to record selected provider and fallback mode.
 - Reference fallback path for unsupported cases.
 
@@ -153,6 +153,42 @@ regardless of provider:
 - provider-specific fused kernels where BLAS alone is insufficient.
 
 ## Agentic Context
+
+### 2026-03-28 Host Provider Numerical Parity Suite
+
+- Completed:
+  - Added shared deterministic test support in
+    [`benchmarks/src/test_support.zig`](../../benchmarks/src/test_support.zig)
+    so provider-facing benchmark tests reuse the same seeded fixture and
+    tolerance helpers instead of duplicating ad-hoc generators.
+  - Added
+    [`benchmarks/src/provider_parity.zig`](../../benchmarks/src/provider_parity.zig)
+    with numeric parity coverage for host GEMV alpha/beta behavior, direct
+    batched `bmm_acc`, nested-broadcast batched matmul forward/backward, and
+    legacy Conv2D im2col lowering against deterministic reference math.
+  - Fixed
+    [`src/nn/conv_utils.zig`](../../src/nn/conv_utils.zig)
+    so Conv2D bias is applied per output channel across the full spatial slice
+    instead of relying on incorrect flat modulo broadcasting, and added a
+    targeted unit regression for that case alongside the new parity suite.
+  - Added a dedicated `zig build test-provider-parity` entrypoint in
+    [`build.zig`](../../build.zig) and wired the OpenBLAS configuration into
+    [`.github/workflows/benchmark-smoke.yml`](../../.github/workflows/benchmark-smoke.yml)
+    so Linux CI can execute the same correctness gate under `-Dhost_blas=openblas`.
+- Remains:
+  - Execute the same parity suite on a oneMKL-configured Linux/x86 machine.
+  - Add published provider-comparison benchmark tables once OpenBLAS and
+    oneMKL result sets are available from the same model workloads.
+  - Decide whether runtime logging hooks should surface fallback mode outside
+    benchmark/test paths as part of the remaining Workstream C item.
+- Blockers:
+  - This run still had only the macOS Accelerate backend locally, so the new
+    parity suite validated provider-sensitive semantics on one host provider
+    while deferring OpenBLAS and oneMKL execution to CI or x86 hosts.
+- Validation performed:
+  - `zig build test-provider-parity`
+  - `zig build test`
+  - `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/benchmark-smoke.yml"); puts "workflow ok"'`
 
 ### 2026-03-28 Benchmark-Visible Fallback Telemetry
 

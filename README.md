@@ -65,6 +65,7 @@ usage is visible in the JSONL output:
 
 ```shell
 zig build benchmark
+zig build test-provider-parity
 zig build benchmark-primitive
 zig build benchmark-blas
 zig build benchmark-memory
@@ -81,6 +82,14 @@ zig build benchmark -- --baseline pytorch
 The smoke suite also reports allocator and graph high-water marks for dedicated
 memory benchmarks, including a tensor cache cycle and a synthetic MNIST
 training step.
+
+Provider-sensitive host BLAS correctness can be exercised independently with:
+
+```shell
+zig build test-provider-parity
+zig build test-provider-parity -Dhost_blas=openblas
+zig build test-provider-parity -Dhost_blas=mkl -Dmkl_include_dir=/opt/intel/oneapi/mkl/latest/include -Dmkl_library_dir=/opt/intel/oneapi/mkl/latest/lib
+```
 
 Benchmark authoring and smoke-policy guidance live in
 [`benchmarks/AUTHORING.md`](./benchmarks/AUTHORING.md).

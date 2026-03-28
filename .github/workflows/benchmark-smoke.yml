@@ -31,6 +31,9 @@ jobs:
           cache-key: zig-benchmark-smoke-${{ runner.os }}-0.15.2
           cache-size-limit: 2048
 
+      - name: Run OpenBLAS provider parity suite
+        run: zig build -Dhost_blas=openblas test-provider-parity
+
       - name: Resolve baseline revision
         id: baseline
         shell: bash

@@ -270,6 +270,27 @@ pub fn build(b: *Build) !void {
     const run_benchmark_tests = b.addRunArtifact(benchmark_tests);
     test_step.dependOn(&run_benchmark_tests.step);
 
+    const provider_parity_module = b.addModule("provider_parity", .{
+        .root_source_file = b.path("benchmarks/src/provider_parity.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zigrad", .module = zigrad },
+            .{ .name = "build_options", .module = build_options_module },
+        },
+    });
+    const provider_parity_tests = b.addTest(.{
+        .name = "provider_parity",
+        .root_module = provider_parity_module,
+    });
+    const run_provider_parity_tests = b.addRunArtifact(provider_parity_tests);
+    const provider_parity_step = b.step(
+        "test-provider-parity",
+        "Run host BLAS provider numerical parity tests",
+    );
+    provider_parity_step.dependOn(&run_provider_parity_tests.step);
+    test_step.dependOn(&run_provider_parity_tests.step);
+
     const safetensors_unit_tests = b.addTest(.{
         .name = "safetensors_zg",
         .root_module = safetensors_module,

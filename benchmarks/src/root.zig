@@ -11,6 +11,8 @@ test {
     _ = @import("gcn_bench_model.zig");
     _ = @import("manifest.zig");
     _ = @import("provider_audit.zig");
+    _ = @import("provider_parity.zig");
     _ = @import("result.zig");
+    _ = @import("test_support.zig");
     _ = @import("workload.zig");
 }

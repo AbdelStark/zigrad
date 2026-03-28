@@ -67,12 +67,18 @@ pub fn conv2dForwardIm2col(
             return error.InvalidBiasShape;
         }
 
-        var bias_view = bias_array;
-        bias_view._reshape(&.{ 1, weights.shape.get(0), 1 });
-
-        const biased_output = try output.add(bias_view, device);
-        output.deinit(device);
-        output = biased_output;
+        const output_channels = weights.shape.get(0);
+        const spatial_size = output.shape.get(output.shape.len - 1);
+        for (0..output.shape.get(0)) |batch_index| {
+            for (0..output_channels) |channel_index| {
+                const channel_bias = bias_array.get_data()[channel_index];
+                const start = ((batch_index * output_channels) + channel_index) * spatial_size;
+                const end = start + spatial_size;
+                for (output.get_data()[start..end]) |*value| {
+                    value.* += channel_bias;
+                }
+            }
+        }
     }
 
     output._reshape(&output_shape);
@@ -225,6 +231,45 @@ test "conv2d forward im2col matches expected output with bias" {
 
     try std.testing.expectEqualSlices(usize, &.{ 1, 1, 2, 2 }, output.shape.slice());
     try std.testing.expectEqualSlices(f32, &.{ 6.5, 8.5, 12.5, 14.5 }, output.get_data());
+}
+
+test "conv2d bias applies per output channel across spatial positions" {
+    var cpu = zg.device.HostDevice.init_advanced(TestOpts);
+    defer cpu.deinit();
+    const device = cpu.reference();
+
+    const input_data = [_]f32{
+        1,  2,  3,  4,
+        5,  6,  7,  8,
+        9,  10, 11, 12,
+        13, 14, 15, 16,
+    };
+    var input = try NDArray(f32).from_slice(&input_data, &.{ 1, 1, 4, 4 }, device);
+    defer input.deinit(device);
+
+    const weight_data = [_]f32{
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+    };
+    var weights = try NDArray(f32).from_slice(&weight_data, &.{ 2, 1, 2, 2 }, device);
+    defer weights.deinit(device);
+
+    const bias_data = [_]f32{ 0.25, -0.5 };
+    var bias = try NDArray(f32).from_slice(&bias_data, &.{2}, device);
+    defer bias.deinit(device);
+
+    var output = try conv2dForwardIm2col(f32, input, weights, bias, .{}, device);
+    defer output.deinit(device);
+
+    try std.testing.expectEqualSlices(usize, &.{ 1, 2, 3, 3 }, output.shape.slice());
+    try std.testing.expectEqualSlices(f32, &.{
+        0.25, 0.25, 0.25,
+        0.25, 0.25, 0.25,
+        0.25, 0.25, 0.25,
+        -0.5, -0.5, -0.5,
+        -0.5, -0.5, -0.5,
+        -0.5, -0.5, -0.5,
+    }, output.get_data());
 }
 
 test "conv2d output shape validates supported kernels" {
