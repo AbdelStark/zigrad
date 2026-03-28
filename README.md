@@ -76,6 +76,7 @@ zig build benchmark-memory
 zig build benchmark-models
 zig build benchmark-validate
 zig build test-benchmark-smoke
+zig build test-benchmark-baseline-smoke
 zig build test-benchmark-publication-smoke
 zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl
 zig build benchmark-provider-report -- --input benchmarks/results/accelerate.jsonl --input benchmarks/results/openblas.jsonl --baseline-provider accelerate
@@ -87,6 +88,11 @@ Optional PyTorch baseline execution is available per spec:
 ```shell
 zig build benchmark -- --baseline pytorch
 ```
+
+When a spec declares a baseline runner, the harness now treats that runner as
+part of the JSONL contract: skipped baselines stay explicit, and launcher,
+exit-code, or malformed-output failures produce structured `failed` records
+instead of silently dropping the baseline row.
 
 The harness now includes a dedicated contract validator. With no extra flags it
 validates the committed spec tree; with `--input` it validates emitted JSONL
@@ -123,6 +129,8 @@ training step.
 `zig build test-benchmark-smoke` exercises one checked-in spec per suite
 through the real benchmark harness and fails if the validator detects contract
 drift in the emitted JSONL artifact. `zig build
+test-benchmark-baseline-smoke` extends that to the external baseline interface
+by smoke-testing successful, malformed, and missing-runner cases. `zig build
 test-benchmark-publication-smoke` extends that coverage to the publication
 surface by generating compare, provider-report, and thread-report artifacts
 from smoke-scale inputs and rejecting empty or structurally invalid outputs.

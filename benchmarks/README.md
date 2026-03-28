@@ -17,6 +17,7 @@ zig build benchmark-memory
 zig build benchmark-models
 zig build benchmark-validate
 zig build test-benchmark-smoke
+zig build test-benchmark-baseline-smoke
 zig build test-benchmark-publication-smoke
 zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl
 zig build benchmark-provider-report -- --input benchmarks/results/accelerate.jsonl --input benchmarks/results/openblas.jsonl --baseline-provider accelerate
@@ -65,6 +66,7 @@ zig build benchmark-validate
 zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json --output .zig-cache/zigrad-benchmark-validate.jsonl
 zig build benchmark-validate -- --input .zig-cache/zigrad-benchmark-validate.jsonl
 zig build test-benchmark-smoke
+zig build test-benchmark-baseline-smoke
 zig build test-benchmark-publication-smoke
 ```
 
@@ -74,6 +76,9 @@ against the referenced checked-in spec, checks summary-stat invariants, and
 rejects duplicate result identities within a file. `test-benchmark-smoke`
 drives one representative checked-in spec per suite through the real benchmark
 harness and then runs the validator on the generated artifact.
+`test-benchmark-baseline-smoke` covers the external baseline-runner contract by
+requiring successful baseline emission to stay schema-valid while malformed or
+missing runners degrade into explicit `failed` records instead of disappearing.
 `test-benchmark-publication-smoke` builds on that by generating smoke-scale
 comparison, provider-report, and thread-report artifacts and failing if those
 publication outputs are missing, empty, or structurally invalid.
@@ -254,7 +259,10 @@ If `torch` is not installed, the runner emits a `skipped` record instead of
 failing the whole benchmark run. This keeps the default path dependency-light
 while still allowing direct framework comparisons on prepared machines for the
 BLAS, autograd, and model suites. Memory specs are Zig-only today because they
-depend on Zigrad allocator and graph telemetry.
+depend on Zigrad allocator and graph telemetry. If the runner cannot be
+launched, exits non-zero, or emits malformed JSONL, the harness now records a
+structured `failed` baseline row for the spec so validator and comparison flows
+can surface the problem explicitly.
 
 ## Authoring
 

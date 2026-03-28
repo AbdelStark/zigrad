@@ -91,6 +91,7 @@ zig build benchmark-memory
 zig build benchmark-models
 zig build benchmark
 zig build test-benchmark-smoke
+zig build test-benchmark-baseline-smoke
 zig build test-benchmark-publication-smoke
 ```
 
@@ -104,6 +105,10 @@ updated spec set or the emitted JSONL artifact for the touched workflow has
 passed through the validator. When the change affects report consumers or
 published artifact shape, also rerun `zig build test-benchmark-publication-smoke`
 so compare/provider/thread outputs stay validated end to end.
+When the change touches an external baseline runner or `pytorch_runner`
+coverage, also rerun `zig build test-benchmark-baseline-smoke` so baseline
+launch failures and malformed output still degrade into explicit `failed`
+records instead of silently disappearing from the JSONL artifact.
 
 ## Regression Comparison
 

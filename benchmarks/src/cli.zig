@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const manifest = @import("manifest.zig");
 const result = @import("result.zig");
@@ -84,7 +85,7 @@ pub fn emitAll(
         });
 
         if (std.mem.eql(u8, options.baseline, "pytorch")) {
-            try runPytorchBaseline(allocator, writer, spec);
+            try runPytorchBaseline(allocator, writer, spec, harness_version);
         }
     }
 }
@@ -254,6 +255,7 @@ fn runPytorchBaseline(
     allocator: std.mem.Allocator,
     writer: anytype,
     spec: manifest.Spec,
+    harness_version: []const u8,
 ) !void {
     const runner = spec.pytorch_runner orelse return;
 
@@ -268,15 +270,307 @@ fn runPytorchBaseline(
     const child = std.process.Child.run(.{
         .allocator = allocator,
         .argv = try argv.toOwnedSlice(allocator),
-    }) catch return;
+    }) catch |err| {
+        try emitPytorchBaselineFailureRecord(
+            allocator,
+            writer,
+            spec,
+            harness_version,
+            try std.fmt.allocPrint(
+                allocator,
+                "PyTorch baseline runner `{s}` failed to launch: {s}",
+                .{ runner, @errorName(err) },
+            ),
+        );
+        return;
+    };
     defer allocator.free(child.stdout);
     defer allocator.free(child.stderr);
 
     const stdout = std.mem.trim(u8, child.stdout, " \t\r\n");
-    if (stdout.len != 0) {
-        try writer.writeAll(stdout);
-        try writer.writeByte('\n');
+    switch (child.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                try emitPytorchBaselineFailureRecord(
+                    allocator,
+                    writer,
+                    spec,
+                    harness_version,
+                    try formatPytorchBaselineTerminationNote(
+                        allocator,
+                        runner,
+                        child.term,
+                        child.stdout,
+                        child.stderr,
+                    ),
+                );
+                return;
+            }
+        },
+        else => {
+            try emitPytorchBaselineFailureRecord(
+                allocator,
+                writer,
+                spec,
+                harness_version,
+                try formatPytorchBaselineTerminationNote(
+                    allocator,
+                    runner,
+                    child.term,
+                    child.stdout,
+                    child.stderr,
+                ),
+            );
+            return;
+        },
     }
+
+    if (stdout.len == 0) {
+        try emitPytorchBaselineFailureRecord(
+            allocator,
+            writer,
+            spec,
+            harness_version,
+            try std.fmt.allocPrint(
+                allocator,
+                "PyTorch baseline runner `{s}` produced no JSONL output",
+                .{runner},
+            ),
+        );
+        return;
+    }
+
+    if (try validatePytorchBaselineOutput(allocator, stdout, spec)) |note| {
+        try emitPytorchBaselineFailureRecord(allocator, writer, spec, harness_version, note);
+        return;
+    }
+
+    try writer.writeAll(stdout);
+    try writer.writeByte('\n');
+}
+
+fn emitPytorchBaselineFailureRecord(
+    allocator: std.mem.Allocator,
+    writer: anytype,
+    spec: manifest.Spec,
+    harness_version: []const u8,
+    note: []const u8,
+) !void {
+    const snapshot = try metadata.collect(allocator, harness_version, spec.thread_count, null);
+
+    try result.writeJsonLine(writer, .{
+        .benchmark_id = spec.id,
+        .spec_path = spec.path,
+        .suite = spec.suite.asString(),
+        .kind = spec.kind.asString(),
+        .runner = "pytorch",
+        .status = .failed,
+        .dtype = spec.dtype.asString(),
+        .warmup_iterations = spec.warmup_iterations,
+        .measured_iterations = spec.measured_iterations,
+        .batch_size = workload.expectedBatchSize(spec),
+        .seed = spec.seed,
+        .shapes = try workload.expectedShapeMetadata(allocator, spec),
+        .provenance = spec.provenance,
+        .runtime = snapshot.runtime,
+        .system = snapshot.system,
+        .backend = .{
+            .device = "cpu",
+            .host_provider = pytorchHostProvider(),
+            .thread_count = spec.thread_count,
+            .thread_environment = snapshot.backend.thread_environment,
+            .host_blas_telemetry = null,
+        },
+        .setup_latency_ns = null,
+        .stats = null,
+        .memory = null,
+        .notes = note,
+    });
+}
+
+fn pytorchHostProvider() []const u8 {
+    return switch (builtin.target.os.tag) {
+        .macos => "accelerate",
+        else => "cpu",
+    };
+}
+
+fn formatPytorchBaselineTerminationNote(
+    allocator: std.mem.Allocator,
+    runner: []const u8,
+    term: std.process.Child.Term,
+    stdout: []const u8,
+    stderr: []const u8,
+) ![]const u8 {
+    const detail = try summarizedProcessOutput(allocator, stderr, stdout);
+
+    return switch (term) {
+        .Exited => |code| if (detail.len != 0)
+            try std.fmt.allocPrint(
+                allocator,
+                "PyTorch baseline runner `{s}` exited with code {d}: {s}",
+                .{ runner, code, detail },
+            )
+        else
+            try std.fmt.allocPrint(
+                allocator,
+                "PyTorch baseline runner `{s}` exited with code {d}",
+                .{ runner, code },
+            ),
+        .Signal => |signal| if (detail.len != 0)
+            try std.fmt.allocPrint(
+                allocator,
+                "PyTorch baseline runner `{s}` terminated by signal {d}: {s}",
+                .{ runner, signal, detail },
+            )
+        else
+            try std.fmt.allocPrint(
+                allocator,
+                "PyTorch baseline runner `{s}` terminated by signal {d}",
+                .{ runner, signal },
+            ),
+        .Stopped => |signal| if (detail.len != 0)
+            try std.fmt.allocPrint(
+                allocator,
+                "PyTorch baseline runner `{s}` stopped by signal {d}: {s}",
+                .{ runner, signal, detail },
+            )
+        else
+            try std.fmt.allocPrint(
+                allocator,
+                "PyTorch baseline runner `{s}` stopped by signal {d}",
+                .{ runner, signal },
+            ),
+        .Unknown => |code| if (detail.len != 0)
+            try std.fmt.allocPrint(
+                allocator,
+                "PyTorch baseline runner `{s}` ended with unknown status {d}: {s}",
+                .{ runner, code, detail },
+            )
+        else
+            try std.fmt.allocPrint(
+                allocator,
+                "PyTorch baseline runner `{s}` ended with unknown status {d}",
+                .{ runner, code },
+            ),
+    };
+}
+
+fn summarizedProcessOutput(
+    allocator: std.mem.Allocator,
+    preferred: []const u8,
+    fallback: []const u8,
+) ![]const u8 {
+    const preferred_trimmed = std.mem.trim(u8, preferred, " \t\r\n");
+    if (preferred_trimmed.len != 0) return try summarizeBytes(allocator, preferred_trimmed);
+
+    const fallback_trimmed = std.mem.trim(u8, fallback, " \t\r\n");
+    if (fallback_trimmed.len != 0) return try summarizeBytes(allocator, fallback_trimmed);
+
+    return "";
+}
+
+fn summarizeBytes(allocator: std.mem.Allocator, bytes: []const u8) ![]const u8 {
+    const max_len = 240;
+    if (bytes.len <= max_len) return allocator.dupe(u8, bytes);
+    return std.fmt.allocPrint(allocator, "{s}...", .{bytes[0..max_len]});
+}
+
+fn validatePytorchBaselineOutput(
+    allocator: std.mem.Allocator,
+    stdout: []const u8,
+    spec: manifest.Spec,
+) !?[]const u8 {
+    var loaded = result.LoadedFile.loadFromSlice(allocator, stdout) catch |err| {
+        return try std.fmt.allocPrint(
+            allocator,
+            "PyTorch baseline runner emitted invalid JSONL: {s}",
+            .{@errorName(err)},
+        );
+    };
+    defer loaded.deinit();
+
+    if (loaded.records.len != 1) {
+        return try std.fmt.allocPrint(
+            allocator,
+            "PyTorch baseline runner must emit exactly one record per spec, got {d}",
+            .{loaded.records.len},
+        );
+    }
+
+    const record_entry = loaded.records[0];
+    if (!std.mem.eql(u8, record_entry.benchmark_id, spec.id)) {
+        return try std.fmt.allocPrint(
+            allocator,
+            "PyTorch baseline record benchmark_id `{s}` does not match spec `{s}`",
+            .{ record_entry.benchmark_id, spec.id },
+        );
+    }
+    if (!std.mem.eql(u8, record_entry.runner, "pytorch")) {
+        return try std.fmt.allocPrint(
+            allocator,
+            "PyTorch baseline record runner `{s}` is invalid",
+            .{record_entry.runner},
+        );
+    }
+    if (!std.mem.eql(u8, record_entry.suite, spec.suite.asString())) {
+        return try std.fmt.allocPrint(
+            allocator,
+            "PyTorch baseline record suite `{s}` does not match spec `{s}`",
+            .{ record_entry.suite, spec.suite.asString() },
+        );
+    }
+    if (!std.mem.eql(u8, record_entry.kind, spec.kind.asString())) {
+        return try std.fmt.allocPrint(
+            allocator,
+            "PyTorch baseline record kind `{s}` does not match spec `{s}`",
+            .{ record_entry.kind, spec.kind.asString() },
+        );
+    }
+    if (!std.mem.eql(u8, record_entry.dtype, spec.dtype.asString())) {
+        return try std.fmt.allocPrint(
+            allocator,
+            "PyTorch baseline record dtype `{s}` does not match spec `{s}`",
+            .{ record_entry.dtype, spec.dtype.asString() },
+        );
+    }
+    if (record_entry.spec_path == null or !std.mem.eql(u8, record_entry.spec_path.?, spec.path)) {
+        return try std.fmt.allocPrint(
+            allocator,
+            "PyTorch baseline record spec_path does not match `{s}`",
+            .{spec.path},
+        );
+    }
+    if (record_entry.seed != spec.seed) {
+        return try std.fmt.allocPrint(
+            allocator,
+            "PyTorch baseline record seed {d} does not match spec seed {d}",
+            .{ record_entry.seed, spec.seed },
+        );
+    }
+    if (record_entry.warmup_iterations != spec.warmup_iterations or
+        record_entry.measured_iterations != spec.measured_iterations)
+    {
+        return try std.fmt.allocPrint(
+            allocator,
+            "PyTorch baseline record iteration counts do not match the spec",
+            .{},
+        );
+    }
+    if (!optionalThreadCountsEqual(record_entry.backend.thread_count, spec.thread_count)) {
+        return try std.fmt.allocPrint(
+            allocator,
+            "PyTorch baseline record thread_count does not match the spec",
+            .{},
+        );
+    }
+
+    return null;
+}
+
+fn optionalThreadCountsEqual(lhs: ?u32, rhs: ?u32) bool {
+    if (lhs) |lhs_value| return rhs != null and lhs_value == rhs.?;
+    return rhs == null;
 }
 
 test "thread count overrides expand and sort specs by id then thread count" {

@@ -190,6 +190,7 @@ Regression gating should use broad thresholds first, for example:
 - [x] JSON result comparison utility.
 - [x] Benchmark contract validator for committed specs and emitted JSONL artifacts.
 - [x] CI smoke suite.
+- [x] External baseline-runner contract smoke validation.
 - [x] Published benchmark authoring guide.
 - [x] Thread-sweep execution plus Markdown/JSON scaling reports for host runs.
 - [x] Publication artifact smoke validation for comparison/provider/thread report outputs.
@@ -216,6 +217,47 @@ Regression gating should use broad thresholds first, for example:
 - Should result archives live in the main repo or an external artifact store?
 
 ## Agentic Context
+
+### 2026-03-28 Baseline Runner Contract Smoke
+
+- Completed:
+  - Hardened
+    [`benchmarks/src/cli.zig`](../../benchmarks/src/cli.zig) so requested
+    PyTorch baseline runs no longer fail open: launcher errors, non-zero exits,
+    empty output, and malformed JSONL now emit structured `failed` baseline
+    records with the original spec metadata instead of silently omitting the
+    baseline row.
+  - Added
+    [`tests/src/benchmark_baseline_smoke_main.zig`](../../tests/src/benchmark_baseline_smoke_main.zig)
+    plus the stdlib-only fixture runner
+    [`tests/fixtures/benchmark_baseline_smoke_runner.py`](../../tests/fixtures/benchmark_baseline_smoke_runner.py)
+    and wired `zig build test-benchmark-baseline-smoke` through
+    [`build.zig`](../../build.zig) so RFC-0001 now smoke-tests successful
+    external baseline emission, malformed JSONL fallback, and missing-runner
+    fallback end to end.
+  - Updated
+    [`README.md`](../../README.md),
+    [`benchmarks/README.md`](../../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md)
+    so the benchmark contract documents the new baseline failure semantics and
+    the dedicated smoke gate.
+- Remains:
+  - Capture non-skipped PyTorch baseline data on a machine with `torch`
+    installed and fold those results into published comparison artifacts.
+  - Extend the same contract-hardening approach to future non-PyTorch external
+    baseline runners if the harness grows beyond the current Python path.
+- Blockers:
+  - This environment still has no local `torch` installation, so the real
+    PyTorch path validated through explicit `skipped` output while the new smoke
+    gate used a stdlib fixture runner to verify success and failure semantics.
+- Validation performed:
+  - `python3 -m py_compile tests/fixtures/benchmark_baseline_smoke_runner.py benchmarks/runners/pytorch/mnist_mlp.py`
+  - `zig build test-benchmark-baseline-smoke`
+  - `zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic.json --baseline pytorch --output .zig-cache/pytorch-baseline-smoke.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/pytorch-baseline-smoke.jsonl`
+  - `zig build test-benchmark-smoke`
+  - `zig build test-benchmark-publication-smoke`
+  - `zig build test`
 
 ### 2026-03-28 Benchmark Publication Artifact Smoke
 

@@ -68,7 +68,7 @@ documents we will implement against.
 
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/MNIST/DQN/GCN plus conv-lowering and broadcast-fallback matmul coverage, and host thread-sweep/scaling-report workflows are landed; compare/provider/thread publication artifacts now have dedicated smoke validation, while future CUDA/compiler/interop suites remain. |
+| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, external baseline-runner smoke validation, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/MNIST/DQN/GCN plus conv-lowering and broadcast-fallback matmul coverage, and host thread-sweep/scaling-report workflows are landed; compare/provider/thread publication artifacts now have dedicated smoke validation, while future CUDA/compiler/interop suites remain. |
 | RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, a provider-sensitive numerical parity suite, opt-in runtime diagnostics hooks, example runtime smoke coverage for hello-world/MNIST/DQN/GCN, and Markdown/JSON provider plus thread-scaling report generators are landed; publication-path smoke validation now covers provider/thread reports, while oneMKL execution and published provider comparison runs remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Turns experimental CUDA into a supported execution backend. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
@@ -121,6 +121,45 @@ Every RFC in this folder set must maintain:
 - a section describing what will not be done in the RFC.
 
 ## Agentic Context
+
+### RFC-0001 2026-03-28 Baseline Runner Contract Smoke
+
+- Completed:
+  - Hardened
+    [`benchmarks/src/cli.zig`](../benchmarks/src/cli.zig) so requested PyTorch
+    baseline runs emit structured `failed` records when the runner cannot be
+    launched, exits non-zero, produces no output, or emits malformed JSONL,
+    instead of silently dropping the baseline row.
+  - Added
+    [`tests/src/benchmark_baseline_smoke_main.zig`](../tests/src/benchmark_baseline_smoke_main.zig),
+    the fixture runner
+    [`tests/fixtures/benchmark_baseline_smoke_runner.py`](../tests/fixtures/benchmark_baseline_smoke_runner.py),
+    and the `zig build test-benchmark-baseline-smoke` build step in
+    [`build.zig`](../build.zig) so RFC-0001 now smoke-tests successful external
+    baseline emission plus malformed-output and missing-runner fallback paths.
+  - Updated
+    [`README.md`](../README.md),
+    [`benchmarks/README.md`](../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../benchmarks/AUTHORING.md)
+    so the new baseline-runner contract and smoke command are documented.
+- Remains:
+  - Capture non-skipped PyTorch baseline data on a machine with `torch`
+    installed and use it for published comparison artifacts.
+  - Extend the same failure-reporting contract to any future non-PyTorch
+    external baseline runners.
+- Blockers:
+  - No local `torch` installation was available in this run, so the real
+    PyTorch path validated through explicit `skipped` output while the new
+    smoke gate used a stdlib fixture runner to validate success and failure
+    semantics.
+- Validation:
+  - `python3 -m py_compile tests/fixtures/benchmark_baseline_smoke_runner.py benchmarks/runners/pytorch/mnist_mlp.py`
+  - `zig build test-benchmark-baseline-smoke`
+  - `zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic.json --baseline pytorch --output .zig-cache/pytorch-baseline-smoke.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/pytorch-baseline-smoke.jsonl`
+  - `zig build test-benchmark-smoke`
+  - `zig build test-benchmark-publication-smoke`
+  - `zig build test`
 
 ### RFC-0001 2026-03-28 Benchmark Publication Artifact Smoke
 
