@@ -54,6 +54,7 @@ zig build benchmark-compare -- \
 - `blas`
   - deterministic vector dot product
   - deterministic matrix-vector multiply
+  - deterministic conv2d im2col lowering via batched matmul
 - `autograd`
   - deterministic dot forward+backward
   - deterministic matvec forward+backward
@@ -93,6 +94,8 @@ Workload-specific fields:
 
 - `lhs_shape`, `rhs_shape` for primitive add/matmul, BLAS dot/matvec, and
   autograd dot/matvec backward
+- `lhs_shape`, `rhs_shape`, `stride`, `padding`, and `dilation` for BLAS
+  conv2d im2col lowering workloads
 - `lhs_shape` plus `batch_size` for memory tensor-cache cycle workloads
 - `batch_size`, `input_shape`, `label_shape` for batched model workloads
 - `input_shape`, optional `label_shape`, and derived synthetic graph topology

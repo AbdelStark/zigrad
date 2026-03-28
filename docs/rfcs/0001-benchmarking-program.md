@@ -4,7 +4,7 @@ Status: `Ready`
 Priority: `P0`  
 Depends on: None  
 Blocks: RFC-0002, RFC-0003, RFC-0004, RFC-0005, RFC-0006, RFC-0012  
-Last updated: `2026-03-27`
+Last updated: `2026-03-28`
 
 ## Summary
 
@@ -177,7 +177,7 @@ Regression gating should use broad thresholds first, for example:
 ### Milestone B: Initial Coverage
 
 - [x] Primitive suite for representative tensor ops.
-- [x] BLAS dot and matvec microbenchmarks with deterministic operands.
+- [x] BLAS dot, matvec, and conv-lowering microbenchmarks with deterministic operands.
 - [x] Autograd dot and matvec backward microbenchmarks.
 - [x] Memory suite for cache high-water mark and graph arena reuse coverage.
 - [x] MNIST train and inference benchmarks using deterministic synthetic data.
@@ -213,6 +213,38 @@ Regression gating should use broad thresholds first, for example:
 - Should result archives live in the main repo or an external artifact store?
 
 ## Agentic Context
+
+### 2026-03-28 Conv Lowering Coverage
+
+- Completed:
+  - Added a reusable legacy conv helper in
+    [`src/nn/conv_utils.zig`](../../src/nn/conv_utils.zig) that lowers square
+    conv2d inputs through `im2col` plus batched matmul and reshapes the output
+    back into NCHW form.
+  - Extended the benchmark manifest and workload runner so the `blas` suite now
+    supports `blas_conv2d_im2col` specs with `stride`, `padding`, and
+    `dilation` fields.
+  - Added two deterministic conv-lowering benchmark specs under
+    [`benchmarks/specs/blas/`](../../benchmarks/specs/blas/) and expanded the
+    optional PyTorch baseline runner to emit comparable records for the new
+    workload kind.
+  - Added correctness and benchmark execution regression tests for the new
+    workload plus provider telemetry coverage for the legacy conv path.
+- Remains:
+  - Add CUDA-targeted suites and compiler/interop coverage as the dependent
+    RFCs become executable.
+  - Gather PyTorch baseline data on a machine with `torch` installed instead of
+    relying on the explicit skip-path validation.
+- Blockers:
+  - No local `torch` install was available during this run, so the conv
+    baseline path validated only the emitted `skipped` record rather than an
+    executed framework comparison.
+- Validation performed:
+  - `zig build test`
+  - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`
+  - `zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json --output /tmp/zigrad-conv-benchmark.jsonl`
+  - `zig build benchmark-blas -- --output /tmp/zigrad-blas.jsonl`
+  - `zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json --baseline pytorch --output /tmp/zigrad-conv-benchmark-baseline.jsonl`
 
 ### 2026-03-27
 

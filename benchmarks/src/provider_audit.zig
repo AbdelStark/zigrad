@@ -1,5 +1,6 @@
 const std = @import("std");
 const zg = @import("zigrad");
+const conv_utils = zg.conv_utils;
 
 const MnistModel = @import("examples_mnist_model").MnistModel;
 const DQNModel = @import("examples_dqn_model").DQNModel;
@@ -213,5 +214,36 @@ test "gcn example forward uses two host batched matmul dispatches" {
     try expectTelemetry(.{
         .matmul_calls = 2,
         .bmm_acc_calls = 2,
+    }, host.opTelemetry());
+}
+
+test "legacy conv2d im2col path uses one batched dispatch across the batch" {
+    const Array = zg.NDArray(f32);
+
+    var host = zg.device.HostDevice.init();
+    defer host.deinit();
+    const device = host.reference();
+
+    const input_shape = [_]usize{ 2, 1, 4, 4 };
+    const weight_shape = [_]usize{ 2, 1, 2, 2 };
+
+    const input_values = try makeDeterministicSlice(std.testing.allocator, countElements(&input_shape), 71);
+    defer std.testing.allocator.free(input_values);
+    const weight_values = try makeDeterministicSlice(std.testing.allocator, countElements(&weight_shape), 73);
+    defer std.testing.allocator.free(weight_values);
+
+    var input = try Array.from_slice(input_values, &input_shape, device);
+    defer input.deinit(device);
+    var weights = try Array.from_slice(weight_values, &weight_shape, device);
+    defer weights.deinit(device);
+
+    host.resetOpTelemetry();
+    var output = try conv_utils.conv2dForwardIm2col(f32, input, weights, null, .{}, device);
+    defer output.deinit(device);
+
+    try std.testing.expectEqualSlices(usize, &.{ 2, 2, 3, 3 }, output.shape.slice());
+    try expectTelemetry(.{
+        .matmul_calls = 2,
+        .bmm_acc_calls = 1,
     }, host.opTelemetry());
 }

@@ -25,6 +25,7 @@ pub const Kind = enum {
     primitive_matmul,
     blas_dot,
     blas_matvec,
+    blas_conv2d_im2col,
     autograd_dot_backward,
     autograd_matvec_backward,
     memory_tensor_cache_cycle,
@@ -42,6 +43,7 @@ pub const Kind = enum {
             .primitive_matmul => "primitive_matmul",
             .blas_dot => "blas_dot",
             .blas_matvec => "blas_matvec",
+            .blas_conv2d_im2col => "blas_conv2d_im2col",
             .autograd_dot_backward => "autograd_dot_backward",
             .autograd_matvec_backward => "autograd_matvec_backward",
             .memory_tensor_cache_cycle => "memory_tensor_cache_cycle",
@@ -81,6 +83,9 @@ pub const Spec = struct {
     input_shape: ?[]const usize = null,
     label_shape: ?[]const usize = null,
     output_shape: ?[]const usize = null,
+    stride: usize = 1,
+    padding: usize = 0,
+    dilation: usize = 1,
     notes: ?[]const u8 = null,
     pytorch_runner: ?[]const u8 = null,
     path: []const u8,
@@ -101,6 +106,9 @@ const RawSpec = struct {
     input_shape: ?[]usize = null,
     label_shape: ?[]usize = null,
     output_shape: ?[]usize = null,
+    stride: usize = 1,
+    padding: usize = 0,
+    dilation: usize = 1,
     notes: ?[]const u8 = null,
     pytorch_runner: ?[]const u8 = null,
 };
@@ -132,6 +140,9 @@ fn validate(path: []const u8, raw: RawSpec) !Spec {
         },
         .blas_matvec, .autograd_matvec_backward => {
             try requireMatvecShapes(raw);
+        },
+        .blas_conv2d_im2col => {
+            try requireConv2dShapes(raw);
         },
         .memory_tensor_cache_cycle => {
             if (raw.lhs_shape == null) return error.MissingPrimitiveShape;
@@ -180,6 +191,9 @@ fn validate(path: []const u8, raw: RawSpec) !Spec {
         .input_shape = raw.input_shape,
         .label_shape = raw.label_shape,
         .output_shape = raw.output_shape,
+        .stride = raw.stride,
+        .padding = raw.padding,
+        .dilation = raw.dilation,
         .notes = raw.notes,
         .pytorch_runner = raw.pytorch_runner,
         .path = path,
@@ -201,6 +215,7 @@ fn parseKind(value: []const u8) !Kind {
     if (std.mem.eql(u8, value, "primitive_matmul")) return .primitive_matmul;
     if (std.mem.eql(u8, value, "blas_dot")) return .blas_dot;
     if (std.mem.eql(u8, value, "blas_matvec")) return .blas_matvec;
+    if (std.mem.eql(u8, value, "blas_conv2d_im2col")) return .blas_conv2d_im2col;
     if (std.mem.eql(u8, value, "autograd_dot_backward")) return .autograd_dot_backward;
     if (std.mem.eql(u8, value, "autograd_matvec_backward")) return .autograd_matvec_backward;
     if (std.mem.eql(u8, value, "memory_tensor_cache_cycle")) return .memory_tensor_cache_cycle;
@@ -239,6 +254,14 @@ fn requireMatvecShapes(raw: RawSpec) !void {
     if (raw.lhs_shape == null or raw.rhs_shape == null) return error.MissingPrimitiveShape;
     if (raw.lhs_shape.?.len != 2 or raw.rhs_shape.?.len != 1) return error.InvalidLinearAlgebraShape;
     if (raw.lhs_shape.?[1] != raw.rhs_shape.?[0]) return error.IncompatibleLinearAlgebraShape;
+}
+
+fn requireConv2dShapes(raw: RawSpec) !void {
+    if (raw.lhs_shape == null or raw.rhs_shape == null) return error.MissingPrimitiveShape;
+    if (raw.lhs_shape.?.len != 4 or raw.rhs_shape.?.len != 4) return error.InvalidConvolutionShape;
+    if (raw.lhs_shape.?[1] != raw.rhs_shape.?[1]) return error.IncompatibleLinearAlgebraShape;
+    if (raw.rhs_shape.?[2] != raw.rhs_shape.?[3]) return error.InvalidConvolutionShape;
+    if (raw.stride == 0 or raw.dilation == 0) return error.InvalidBenchmarkShape;
 }
 
 test "load benchmark spec from json slice" {
@@ -338,4 +361,33 @@ test "load memory benchmark spec from json slice" {
     try std.testing.expectEqual(Kind.memory_tensor_cache_cycle, spec.kind);
     try std.testing.expectEqual(@as(usize, 4), spec.batch_size.?);
     try std.testing.expectEqual(@as(usize, 2), spec.lhs_shape.?.len);
+}
+
+test "load conv2d benchmark spec from json slice" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const raw =
+        \\{
+        \\  "id": "blas.conv2d.f32",
+        \\  "suite": "blas",
+        \\  "kind": "blas_conv2d_im2col",
+        \\  "dtype": "f32",
+        \\  "warmup_iterations": 1,
+        \\  "measured_iterations": 2,
+        \\  "lhs_shape": [8, 1, 28, 28],
+        \\  "rhs_shape": [8, 1, 3, 3],
+        \\  "stride": 1,
+        \\  "padding": 1,
+        \\  "dilation": 1
+        \\}
+    ;
+    const parsed = try std.json.parseFromSliceLeaky(RawSpec, allocator, raw, .{});
+    const spec = try validate("inline-conv.json", parsed);
+
+    try std.testing.expectEqual(Suite.blas, spec.suite);
+    try std.testing.expectEqual(Kind.blas_conv2d_im2col, spec.kind);
+    try std.testing.expectEqual(@as(usize, 1), spec.stride);
+    try std.testing.expectEqual(@as(usize, 1), spec.padding);
+    try std.testing.expectEqual(@as(usize, 1), spec.dilation);
 }

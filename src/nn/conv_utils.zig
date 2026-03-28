@@ -4,10 +4,80 @@ const zg = @import("../zigrad.zig");
 const NDArray = zg.NDArray;
 const DeviceReference = zg.DeviceReference;
 
-// TODO: conv tests need to be brought up to date
-// test {
-//     std.testing.refAllDecls(@import("conv_test.zig"));
-// }
+pub const Conv2DOptions = struct {
+    stride: usize = 1,
+    padding: usize = 0,
+    dilation: usize = 1,
+};
+
+pub fn conv2dOutputShape(
+    input_shape: []const usize,
+    weight_shape: []const usize,
+    options: Conv2DOptions,
+) ![4]usize {
+    if (options.stride == 0 or options.dilation == 0) return error.InvalidConvolutionOptions;
+    if (input_shape.len != 4 or weight_shape.len != 4) return error.InvalidConvolutionShape;
+    if (input_shape[1] != weight_shape[1]) return error.IncompatibleChannels;
+
+    const kernel_height = weight_shape[2];
+    const kernel_width = weight_shape[3];
+    if (kernel_height == 0 or kernel_width == 0) return error.InvalidConvolutionShape;
+    if (kernel_height != kernel_width) return error.RectangularKernelUnsupported;
+
+    const effective_kernel = options.dilation * (kernel_height - 1) + 1;
+    const padded_height = input_shape[2] + (2 * options.padding);
+    const padded_width = input_shape[3] + (2 * options.padding);
+    if (padded_height < effective_kernel or padded_width < effective_kernel) {
+        return error.InvalidConvolutionShape;
+    }
+
+    return .{
+        input_shape[0],
+        weight_shape[0],
+        ((padded_height - effective_kernel) / options.stride) + 1,
+        ((padded_width - effective_kernel) / options.stride) + 1,
+    };
+}
+
+pub fn conv2dForwardIm2col(
+    comptime T: type,
+    input: NDArray(T),
+    weights: NDArray(T),
+    bias: ?NDArray(T),
+    options: Conv2DOptions,
+    device: DeviceReference,
+) !NDArray(T) {
+    const output_shape = try conv2dOutputShape(input.shape.slice(), weights.shape.slice(), options);
+    const kernel_size = weights.shape.get(2);
+
+    var col = try im2col(T, input, kernel_size, options.stride, options.padding, options.dilation, device);
+    defer col.deinit(device);
+
+    var weight_matrix = weights;
+    weight_matrix._reshape(&.{
+        weights.shape.get(0),
+        weights.shape.get(1) * kernel_size * kernel_size,
+    });
+
+    var output = try weight_matrix.bmm(col, device, .{});
+    errdefer output.deinit(device);
+
+    if (bias) |bias_array| {
+        if (bias_array.shape.len != 1 or bias_array.shape.get(0) != weights.shape.get(0)) {
+            return error.InvalidBiasShape;
+        }
+
+        var bias_view = bias_array;
+        bias_view._reshape(&.{ 1, weights.shape.get(0), 1 });
+
+        const biased_output = try output.add(bias_view, device);
+        output.deinit(device);
+        output = biased_output;
+    }
+
+    output._reshape(&output_shape);
+    return output;
+}
 
 pub fn im2col(comptime T: type, input: NDArray(T), kernel_size: usize, stride: usize, padding: usize, dilation: usize, device: DeviceReference) !NDArray(T) {
     const batch_size = input.shape.get(0);
@@ -131,4 +201,46 @@ test "im2col col2im" {
 
     const exp_im_data = [_]f32{ 4, 12, 18, 16, 30, 54, 63, 48, 54, 90, 99, 72, 52, 84, 90, 64 };
     try std.testing.expectEqualSlices(f32, &exp_im_data, im.get_data());
+}
+
+test "conv2d forward im2col matches expected output with bias" {
+    var cpu = zg.device.HostDevice.init_advanced(TestOpts);
+    defer cpu.deinit();
+    const device = cpu.reference();
+
+    const input_data = [_]f32{ 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+    var input = try NDArray(f32).from_slice(&input_data, &.{ 1, 1, 3, 3 }, device);
+    defer input.deinit(device);
+
+    const weight_data = [_]f32{ 1, 0, 0, 1 };
+    var weights = try NDArray(f32).from_slice(&weight_data, &.{ 1, 1, 2, 2 }, device);
+    defer weights.deinit(device);
+
+    const bias_data = [_]f32{0.5};
+    var bias = try NDArray(f32).from_slice(&bias_data, &.{1}, device);
+    defer bias.deinit(device);
+
+    var output = try conv2dForwardIm2col(f32, input, weights, bias, .{}, device);
+    defer output.deinit(device);
+
+    try std.testing.expectEqualSlices(usize, &.{ 1, 1, 2, 2 }, output.shape.slice());
+    try std.testing.expectEqualSlices(f32, &.{ 6.5, 8.5, 12.5, 14.5 }, output.get_data());
+}
+
+test "conv2d output shape validates supported kernels" {
+    const valid = try conv2dOutputShape(
+        &.{ 2, 3, 8, 8 },
+        &.{ 4, 3, 3, 3 },
+        .{ .stride = 2, .padding = 1, .dilation = 1 },
+    );
+    try std.testing.expectEqualSlices(usize, &.{ 2, 4, 4, 4 }, valid[0..]);
+
+    try std.testing.expectError(
+        error.RectangularKernelUnsupported,
+        conv2dOutputShape(&.{ 1, 1, 4, 4 }, &.{ 1, 1, 2, 3 }, .{}),
+    );
+    try std.testing.expectError(
+        error.IncompatibleChannels,
+        conv2dOutputShape(&.{ 1, 2, 4, 4 }, &.{ 1, 1, 3, 3 }, .{}),
+    );
 }

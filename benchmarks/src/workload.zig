@@ -39,6 +39,7 @@ pub fn run(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .primitive_matmul => runPrimitiveMatmul(allocator, spec),
         .blas_dot => runBlasDot(allocator, spec),
         .blas_matvec => runBlasMatvec(allocator, spec),
+        .blas_conv2d_im2col => runBlasConv2dIm2col(allocator, spec),
         .autograd_dot_backward => runAutogradDotBackward(allocator, spec),
         .autograd_matvec_backward => runAutogradMatvecBackward(allocator, spec),
         .memory_tensor_cache_cycle => runMemoryTensorCacheCycle(allocator, spec),
@@ -130,6 +131,61 @@ fn runBlasMatvec(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .timings_ns = timings,
         .throughput_items = countElements(spec.lhs_shape.?),
         .throughput_unit = "matrix-elements",
+        .notes = spec.notes,
+    };
+}
+
+fn runBlasConv2dIm2col(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+    const Array = zg.NDArray(f32);
+    var host = zg.device.HostDevice.init();
+    defer host.deinit();
+    const device = host.reference();
+
+    const input_values = try makeDeterministicSlice(allocator, countElements(spec.lhs_shape.?), spec.seed);
+    defer allocator.free(input_values);
+    const weight_values = try makeDeterministicSlice(allocator, countElements(spec.rhs_shape.?), spec.seed +% 1);
+    defer allocator.free(weight_values);
+
+    const output_shape = try zg.conv_utils.conv2dOutputShape(spec.lhs_shape.?, spec.rhs_shape.?, .{
+        .stride = spec.stride,
+        .padding = spec.padding,
+        .dilation = spec.dilation,
+    });
+
+    var timer = try std.time.Timer.start();
+    var input = try Array.from_slice(input_values, spec.lhs_shape.?, device);
+    defer input.deinit(device);
+    var weights = try Array.from_slice(weight_values, spec.rhs_shape.?, device);
+    defer weights.deinit(device);
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    for (0..spec.warmup_iterations) |_| {
+        var output = try zg.conv_utils.conv2dForwardIm2col(f32, input, weights, null, .{
+            .stride = spec.stride,
+            .padding = spec.padding,
+            .dilation = spec.dilation,
+        }, device);
+        output.deinit(device);
+    }
+    for (timings) |*timing| {
+        timer.reset();
+        var output = try zg.conv_utils.conv2dForwardIm2col(f32, input, weights, null, .{
+            .stride = spec.stride,
+            .padding = spec.padding,
+            .dilation = spec.dilation,
+        }, device);
+        timing.* = timer.read();
+        output.deinit(device);
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromConv2d(allocator, spec, output_shape[0..]),
+        .batch_size = spec.lhs_shape.?[0],
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = spec.lhs_shape.?[0],
+        .throughput_unit = "samples",
         .notes = spec.notes,
     };
 }
@@ -1215,6 +1271,18 @@ fn shapeMetadataFromMatrixVector(allocator: std.mem.Allocator, spec: manifest.Sp
     return shapes;
 }
 
+fn shapeMetadataFromConv2d(
+    allocator: std.mem.Allocator,
+    spec: manifest.Spec,
+    output_shape: []const usize,
+) ![]const result.ShapeMetadata {
+    const shapes = try allocator.alloc(result.ShapeMetadata, 3);
+    shapes[0] = .{ .name = "input", .dims = spec.lhs_shape.? };
+    shapes[1] = .{ .name = "weights", .dims = spec.rhs_shape.? };
+    shapes[2] = .{ .name = "output", .dims = try allocDims(allocator, output_shape) };
+    return shapes;
+}
+
 fn shapeMetadataFromMemoryBuffer(allocator: std.mem.Allocator, spec: manifest.Spec) ![]const result.ShapeMetadata {
     const shapes = try allocator.alloc(result.ShapeMetadata, 1);
     shapes[0] = .{ .name = "buffer", .dims = spec.lhs_shape.? };
@@ -1355,6 +1423,36 @@ test "run autograd matvec benchmark" {
     try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
     try std.testing.expectEqual(@as(usize, 2), output.shapes.len);
     try std.testing.expectEqualStrings("matrix", output.shapes[0].name);
+}
+
+test "run conv2d im2col benchmark" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const input_shape = [_]usize{ 2, 1, 5, 5 };
+    const weight_shape = [_]usize{ 3, 1, 3, 3 };
+    const spec: manifest.Spec = .{
+        .id = "test.blas.conv2d",
+        .suite = .blas,
+        .kind = .blas_conv2d_im2col,
+        .dtype = .f32,
+        .warmup_iterations = 0,
+        .measured_iterations = 1,
+        .thread_count = 1,
+        .seed = 1,
+        .lhs_shape = input_shape[0..],
+        .rhs_shape = weight_shape[0..],
+        .stride = 1,
+        .padding = 1,
+        .dilation = 1,
+        .path = "inline",
+    };
+
+    const output = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
+    try std.testing.expectEqual(@as(usize, 3), output.shapes.len);
+    try std.testing.expectEqualStrings("output", output.shapes[2].name);
+    try std.testing.expectEqual(@as(usize, 2), output.batch_size.?);
 }
 
 test "run memory tensor cache benchmark" {

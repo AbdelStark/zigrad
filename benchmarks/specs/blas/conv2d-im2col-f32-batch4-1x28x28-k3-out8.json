@@ -1,0 +1,17 @@
+{
+  "id": "blas.conv2d-im2col.f32.batch4.1x28x28.k3.out8",
+  "suite": "blas",
+  "kind": "blas_conv2d_im2col",
+  "dtype": "f32",
+  "warmup_iterations": 1,
+  "measured_iterations": 3,
+  "thread_count": 1,
+  "seed": 81761,
+  "lhs_shape": [4, 1, 28, 28],
+  "rhs_shape": [8, 1, 3, 3],
+  "stride": 1,
+  "padding": 1,
+  "dilation": 1,
+  "notes": "Synthetic MNIST-like conv lowering workload using im2col plus batched matmul.",
+  "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py"
+}

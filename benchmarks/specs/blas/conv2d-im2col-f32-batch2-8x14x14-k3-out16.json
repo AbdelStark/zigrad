@@ -1,0 +1,17 @@
+{
+  "id": "blas.conv2d-im2col.f32.batch2.8x14x14.k3.out16",
+  "suite": "blas",
+  "kind": "blas_conv2d_im2col",
+  "dtype": "f32",
+  "warmup_iterations": 1,
+  "measured_iterations": 3,
+  "thread_count": 1,
+  "seed": 81761,
+  "lhs_shape": [2, 8, 14, 14],
+  "rhs_shape": [16, 8, 3, 3],
+  "stride": 1,
+  "padding": 1,
+  "dilation": 1,
+  "notes": "Synthetic multi-channel conv lowering workload for host BLAS dispatch audits.",
+  "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py"
+}

@@ -65,6 +65,19 @@ def ring_skip_edges(node_count: int, fanout: int = 4):
     return src, tgt
 
 
+def conv_output_shape(spec: dict):
+    input_shape = spec["lhs_shape"]
+    weight_shape = spec["rhs_shape"]
+    stride = spec.get("stride", 1)
+    padding = spec.get("padding", 0)
+    dilation = spec.get("dilation", 1)
+    kernel_size = weight_shape[2]
+    effective_kernel = dilation * (kernel_size - 1) + 1
+    output_height = ((input_shape[2] + 2 * padding - effective_kernel) // stride) + 1
+    output_width = ((input_shape[3] + 2 * padding - effective_kernel) // stride) + 1
+    return [input_shape[0], weight_shape[0], output_height, output_width]
+
+
 def host_provider() -> str:
     if sys.platform == "darwin":
         return "accelerate"
@@ -112,6 +125,13 @@ def shape_metadata(spec: dict):
         return [
             {"name": "matrix", "dims": spec["lhs_shape"]},
             {"name": "vector", "dims": spec["rhs_shape"]},
+        ]
+
+    if kind == "blas_conv2d_im2col":
+        return [
+            {"name": "input", "dims": spec["lhs_shape"]},
+            {"name": "weights", "dims": spec["rhs_shape"]},
+            {"name": "output", "dims": conv_output_shape(spec)},
         ]
 
     input_shape = spec.get("input_shape")
@@ -210,6 +230,8 @@ def throughput_shape(spec: dict):
         return spec["lhs_shape"][0], "elements"
     if kind in {"blas_matvec", "autograd_matvec_backward"}:
         return math.prod(spec["lhs_shape"]), "matrix-elements"
+    if kind == "blas_conv2d_im2col":
+        return spec["lhs_shape"][0], "samples"
     if kind in {"mnist_mlp_train", "mnist_mlp_infer", "dqn_cartpole_train", "dqn_cartpole_infer"}:
         return spec["batch_size"], "samples"
     if kind in {"gcn_train", "gcn_infer"}:
@@ -234,6 +256,7 @@ def main() -> int:
     supported_kinds = {
         "blas_dot",
         "blas_matvec",
+        "blas_conv2d_im2col",
         "autograd_dot_backward",
         "autograd_matvec_backward",
         "mnist_mlp_train",
@@ -328,7 +351,7 @@ def main() -> int:
     setup_start = time.perf_counter_ns()
     step = None
 
-    if kind in {"blas_dot", "blas_matvec", "autograd_dot_backward", "autograd_matvec_backward"}:
+    if kind in {"blas_dot", "blas_matvec", "blas_conv2d_im2col", "autograd_dot_backward", "autograd_matvec_backward"}:
         lhs_shape = spec["lhs_shape"]
         rhs_shape = spec["rhs_shape"]
         lhs_values = deterministic_vector(math.prod(lhs_shape), seed)
@@ -353,6 +376,19 @@ def main() -> int:
                     _ = torch.mv(matrix, vector)
 
             step = matvec_step
+
+        elif kind == "blas_conv2d_im2col":
+            stride = spec.get("stride", 1)
+            padding = spec.get("padding", 0)
+            dilation = spec.get("dilation", 1)
+            inputs = torch.tensor(lhs_values, dtype=torch.float32).reshape(*lhs_shape)
+            weights = torch.tensor(rhs_values, dtype=torch.float32).reshape(*rhs_shape)
+
+            def conv_step():
+                with torch.no_grad():
+                    _ = F.conv2d(inputs, weights, bias=None, stride=stride, padding=padding, dilation=dilation)
+
+            step = conv_step
 
         elif kind == "autograd_dot_backward":
             lhs = make_leaf_tensor(lhs_values, lhs_shape)

@@ -56,13 +56,15 @@ The benchmark harness now lives in
 [`benchmarks/`](./benchmarks/)
 and emits machine-readable JSONL results with hardware and backend metadata,
 plus a comparison tool for base-vs-candidate regression checks. The current
-smoke suite covers deterministic primitive, MNIST MLP, CartPole-style DQN, and
-two-layer GCN workloads. Host benchmark/build metadata now records the explicit
-BLAS provider as `accelerate`, `openblas`, or `mkl`:
+smoke suite covers deterministic primitive and BLAS workloads, including
+conv-lowering coverage, plus MNIST MLP, CartPole-style DQN, and two-layer GCN
+workloads. Host benchmark/build metadata now records the explicit BLAS
+provider as `accelerate`, `openblas`, or `mkl`:
 
 ```shell
 zig build benchmark
 zig build benchmark-primitive
+zig build benchmark-blas
 zig build benchmark-memory
 zig build benchmark-models
 zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl

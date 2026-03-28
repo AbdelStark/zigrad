@@ -68,8 +68,8 @@ documents we will implement against.
 
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, smoke CI, and synthetic BLAS/autograd/memory/MNIST/DQN/GCN coverage are landed; future CUDA/compiler/interop suites remain. |
-| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, and example-model audit coverage are landed; Linux OpenBLAS/oneMKL parity, performance validation, and legacy Conv2D audit remain. |
+| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, smoke CI, and synthetic BLAS/autograd/memory/MNIST/DQN/GCN plus conv-lowering coverage are landed; future CUDA/compiler/interop suites remain. |
+| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, example-model audit coverage, and legacy Conv2D lowering audit are landed; Linux OpenBLAS/oneMKL parity and performance validation remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Turns experimental CUDA into a supported execution backend. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
 | RFC-0005 | ggml/GGUF Interop | `Planned` | P1 | RFC-0001, RFC-0012 | Critical for LLM examples and inference compatibility. |
@@ -121,6 +121,32 @@ Every RFC in this folder set must maintain:
 - a section describing what will not be done in the RFC.
 
 ## Agentic Context
+
+### RFC-0001 2026-03-28 Conv Lowering Coverage
+
+- Completed:
+  - Added a reusable legacy conv lowering helper in
+    [`src/nn/conv_utils.zig`](../src/nn/conv_utils.zig) that benchmarks can
+    call directly via `im2col` plus batched matmul.
+  - Extended the `blas` suite manifest and workload coverage to support
+    deterministic `blas_conv2d_im2col` specs with stride/padding/dilation
+    fields and added two checked-in conv benchmark specs under
+    [`benchmarks/specs/blas/`](../benchmarks/specs/blas/).
+  - Expanded the optional PyTorch baseline runner and benchmark execution tests
+    to cover the new conv workload kind.
+- Remains:
+  - Add CUDA/compiler/interop benchmark suites as those RFCs become executable.
+  - Capture non-skipped PyTorch baseline data on a machine with `torch`
+    installed.
+- Blockers:
+  - No local `torch` installation was available, so the baseline path validated
+    only the explicit skip behavior.
+- Validation:
+  - `zig build test`
+  - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`
+  - `zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json --output /tmp/zigrad-conv-benchmark.jsonl`
+  - `zig build benchmark-blas -- --output /tmp/zigrad-blas.jsonl`
+  - `zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json --baseline pytorch --output /tmp/zigrad-conv-benchmark-baseline.jsonl`
 
 ### RFC-0001 Snapshot
 
@@ -314,3 +340,29 @@ Every RFC in this folder set must maintain:
   - `cd examples/mnist && zig build -Dhost_blas=accelerate`
   - `cd examples/dqn && zig build -Dhost_blas=accelerate`
   - `cd examples/gcn && zig build -Dhost_blas=accelerate`
+
+### RFC-0002 2026-03-28 Legacy Conv2D BLAS Audit
+
+- Completed:
+  - Added `conv2dOutputShape` and `conv2dForwardIm2col` in
+    [`src/nn/conv_utils.zig`](../src/nn/conv_utils.zig), which routes the
+    legacy reference conv path through provider-backed batched matmul lowering.
+  - Added exact telemetry regression coverage in
+    [`benchmarks/src/provider_audit.zig`](../benchmarks/src/provider_audit.zig)
+    proving the legacy conv path issues the expected host `bmm_acc` and
+    per-batch `matmul` calls.
+  - Added benchmark coverage for the same lowering path under
+    [`benchmarks/specs/blas/`](../benchmarks/specs/blas/) and extended the
+    PyTorch baseline runner to understand the new spec kind.
+- Remains:
+  - Validate the conv audit on Linux OpenBLAS and oneMKL builds.
+  - Add cross-provider parity checks and published comparison tables.
+- Blockers:
+  - Only the macOS Accelerate path was available locally, and PyTorch was not
+    installed, so parity and executed baseline comparisons remain pending.
+- Validation:
+  - `zig build test`
+  - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`
+  - `zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json --output /tmp/zigrad-conv-benchmark.jsonl`
+  - `zig build benchmark-blas -- --output /tmp/zigrad-blas.jsonl`
+  - `zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json --baseline pytorch --output /tmp/zigrad-conv-benchmark-baseline.jsonl`

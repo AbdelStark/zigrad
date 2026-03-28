@@ -49,6 +49,10 @@ should reject incomplete specs with clear errors. Batched workloads should make
 their leading dimension explicit through `batch_size`; graph workloads may omit
 `batch_size` when node count is carried by `input_shape[0]`.
 
+For conv-lowering benchmarks, encode the input tensor in `lhs_shape`, the
+weights in `rhs_shape`, and the lowering parameters in `stride`, `padding`, and
+`dilation`.
+
 ## Validation Workflow
 
 Run the narrowest meaningful validation first:
@@ -57,6 +61,7 @@ Run the narrowest meaningful validation first:
 zig build test
 zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json
 zig build benchmark -- --spec benchmarks/specs/blas/dot-f32-262144.json
+zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json
 ```
 
 For smoke-scope changes, rerun the standard entrypoints:

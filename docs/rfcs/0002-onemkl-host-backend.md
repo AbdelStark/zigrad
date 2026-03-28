@@ -111,8 +111,8 @@ regardless of provider:
 - [x] GEMM and GEMV for `f32`, `f64`.
 - [x] Batched GEMM with correct nested batch-broadcast semantics, preserving
   direct batched dispatch for modulo-safe layouts.
-- [ ] Audit the remaining legacy Conv2D/reference conv path; linear and GCN
-  dense paths now have host BLAS dispatch regression coverage.
+- [x] Audit the remaining legacy Conv2D/reference conv path; linear, GCN, and
+  legacy conv-lowering paths now have host BLAS dispatch regression coverage.
 
 ### Workstream C: Correctness and Debuggability
 
@@ -153,6 +153,35 @@ regardless of provider:
 - provider-specific fused kernels where BLAS alone is insufficient.
 
 ## Agentic Context
+
+### 2026-03-28 Legacy Conv2D BLAS Audit
+
+- Completed:
+  - Added `conv2dOutputShape` and `conv2dForwardIm2col` in
+    [`src/nn/conv_utils.zig`](../../src/nn/conv_utils.zig) so the legacy
+    reference conv path now lowers through the same provider-backed batched
+    matmul dispatch surface used elsewhere in the host backend.
+  - Added exact host BLAS telemetry coverage in
+    [`benchmarks/src/provider_audit.zig`](../../benchmarks/src/provider_audit.zig)
+    for the legacy conv path, proving it issues one `bmm_acc` dispatch and the
+    expected per-batch `matmul` calls on the host backend.
+  - Added benchmark coverage and an optional PyTorch baseline path for the same
+    conv lowering workload under [`benchmarks/specs/blas/`](../../benchmarks/specs/blas/).
+- Remains:
+  - Validate the same conv audit and benchmark path on Linux OpenBLAS and
+    oneMKL builds.
+  - Add cross-provider numerical parity checks and published benchmark tables
+    once x86/OpenBLAS/oneMKL environments are available.
+- Blockers:
+  - This run executed only on the macOS Accelerate backend, and local PyTorch
+    was unavailable, so cross-provider and cross-framework execution remain
+    pending.
+- Validation performed:
+  - `zig build test`
+  - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`
+  - `zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json --output /tmp/zigrad-conv-benchmark.jsonl`
+  - `zig build benchmark-blas -- --output /tmp/zigrad-blas.jsonl`
+  - `zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json --baseline pytorch --output /tmp/zigrad-conv-benchmark-baseline.jsonl`
 
 ### 2026-03-27 Provider Selection + Metadata
 
