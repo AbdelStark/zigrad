@@ -62,11 +62,12 @@ discoverable, and captured host thread-environment hints alongside backend
 telemetry. The current smoke suite covers deterministic primitive and BLAS
 workloads, including conv-lowering coverage and a nested-broadcast matmul
 fallback case, plus MNIST MLP, a char-level causal language model, pendulum
-dynamics regression, CartPole-style DQN, and two-layer GCN workloads. The
-harness now also includes dedicated `compiler` and `interop` suites: compiler
-coverage measures repeated eager graph-session capture on the same maintained
-families, while interop coverage measures in-memory safetensors checkpoint
-export/import on maintained affine-stack models.
+dynamics regression, deterministic corridor-control, CartPole-style DQN, and
+two-layer GCN workloads. The harness now also includes dedicated `compiler`
+and `interop` suites: compiler coverage measures repeated eager
+graph-session capture on the same maintained families, while interop coverage
+measures in-memory safetensors checkpoint export/import on maintained
+affine-stack models.
 Host benchmark/build metadata now records the explicit BLAS provider as
 `accelerate`, `openblas`, or `mkl`, and Zig runs also report host BLAS
 dispatch telemetry so fallback usage is visible in the JSONL output:
@@ -375,11 +376,25 @@ ZG_CHAR_LM_PROMPT="graph " zig build run
 ZG_DEVICE=cuda ZG_EXAMPLE_SMOKE=1 zig build run -Denable_cuda=true
 ```
 
+Run the deterministic corridor-control demo
+
+```shell
+cd zigrad/examples/corridor
+zig build run
+
+# Optional host smoke run
+ZG_EXAMPLE_SMOKE=1 zig build run
+
+# Optional CUDA smoke run when built with CUDA enabled
+ZG_DEVICE=cuda ZG_EXAMPLE_SMOKE=1 zig build run -Denable_cuda=true
+```
+
 Runtime backend expectations are now explicit:
 
 - `examples/hello-world`, `examples/mnist`, `examples/char-lm`,
-  `examples/dqn`, and `examples/gcn` support `ZG_DEVICE=host|cpu|cuda[:index]`
-  when built with `-Denable_cuda=true`.
+  `examples/pendulum`, `examples/corridor`, `examples/dqn`, and
+  `examples/gcn` support `ZG_DEVICE=host|cpu|cuda[:index]` when built with
+  `-Denable_cuda=true`.
 - DQN and GCN now avoid host-only tensor reads in their runtime paths, but
   dedicated CUDA hardware validation is still pending on a GPU-capable runner.
 - The char-level language model uses an embedded corpus and deterministic
@@ -398,6 +413,12 @@ cd zigrad/examples/mnist
 ZG_EXAMPLE_SMOKE=1 zig build run
 
 cd zigrad/examples/char-lm
+ZG_EXAMPLE_SMOKE=1 zig build run
+
+cd zigrad/examples/pendulum
+ZG_EXAMPLE_SMOKE=1 zig build run
+
+cd zigrad/examples/corridor
 ZG_EXAMPLE_SMOKE=1 zig build run
 
 cd zigrad/examples/dqn

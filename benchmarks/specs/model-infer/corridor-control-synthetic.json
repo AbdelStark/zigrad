@@ -1,0 +1,20 @@
+{
+  "id": "model-infer.corridor-control.synthetic.f32.batch24",
+  "suite": "model-infer",
+  "kind": "corridor_control_infer",
+  "dtype": "f32",
+  "warmup_iterations": 2,
+  "measured_iterations": 8,
+  "batch_size": 24,
+  "input_shape": [24, 3],
+  "seed": 20260329,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "sample deterministic corridor start states",
+      "encode corridor state features",
+      "run greedy Q-network inference without environment stepping"
+    ]
+  },
+  "notes": "Deterministic corridor-control inference step for the upgraded maintained RL reference example."
+}

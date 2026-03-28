@@ -6,6 +6,7 @@ const dqn_train = @import("examples_dqn_train");
 const gcn_main = @import("examples_gcn_main");
 const char_lm_main = @import("examples_char_lm_main");
 const pendulum_main = @import("examples_pendulum_main");
+const corridor_main = @import("examples_corridor_main");
 
 const std_options = .{ .log_level = .info };
 
@@ -58,5 +59,15 @@ pub fn main() !void {
         pendulum_summary.rollout_rmse >= 0.35)
     {
         return error.PendulumSmokeFailed;
+    }
+
+    const corridor_summary = try corridor_main.trainCorridorSmoke();
+    if (corridor_summary.optimization_steps == 0 or
+        !std.math.isFinite(corridor_summary.initial_eval_return) or
+        !std.math.isFinite(corridor_summary.final_eval_return) or
+        corridor_summary.final_eval_return <= corridor_summary.initial_eval_return or
+        corridor_summary.final_success_rate < 0.9)
+    {
+        return error.CorridorSmokeFailed;
     }
 }

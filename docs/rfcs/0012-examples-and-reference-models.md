@@ -109,7 +109,7 @@ documented rather than hidden in bespoke scripts.
 - [x] LLM example, initial char-level causal language model reference with
   embedded corpus, smoke coverage, and benchmark hooks.
 - [x] physics/robotics example.
-- [ ] upgraded RL example.
+- [x] upgraded RL example.
 
 ## Testing Plan
 
@@ -202,8 +202,6 @@ documented rather than hidden in bespoke scripts.
     maintained `llm`, one RL/control example, and one physics/robotics-style
     example.
 - Remains:
-  - Add the upgraded RL/reference-control slice that is still called out in
-    Workstream D.
   - Revisit the pendulum family with richer control or model-based-planning
     workflows once the examples program grows beyond single-step dynamics
     regression.
@@ -216,6 +214,49 @@ documented rather than hidden in bespoke scripts.
   - `cd examples/pendulum && ZG_EXAMPLE_SMOKE=1 zig build run`
   - `zig build test-benchmark-smoke`
   - `zig build test`
+
+### 2026-03-28 Corridor Control Reference Example
+
+- Completed:
+  - Added
+    [`examples/corridor/src/environment.zig`](../../examples/corridor/src/environment.zig),
+    [`examples/corridor/src/replay_buffer.zig`](../../examples/corridor/src/replay_buffer.zig),
+    [`examples/corridor/src/model.zig`](../../examples/corridor/src/model.zig),
+    [`examples/corridor/src/main.zig`](../../examples/corridor/src/main.zig),
+    [`examples/corridor/build.zig`](../../examples/corridor/build.zig),
+    [`examples/corridor/build.zig.zon`](../../examples/corridor/build.zig.zon),
+    and
+    [`examples/corridor/README.md`](../../examples/corridor/README.md),
+    giving RFC-0012 a maintained upgraded RL/reference-control example with a
+    deterministic momentum-constrained environment, replay-buffer training,
+    checkpoint support, and greedy evaluation from a clean checkout.
+  - Wired the example into repo-level smoke coverage through
+    [`build.zig`](../../build.zig)
+    and
+    [`tests/src/example_smoke_main.zig`](../../tests/src/example_smoke_main.zig),
+    including an evaluation-improvement gate so the example must actually
+    learn instead of merely compiling.
+  - Extended RFC-0001 benchmark coverage through
+    [`benchmarks/src/manifest.zig`](../../benchmarks/src/manifest.zig),
+    [`benchmarks/src/workload.zig`](../../benchmarks/src/workload.zig),
+    [`benchmarks/specs/model-train/corridor-control-synthetic.json`](../../benchmarks/specs/model-train/corridor-control-synthetic.json),
+    and
+    [`benchmarks/specs/model-infer/corridor-control-synthetic.json`](../../benchmarks/specs/model-infer/corridor-control-synthetic.json),
+    so the upgraded RL slice participates in the maintained benchmark harness
+    instead of living only as a standalone example.
+  - Completed RFC-0012 Workstream D's remaining upgraded RL example item.
+- Remains:
+  - Decide whether the next RL/reference step should be actor-critic or a
+    richer continuous-control workload once the maintained portfolio needs a
+    harder backend/compiler stress case.
+- Blockers:
+  - CUDA-capable validation remains unavailable in this environment, so the
+    new reference-control example and benchmark slice were verified on host
+    only.
+- Validation performed:
+  - `cd examples/corridor && ZG_EXAMPLE_SMOKE=1 zig build run`
+  - `zig build test-example-smoke`
+  - `zig build test-benchmark-smoke`
 
 ### 2026-03-28 Device-Safe Losses For Maintained Training Examples
 

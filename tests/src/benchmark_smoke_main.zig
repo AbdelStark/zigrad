@@ -15,6 +15,8 @@ const smoke_specs = [_][]const u8{
     "benchmarks/specs/model-infer/char-lm-synthetic.json",
     "benchmarks/specs/model-train/pendulum-dynamics-synthetic.json",
     "benchmarks/specs/model-infer/pendulum-dynamics-synthetic.json",
+    "benchmarks/specs/model-train/corridor-control-synthetic.json",
+    "benchmarks/specs/model-infer/corridor-control-synthetic.json",
 };
 
 pub fn main() !void {

@@ -2,9 +2,11 @@ const std = @import("std");
 const zg = @import("zigrad");
 const manifest = @import("manifest.zig");
 const metadata = @import("metadata.zig");
+const corridor = @import("examples_corridor_environment");
 const pendulum_data = @import("examples_pendulum_dataset");
 const result = @import("result.zig");
 const CharLmModel = @import("examples_char_lm_model").CharLmModel;
+const CorridorControlModel = @import("examples_corridor_model").CorridorControlModel;
 const DqnBenchmarkModel = @import("dqn_bench_model.zig").DqnBenchmarkModel;
 const GcnBenchmarkModel = @import("gcn_bench_model.zig").GcnBenchmarkModel;
 const MnistBenchmarkModel = @import("mnist_bench_model.zig").MnistBenchmarkModel;
@@ -96,6 +98,8 @@ pub fn expectedBatchSize(spec: manifest.Spec) ?usize {
         .char_lm_infer,
         .pendulum_dynamics_train,
         .pendulum_dynamics_infer,
+        .corridor_control_train,
+        .corridor_control_infer,
         .dqn_cartpole_train,
         .dqn_cartpole_infer,
         => spec.batch_size,
@@ -141,6 +145,8 @@ pub fn expectedShapeMetadata(
         .pendulum_dynamics_train,
         .pendulum_dynamics_infer,
         => shapeMetadataFromPendulum(allocator, spec),
+        .corridor_control_train => shapeMetadataFromCorridorTrain(allocator, spec),
+        .corridor_control_infer => shapeMetadataFromCorridorInfer(allocator, spec),
         .compiler_dqn_cartpole_capture => shapeMetadataFromDqnTrain(allocator, spec),
         .interop_dqn_cartpole_safetensors_export,
         .interop_dqn_cartpole_safetensors_import,
@@ -248,6 +254,8 @@ pub fn run(allocator: std.mem.Allocator, spec: manifest.Spec) !RunResult {
         .char_lm_infer => runCharLmInfer(allocator, spec, &context),
         .pendulum_dynamics_train => runPendulumTrain(allocator, spec, &context),
         .pendulum_dynamics_infer => runPendulumInfer(allocator, spec, &context),
+        .corridor_control_train => runCorridorTrain(allocator, spec, &context),
+        .corridor_control_infer => runCorridorInfer(allocator, spec, &context),
         .dqn_cartpole_train => runDqnTrain(allocator, spec, &context),
         .dqn_cartpole_infer => runDqnInfer(allocator, spec, &context),
         .gcn_train => runGcnTrain(allocator, spec, &context),
@@ -1622,6 +1630,158 @@ fn runPendulumInfer(allocator: std.mem.Allocator, spec: manifest.Spec, context: 
     };
 }
 
+fn runCorridorTrain(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
+    const batch_size = spec.batch_size.?;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    const host = context.host();
+    const device = context.device();
+
+    var timer = try std.time.Timer.start();
+    var model = try CorridorControlModel(f32).initWithGraphAndSeed(
+        device,
+        corridor.state_feature_count,
+        corridorHiddenSize(),
+        corridor.action_count,
+        &graph,
+        spec.seed,
+    );
+    defer model.deinit();
+
+    var target = try model.clone();
+    defer target.deinit();
+    target.set_requires_grad(false);
+
+    var adam = zg.optim.Adam.init(allocator, .{
+        .lr = 0.004,
+        .beta1 = 0.9,
+        .beta2 = 0.999,
+        .epsilon = 1e-8,
+    });
+    defer adam.deinit();
+    const optimizer = adam.optimizer();
+    try model.attach_optimizer(optimizer);
+
+    var generated = try corridor.generateSyntheticTransitionBatch(allocator, batch_size, spec.seed +% 151, .{});
+    defer generated.deinit(allocator);
+    const gamma_values = try makeFilledSlice(allocator, batch_size, 0.97);
+    defer allocator.free(gamma_values);
+    const one_values = try makeFilledSlice(allocator, batch_size, 1.0);
+    defer allocator.free(one_values);
+
+    const setup_latency_ns = timer.read();
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+
+    for (0..spec.warmup_iterations) |_| {
+        try oneCorridorTrainingStep(
+            &graph,
+            device,
+            &model,
+            &target,
+            generated.states,
+            generated.next_states,
+            generated.actions,
+            generated.rewards,
+            generated.dones,
+            gamma_values,
+            one_values,
+            spec.input_shape.?,
+            optimizer,
+        );
+    }
+    maybeResetHostBenchmarkTelemetry(host);
+    for (timings) |*timing| {
+        timer.reset();
+        try oneCorridorTrainingStep(
+            &graph,
+            device,
+            &model,
+            &target,
+            generated.states,
+            generated.next_states,
+            generated.actions,
+            generated.rewards,
+            generated.dones,
+            gamma_values,
+            one_values,
+            spec.input_shape.?,
+            optimizer,
+        );
+        timing.* = timer.read();
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromCorridorTrain(allocator, spec),
+        .batch_size = batch_size,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = batch_size,
+        .throughput_unit = "samples",
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runCorridorInfer(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
+    const Tensor = zg.NDTensor(f32);
+    const batch_size = spec.batch_size.?;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    const host = context.host();
+    const device = context.device();
+
+    var timer = try std.time.Timer.start();
+    var model = try CorridorControlModel(f32).initWithGraphAndSeed(
+        device,
+        corridor.state_feature_count,
+        corridorHiddenSize(),
+        corridor.action_count,
+        &graph,
+        spec.seed,
+    );
+    defer model.deinit();
+    model.set_requires_grad(false);
+
+    const input_values = try corridor.generateSyntheticStates(allocator, batch_size, spec.seed +% 157, .{});
+    defer allocator.free(input_values);
+
+    const input = try Tensor.from_slice(device, input_values, spec.input_shape.?, .{ .graph = &graph });
+    defer input.deinit();
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    const previous_grad_state = zg.runtime.grad_enabled;
+    zg.runtime.grad_enabled = false;
+    defer zg.runtime.grad_enabled = previous_grad_state;
+
+    for (0..spec.warmup_iterations) |_| {
+        const output = try model.forward(input);
+        output.deinit();
+    }
+    maybeResetHostBenchmarkTelemetry(host);
+    for (timings) |*timing| {
+        timer.reset();
+        const output = try model.forward(input);
+        timing.* = timer.read();
+        output.deinit();
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromCorridorInfer(allocator, spec),
+        .batch_size = batch_size,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = batch_size,
+        .throughput_unit = "samples",
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
 fn runDqnTrain(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const batch_size = spec.batch_size.?;
 
@@ -2131,6 +2291,74 @@ fn oneDqnTrainingStep(
     policy.zeroGrad();
 }
 
+fn oneCorridorTrainingStep(
+    graph: *zg.Graph,
+    device: zg.DeviceReference,
+    policy: *CorridorControlModel(f32),
+    target: *CorridorControlModel(f32),
+    state_values: []const f32,
+    next_state_values: []const f32,
+    action_values: []const usize,
+    reward_values: []const f32,
+    done_values: []const f32,
+    gamma_values: []const f32,
+    one_values: []const f32,
+    input_shape: []const usize,
+    optimizer: zg.Optimizer,
+) !void {
+    const Tensor = zg.NDTensor(f32);
+    const batch_size = input_shape[0];
+
+    const states = try Tensor.from_slice(device, state_values, input_shape, .{ .graph = graph });
+    defer states.deinit();
+    const next_states = try Tensor.from_slice(device, next_state_values, input_shape, .{ .graph = graph });
+    defer next_states.deinit();
+    const actions = try zg.NDTensor(usize).from_slice(device, action_values, &.{ batch_size, 1 }, .{
+        .graph = graph,
+    });
+    defer actions.deinit();
+    const rewards = try Tensor.from_slice(device, reward_values, &.{ batch_size, 1 }, .{ .graph = graph });
+    defer rewards.deinit();
+    const dones = try Tensor.from_slice(device, done_values, &.{ batch_size, 1 }, .{ .graph = graph });
+    defer dones.deinit();
+    const gamma = try Tensor.from_slice(device, gamma_values, &.{ batch_size, 1 }, .{ .graph = graph });
+    defer gamma.deinit();
+    const ones = try Tensor.from_slice(device, one_values, &.{ batch_size, 1 }, .{ .graph = graph });
+    defer ones.deinit();
+
+    const previous_grad_state = zg.runtime.grad_enabled;
+    zg.runtime.grad_enabled = false;
+    defer zg.runtime.grad_enabled = previous_grad_state;
+
+    const next_q_values = try target.forward(next_states);
+    defer next_q_values.deinit();
+    const max_next_q_values = try next_q_values.max_along(.{ .dim = 1, .keep_dims = true });
+    defer max_next_q_values.deinit();
+
+    const discounted = try max_next_q_values.mul(gamma);
+    defer discounted.deinit();
+    const not_done = try ones.sub(dones);
+    defer not_done.deinit();
+    const masked = try discounted.mul(not_done);
+    defer masked.deinit();
+    const targets = try rewards.add(masked);
+    defer targets.deinit();
+
+    zg.runtime.grad_enabled = true;
+    const all_q_values = try policy.forward(states);
+    defer all_q_values.deinit();
+    const selected_q_values = try all_q_values.gather(actions.data, 1);
+    defer selected_q_values.deinit();
+
+    const loss = try zg.loss.smooth_l1_loss(f32, selected_q_values, targets, 1.0);
+    defer loss.deinit();
+
+    try loss.backward();
+    try optimizer.step();
+    policy.zero_grad();
+    try target.soft_update_from(policy, 0.08);
+}
+
 fn oneCompilerDqnCaptureStep(
     graph: *zg.Graph,
     device: zg.DeviceReference,
@@ -2614,6 +2842,23 @@ fn shapeMetadataFromPendulum(allocator: std.mem.Allocator, spec: manifest.Spec) 
     return shapes;
 }
 
+fn shapeMetadataFromCorridorTrain(allocator: std.mem.Allocator, spec: manifest.Spec) ![]const result.ShapeMetadata {
+    const batch_size = spec.batch_size.?;
+    const shapes = try allocator.alloc(result.ShapeMetadata, 5);
+    shapes[0] = .{ .name = "state", .dims = spec.input_shape.? };
+    shapes[1] = .{ .name = "next_state", .dims = spec.input_shape.? };
+    shapes[2] = .{ .name = "action", .dims = try allocDims(allocator, &.{ batch_size, 1 }) };
+    shapes[3] = .{ .name = "reward", .dims = try allocDims(allocator, &.{ batch_size, 1 }) };
+    shapes[4] = .{ .name = "done", .dims = try allocDims(allocator, &.{ batch_size, 1 }) };
+    return shapes;
+}
+
+fn shapeMetadataFromCorridorInfer(allocator: std.mem.Allocator, spec: manifest.Spec) ![]const result.ShapeMetadata {
+    const shapes = try allocator.alloc(result.ShapeMetadata, 1);
+    shapes[0] = .{ .name = "state", .dims = spec.input_shape.? };
+    return shapes;
+}
+
 fn shapeMetadataFromDqnTrain(allocator: std.mem.Allocator, spec: manifest.Spec) ![]const result.ShapeMetadata {
     const batch_size = spec.batch_size.?;
     const shapes = try allocator.alloc(result.ShapeMetadata, 5);
@@ -2629,6 +2874,10 @@ fn shapeMetadataFromDqnInfer(allocator: std.mem.Allocator, spec: manifest.Spec) 
     const shapes = try allocator.alloc(result.ShapeMetadata, 1);
     shapes[0] = .{ .name = "state", .dims = spec.input_shape.? };
     return shapes;
+}
+
+fn corridorHiddenSize() usize {
+    return 32;
 }
 
 fn shapeMetadataFromMnistCheckpoint(allocator: std.mem.Allocator) ![]const result.ShapeMetadata {

@@ -46,6 +46,7 @@ zig build benchmark -- --baseline pytorch
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/char-lm-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/pendulum-dynamics-synthetic.json
+zig build benchmark -- --spec benchmarks/specs/model-infer/corridor-control-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/interop/mnist-mlp-safetensors-import-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json
@@ -196,6 +197,7 @@ emits both a machine-readable manifest and a Markdown summary for humans.
   - synthetic MNIST-style MLP training step
   - synthetic char-level causal language model training step
   - synthetic pendulum dynamics regression training step
+  - synthetic deterministic corridor-control Q-learning step
   - synthetic CartPole-shaped DQN training step
   - CUDA-targeted synthetic CartPole-shaped DQN training step spec
   - synthetic two-layer GCN training step on a deterministic graph
@@ -203,6 +205,7 @@ emits both a machine-readable manifest and a Markdown summary for humans.
   - synthetic MNIST-style MLP inference step
   - synthetic char-level causal language model inference step
   - synthetic pendulum dynamics regression inference step
+  - synthetic deterministic corridor-control Q-network inference step
   - CUDA-targeted synthetic MNIST-style MLP inference step spec
   - synthetic CartPole-shaped DQN inference step
   - synthetic two-layer GCN inference step on a deterministic graph
@@ -213,7 +216,10 @@ runs from a clean checkout without dataset downloads or simulator setup. The
 char-LM workloads mirror [`examples/char-lm/`](../examples/char-lm/) with
 one-hot causal windows and next-token labels, while the pendulum workloads
 mirror [`examples/pendulum/`](../examples/pendulum/) with sine/cosine angle
-features plus deterministic next-state regression targets.
+features plus deterministic next-state regression targets. The corridor-control
+workloads mirror [`examples/corridor/`](../examples/corridor/) with
+deterministic momentum-constrained transitions and greedy-policy inference
+batches for the maintained reference Q-network.
 The compiler suite measures repeated eager graph-session capture on persistent
 reference-model parameters, pairing each capture step with explicit graph
 teardown so setup cost stays separate from measured forward-plus-loss graph

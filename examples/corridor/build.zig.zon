@@ -1,0 +1,16 @@
+.{
+    .name = .corridor,
+    .fingerprint = 0xd6dee7553cff9e24,
+    .version = "0.0.0",
+    .minimum_zig_version = "0.15.0",
+
+    .dependencies = .{
+        .zigrad = .{ .path = "../../" },
+    },
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

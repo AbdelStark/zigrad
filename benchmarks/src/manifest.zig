@@ -49,6 +49,8 @@ pub const Kind = enum {
     char_lm_infer,
     pendulum_dynamics_train,
     pendulum_dynamics_infer,
+    corridor_control_train,
+    corridor_control_infer,
     dqn_cartpole_train,
     dqn_cartpole_infer,
     gcn_train,
@@ -79,6 +81,8 @@ pub const Kind = enum {
             .char_lm_infer => "char_lm_infer",
             .pendulum_dynamics_train => "pendulum_dynamics_train",
             .pendulum_dynamics_infer => "pendulum_dynamics_infer",
+            .corridor_control_train => "corridor_control_train",
+            .corridor_control_infer => "corridor_control_infer",
             .dqn_cartpole_train => "dqn_cartpole_train",
             .dqn_cartpole_infer => "dqn_cartpole_infer",
             .gcn_train => "gcn_train",
@@ -268,6 +272,12 @@ fn validate(path: []const u8, raw: RawSpec) !Spec {
         .pendulum_dynamics_infer => {
             try requireBatchedModelShapes(raw, false);
         },
+        .corridor_control_train => {
+            try requireBatchedModelShapes(raw, false);
+        },
+        .corridor_control_infer => {
+            try requireBatchedModelShapes(raw, false);
+        },
         .dqn_cartpole_train => {
             try requireBatchedModelShapes(raw, false);
         },
@@ -349,6 +359,8 @@ fn parseKind(value: []const u8) !Kind {
     if (std.mem.eql(u8, value, "char_lm_infer")) return .char_lm_infer;
     if (std.mem.eql(u8, value, "pendulum_dynamics_train")) return .pendulum_dynamics_train;
     if (std.mem.eql(u8, value, "pendulum_dynamics_infer")) return .pendulum_dynamics_infer;
+    if (std.mem.eql(u8, value, "corridor_control_train")) return .corridor_control_train;
+    if (std.mem.eql(u8, value, "corridor_control_infer")) return .corridor_control_infer;
     if (std.mem.eql(u8, value, "dqn_cartpole_train")) return .dqn_cartpole_train;
     if (std.mem.eql(u8, value, "dqn_cartpole_infer")) return .dqn_cartpole_infer;
     if (std.mem.eql(u8, value, "gcn_train")) return .gcn_train;
@@ -523,6 +535,34 @@ test "load pendulum benchmark spec from json slice" {
     try std.testing.expectEqual(@as(usize, 16), spec.batch_size.?);
     try std.testing.expectEqual(@as(usize, 4), spec.input_shape.?[1]);
     try std.testing.expectEqual(@as(usize, 3), spec.label_shape.?[1]);
+}
+
+test "load corridor benchmark spec from json slice" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const raw =
+        \\{
+        \\  "id": "model-train.corridor-control.synthetic.f32.batch24",
+        \\  "suite": "model-train",
+        \\  "kind": "corridor_control_train",
+        \\  "dtype": "f32",
+        \\  "warmup_iterations": 1,
+        \\  "measured_iterations": 2,
+        \\  "provenance": {
+        \\    "data_source": "synthetic.splitmix64",
+        \\    "preprocessing": ["sample deterministic corridor starts", "simulate one-step transitions", "materialize Q-learning targets"]
+        \\  },
+        \\  "batch_size": 24,
+        \\  "input_shape": [24, 3]
+        \\}
+    ;
+    const parsed = try std.json.parseFromSliceLeaky(RawSpec, allocator, raw, .{});
+    const spec = try validate("inline-corridor.json", parsed);
+
+    try std.testing.expectEqual(Kind.corridor_control_train, spec.kind);
+    try std.testing.expectEqual(@as(usize, 24), spec.batch_size.?);
+    try std.testing.expectEqual(@as(usize, 3), spec.input_shape.?[1]);
 }
 
 test "load interop benchmark spec from json slice" {

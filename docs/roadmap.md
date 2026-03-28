@@ -79,7 +79,7 @@ documents we will implement against.
 | RFC-0009 | MLIR Lowering Pipeline | `Exploratory` | P2 | RFC-0007, RFC-0008 | Optional compiler interoperability layer. |
 | RFC-0010 | ZML Inference Bridge | `Draft` | P2 | RFC-0007 | Enables inference handoff to ZML for pure serving flows. |
 | RFC-0011 | Apache TVM Integration | `Exploratory` | P3 | RFC-0001, RFC-0007, RFC-0009 | External compiler/autotuning path. |
-| RFC-0012 | Examples and Reference Models | `Ready` | P1 | RFC-0001, RFC-0002, RFC-0003 | Maintained smoke coverage now exists for hello-world, MNIST, char-LM, pendulum dynamics, DQN, and GCN; the first `llm` and physics/control reference examples plus matching benchmark hooks are landed, while the upgraded RL slice and a deeper transformer-style portfolio still remain. |
+| RFC-0012 | Examples and Reference Models | `Ready` | P1 | RFC-0001, RFC-0002, RFC-0003 | Maintained smoke coverage now exists for hello-world, MNIST, char-LM, pendulum dynamics, corridor-control RL, DQN, and GCN; the first `llm`, physics/control, and upgraded RL reference examples plus matching benchmark hooks are landed, while a deeper transformer-style portfolio still remains. |
 
 ## Recommended Implementation Order
 
@@ -244,7 +244,6 @@ Every RFC in this folder set must maintain:
     one `llm`, one RL/control example, and one physics/robotics-oriented
     example.
 - Remains:
-  - Add the upgraded RL/reference-control slice still listed in RFC-0012.
   - Decide whether the pendulum family should gain compiler-capture coverage
     once RFC-0006 and RFC-0007 expose a stronger graph pipeline.
 - Blockers:
@@ -257,6 +256,41 @@ Every RFC in this folder set must maintain:
   - `zig build benchmark -- --spec benchmarks/specs/model-infer/pendulum-dynamics-synthetic.json --baseline pytorch --output .zig-cache/pendulum-dynamics-baseline.jsonl`
   - `zig build benchmark-validate -- --input .zig-cache/pendulum-dynamics-baseline.jsonl`
   - `zig build test`
+
+### RFC-0001/RFC-0012 2026-03-28 Corridor Control Reference Example And Benchmark Slice
+
+- Completed:
+  - Landed a maintained deterministic corridor-control reference example under
+    [`examples/corridor/`](../examples/corridor/)
+    with an embedded environment, replay-buffer Q-learning, checkpointed
+    model weights, standalone build files, README guidance, and greedy
+    evaluation from a clean checkout.
+  - Wired the example into repo-level smoke coverage through
+    [`build.zig`](../build.zig)
+    and
+    [`tests/src/example_smoke_main.zig`](../tests/src/example_smoke_main.zig),
+    including a smoke assertion that the learned policy improves evaluation
+    return and reaches a high success rate.
+  - Extended RFC-0001’s maintained benchmark surface with checked-in
+    corridor-control train/infer specs and workload execution in
+    [`benchmarks/src/manifest.zig`](../benchmarks/src/manifest.zig),
+    [`benchmarks/src/workload.zig`](../benchmarks/src/workload.zig),
+    [`benchmarks/specs/model-train/corridor-control-synthetic.json`](../benchmarks/specs/model-train/corridor-control-synthetic.json),
+    and
+    [`benchmarks/specs/model-infer/corridor-control-synthetic.json`](../benchmarks/specs/model-infer/corridor-control-synthetic.json),
+    so RFC-0012's missing upgraded RL slice now participates in the same
+    reproducible harness as the rest of the maintained portfolio.
+- Remains:
+  - Decide whether the next RL/reference follow-on should be actor-critic or a
+    richer continuous-control task once the portfolio needs a harder compiler
+    and backend stress case.
+- Blockers:
+  - CUDA-capable validation remains unavailable in this environment, so the
+    new example and benchmark slice were verified on host only.
+- Validation:
+  - `cd examples/corridor && ZG_EXAMPLE_SMOKE=1 zig build run`
+  - `zig build test-example-smoke`
+  - `zig build test-benchmark-smoke`
 
 ### RFC-0001 2026-03-28 Char-LM Benchmark Coverage
 
