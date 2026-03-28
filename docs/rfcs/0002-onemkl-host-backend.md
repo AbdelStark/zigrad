@@ -111,7 +111,8 @@ regardless of provider:
 - [x] GEMM and GEMV for `f32`, `f64`.
 - [x] Batched GEMM with correct nested batch-broadcast semantics, preserving
   direct batched dispatch for modulo-safe layouts.
-- [ ] Audit conv and linear layers to ensure provider-backed paths are taken.
+- [ ] Audit the remaining legacy Conv2D/reference conv path; linear and GCN
+  dense paths now have host BLAS dispatch regression coverage.
 
 ### Workstream C: Correctness and Debuggability
 
@@ -226,6 +227,46 @@ regardless of provider:
 - Validation performed:
   - `zig build test`
   - `cd examples/hello-world && zig build -Dhost_blas=accelerate`
+  - `cd examples/mnist && zig build -Dhost_blas=accelerate`
+  - `cd examples/dqn && zig build -Dhost_blas=accelerate`
+  - `cd examples/gcn && zig build -Dhost_blas=accelerate`
+
+### 2026-03-28 Dense Dispatch Audit + Example Graph Injection
+
+- Completed:
+  - Added host BLAS operation telemetry in
+    [`src/device/host_device.zig`](../../src/device/host_device.zig) covering
+    `dot`, `matvec`, `matmul`, and `bmm_acc`, and re-exported the public
+    `HostOpTelemetry` type through [`src/device.zig`](../../src/device.zig) and
+    [`src/zigrad.zig`](../../src/zigrad.zig).
+  - Added
+    [`benchmarks/src/provider_audit.zig`](../../benchmarks/src/provider_audit.zig)
+    with exact-count regression tests for the MNIST, DQN, and GCN example
+    forward paths so host provider-backed dense dispatch stops being implicit.
+  - Updated [`build.zig`](../../build.zig) so benchmark tests can import the
+    example model modules directly, which keeps the audit pinned to the example
+    implementations rather than benchmark-only copies.
+  - Added explicit-graph construction paths to
+    [`examples/mnist/src/model.zig`](../../examples/mnist/src/model.zig),
+    [`examples/dqn/src/dqn_model.zig`](../../examples/dqn/src/dqn_model.zig),
+    and [`examples/gcn/src/model.zig`](../../examples/gcn/src/model.zig) to
+    make these models testable without relying on `global_graph_init`.
+  - Fixed a latent inference leak in
+    [`src/ndtensor.zig`](../../src/ndtensor.zig) where `scatter_add` duplicated
+    offset buffers even when gradients were disabled, and fixed the GCN example
+    to thread the active graph through temporary `Tensor.ones(...)` allocations.
+- Remains:
+  - Run the same audit and parity checks on Linux OpenBLAS and oneMKL builds.
+  - Audit the legacy reference Conv2D path independently; it still does not
+    prove provider-backed execution.
+  - Decide whether host op telemetry should remain a debug/test surface or be
+    promoted into the benchmark result schema.
+- Blockers:
+  - No Linux OpenBLAS or oneMKL environment was available in this run, so the
+    new audit coverage only exercised the macOS Accelerate backend locally.
+- Validation performed:
+  - `zig build test`
+  - `zig build benchmark-models`
   - `cd examples/mnist && zig build -Dhost_blas=accelerate`
   - `cd examples/dqn && zig build -Dhost_blas=accelerate`
   - `cd examples/gcn && zig build -Dhost_blas=accelerate`

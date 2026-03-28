@@ -33,6 +33,40 @@ pub const CacheMemoryTelemetry = CachingAllocator.MemoryTelemetry;
 const zg = @import("../zigrad.zig");
 pub const using_mkl_blas = using_mkl;
 
+pub const HostOpTelemetry = struct {
+    dot_calls: u64 = 0,
+    matvec_calls: u64 = 0,
+    matmul_calls: u64 = 0,
+    bmm_acc_calls: u64 = 0,
+
+    pub fn totalBlasCalls(self: HostOpTelemetry) u64 {
+        return self.dot_calls + self.matvec_calls + self.matmul_calls;
+    }
+};
+
+const HostOpTelemetryState = struct {
+    mutex: std.Thread.Mutex = .{},
+    snapshot: HostOpTelemetry = .{},
+
+    fn read(self: *HostOpTelemetryState) HostOpTelemetry {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        return self.snapshot;
+    }
+
+    fn reset(self: *HostOpTelemetryState) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.snapshot = .{};
+    }
+
+    fn record(self: *HostOpTelemetryState, comptime field: []const u8) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        @field(self.snapshot, field) += 1;
+    }
+};
+
 const c = switch (builtin.target.os.tag) {
     .linux => @cImport({
         if (using_mkl) {
@@ -178,6 +212,7 @@ pub fn host_total_memory() usize {
 const Self = @This();
 
 cache: CachingAllocator,
+op_telemetry: HostOpTelemetryState = .{},
 
 pub fn init() Self {
     return init_advanced(.{}); // system defaults
@@ -210,6 +245,14 @@ pub fn resetCacheTelemetry(self: *Self) void {
     self.cache.resetTelemetry();
 }
 
+pub fn opTelemetry(self: *const Self) HostOpTelemetry {
+    return @constCast(&self.op_telemetry).read();
+}
+
+pub fn resetOpTelemetry(self: *Self) void {
+    self.op_telemetry.reset();
+}
+
 // callback to replace host reference to union
 pub fn reference(self: *Self) DeviceReference {
     return .{ .ptrs = .{ .host = self } };
@@ -236,7 +279,8 @@ pub fn div(_: *const Self, T: type, p: opspec.div(T)) void {
 /////////////////////////////////
 // linear algebra ops
 
-pub fn dot(_: *const Self, T: type, p: opspec.dot(T)) void {
+pub fn dot(self: *Self, T: type, p: opspec.dot(T)) void {
+    self.op_telemetry.record("dot_calls");
     switch (T) {
         f32 => p.z[0] = c.cblas_sdot(@intCast(p.x.len), p.x.ptr, 1, p.y.ptr, 1),
         f64 => p.z[0] = c.cblas_ddot(@intCast(p.x.len), p.x.ptr, 1, p.y.ptr, 1),
@@ -244,7 +288,8 @@ pub fn dot(_: *const Self, T: type, p: opspec.dot(T)) void {
     }
 }
 
-pub fn matvec(_: *const Self, T: type, p: opspec.matvec(T)) void {
+pub fn matvec(self: *Self, T: type, p: opspec.matvec(T)) void {
+    self.op_telemetry.record("matvec_calls");
     const lda = p.n;
     const ta = if (p.trans_a) c.CblasTrans else c.CblasNoTrans;
     switch (T) {
@@ -254,7 +299,8 @@ pub fn matvec(_: *const Self, T: type, p: opspec.matvec(T)) void {
     }
 }
 
-pub fn matmul(_: *const Self, T: type, p: opspec.matmul(T)) void {
+pub fn matmul(self: *Self, T: type, p: opspec.matmul(T)) void {
+    self.op_telemetry.record("matmul_calls");
     const ta = if (p.trans_a) c.CblasTrans else c.CblasNoTrans;
     const tb = if (p.trans_b) c.CblasTrans else c.CblasNoTrans;
     switch (T) {
@@ -289,7 +335,8 @@ pub fn axpy(_: *const Self, T: type, p: opspec.axpy(T)) void {
     }
 }
 
-pub fn bmm_acc(self: *const Self, T: type, p: opspec.bmm_acc(T)) void {
+pub fn bmm_acc(self: *Self, T: type, p: opspec.bmm_acc(T)) void {
+    self.op_telemetry.record("bmm_acc_calls");
     const n_batches_a = p.A_shape[0];
     const n_batches_b = p.B_shape[0];
     const n_batches_c = p.C_shape[0];
@@ -914,7 +961,7 @@ pub fn mem_alloc(_: *const Self, T: type, n: usize) ![]T {
 
 pub fn mem_free(_: *const Self, slice: anytype) void {
     if (slice.len == 0) return;
-    DataHandler.free(undefined, std.mem.sliceAsBytes(slice));
+    DataHandler.free(undefined, @constCast(std.mem.sliceAsBytes(slice)));
 }
 
 pub fn mem_alloc_byte_mask(self: *Self, n: usize) ![]u8 {

@@ -21,6 +21,16 @@ pub fn DQNModel(
         output_size: usize,
 
         pub fn init(device: DeviceReference, input_size: usize, hidden_size: usize, output_size: usize) !Self {
+            return initWithGraph(device, input_size, hidden_size, output_size, null);
+        }
+
+        pub fn initWithGraph(
+            device: DeviceReference,
+            input_size: usize,
+            hidden_size: usize,
+            output_size: usize,
+            graph: ?*zg.Graph,
+        ) !Self {
             var w_i: usize = 0;
             var b_i: usize = 0;
 
@@ -48,6 +58,7 @@ pub fn DQNModel(
                     &.{ out_features, in_features },
                     .{ .kaiming = in_features },
                     .{
+                        .graph = graph,
                         .label = std.fmt.comptimePrint("weights.{d}", .{i}),
                         .requires_grad = true,
                         .acquired = true,
@@ -59,6 +70,7 @@ pub fn DQNModel(
                     device,
                     &.{out_features},
                     .{
+                        .graph = graph,
                         .label = std.fmt.comptimePrint("biases.{d}", .{i}),
                         .requires_grad = true,
                         .acquired = true,

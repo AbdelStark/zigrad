@@ -69,7 +69,7 @@ documents we will implement against.
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
 | RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, smoke CI, and synthetic BLAS/autograd/memory/MNIST/DQN/GCN coverage are landed; future CUDA/compiler/interop suites remain. |
-| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, and example `host_blas` propagation are landed; Linux OpenBLAS/oneMKL parity and performance validation remain. |
+| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, and example-model audit coverage are landed; Linux OpenBLAS/oneMKL parity, performance validation, and legacy Conv2D audit remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Turns experimental CUDA into a supported execution backend. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
 | RFC-0005 | ggml/GGUF Interop | `Planned` | P1 | RFC-0001, RFC-0012 | Critical for LLM examples and inference compatibility. |
@@ -271,6 +271,46 @@ Every RFC in this folder set must maintain:
 - Validation:
   - `zig build test`
   - `cd examples/hello-world && zig build -Dhost_blas=accelerate`
+  - `cd examples/mnist && zig build -Dhost_blas=accelerate`
+  - `cd examples/dqn && zig build -Dhost_blas=accelerate`
+  - `cd examples/gcn && zig build -Dhost_blas=accelerate`
+
+### RFC-0002 2026-03-28 Dense Dispatch Audit + Example Graph Injection
+
+- Completed:
+  - Added host BLAS operation telemetry in
+    [`src/device/host_device.zig`](../src/device/host_device.zig) for `dot`,
+    `matvec`, `matmul`, and `bmm_acc`, plus public exports through
+    [`src/device.zig`](../src/device.zig) and
+    [`src/zigrad.zig`](../src/zigrad.zig).
+  - Added benchmark-side regression coverage in
+    [`benchmarks/src/provider_audit.zig`](../benchmarks/src/provider_audit.zig)
+    that asserts exact host `matmul`/`bmm_acc` counts for the MNIST, DQN, and
+    GCN example forward paths.
+  - Wired the benchmark test module to import the example model sources through
+    [`build.zig`](../build.zig) so the audit runs against the example
+    implementations rather than synthetic copies.
+  - Added explicit-graph construction hooks to the example model initializers in
+    [`examples/mnist/src/model.zig`](../examples/mnist/src/model.zig),
+    [`examples/dqn/src/dqn_model.zig`](../examples/dqn/src/dqn_model.zig), and
+    [`examples/gcn/src/model.zig`](../examples/gcn/src/model.zig), which makes
+    these paths reproducible in tests without depending on the global graph.
+  - Fixed a latent no-grad `scatter_add` offset leak in
+    [`src/ndtensor.zig`](../src/ndtensor.zig) and updated the GCN example to
+    pass explicit graph handles for temporary tensors created during message
+    propagation.
+- Remains:
+  - Validate OpenBLAS and oneMKL parity on Linux/x86 hardware.
+  - Audit the legacy reference Conv2D path separately; it still is not routed
+    through provider-backed GEMM lowering.
+  - Decide whether host op telemetry should eventually flow into benchmark JSONL
+    artifacts instead of staying as a test/debug surface.
+- Blockers:
+  - This run still had no Linux OpenBLAS/oneMKL environment, so provider parity
+    remains unexecuted locally.
+- Validation:
+  - `zig build test`
+  - `zig build benchmark-models`
   - `cd examples/mnist && zig build -Dhost_blas=accelerate`
   - `cd examples/dqn && zig build -Dhost_blas=accelerate`
   - `cd examples/gcn && zig build -Dhost_blas=accelerate`

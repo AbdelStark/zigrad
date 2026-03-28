@@ -10,6 +10,7 @@ test {
     _ = @import("dqn_bench_model.zig");
     _ = @import("gcn_bench_model.zig");
     _ = @import("manifest.zig");
+    _ = @import("provider_audit.zig");
     _ = @import("result.zig");
     _ = @import("workload.zig");
 }

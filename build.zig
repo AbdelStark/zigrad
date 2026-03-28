@@ -132,6 +132,30 @@ pub fn build(b: *Build) !void {
             .{ .name = "build_options", .module = build_options_module },
         },
     });
+    benchmark_module.addImport("examples_mnist_model", b.createModule(.{
+        .root_source_file = b.path("examples/mnist/src/model.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zigrad", .module = zigrad },
+        },
+    }));
+    benchmark_module.addImport("examples_dqn_model", b.createModule(.{
+        .root_source_file = b.path("examples/dqn/src/dqn_model.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zigrad", .module = zigrad },
+        },
+    }));
+    benchmark_module.addImport("examples_gcn_model", b.createModule(.{
+        .root_source_file = b.path("examples/gcn/src/model.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zigrad", .module = zigrad },
+        },
+    }));
 
     const benchmark_exe = b.addExecutable(.{
         .name = "benchmark",

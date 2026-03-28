@@ -40,6 +40,7 @@ pub const device = struct {
     pub const Error = device_root.Error;
     pub const HostDevice = device_root.HostDevice;
     pub const HostBlasProvider = device_root.HostBlasProvider;
+    pub const HostOpTelemetry = device_root.HostOpTelemetry;
     pub const CudaDevice = device_root.CudaDevice;
     pub const DeviceData = device_root.DeviceData;
     pub const configured_host_blas_provider = device_root.configured_host_blas_provider;

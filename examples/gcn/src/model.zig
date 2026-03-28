@@ -5,7 +5,6 @@ const Graph = zg.Graph;
 const Node = Graph.Node;
 const DeviceReference = zg.DeviceReference;
 const NDTensor = zg.NDTensor;
-const winit = zg.winit;
 
 pub fn GCN(comptime T: type) type {
     return struct {
@@ -17,10 +16,17 @@ pub fn GCN(comptime T: type) type {
 
         pub fn init(device: DeviceReference, in_features: usize, out_features: usize, opts: struct {
             optim: ?zg.Optimizer = null,
+            graph: ?*Graph = null,
         }) !Self {
             const self: Self = .{
-                .conv1 = try GraphConvLayer(T).init(device, in_features, 16, .{ .optim = opts.optim }),
-                .conv2 = try GraphConvLayer(T).init(device, 16, out_features, .{ .optim = opts.optim }),
+                .conv1 = try GraphConvLayer(T).init(device, in_features, 16, .{
+                    .optim = opts.optim,
+                    .graph = opts.graph,
+                }),
+                .conv2 = try GraphConvLayer(T).init(device, 16, out_features, .{
+                    .optim = opts.optim,
+                    .graph = opts.graph,
+                }),
             };
             return self;
         }
@@ -37,7 +43,7 @@ pub fn GCN(comptime T: type) type {
             try nn.relu_(c1);
 
             const c2 = try self.conv2.forward(c1, edge_index);
-            errdefer c2 = c2.deinit();
+            errdefer c2.deinit();
             c1.soft_deinit();
 
             return c2;
@@ -63,8 +69,10 @@ pub fn GraphConvLayer(comptime T: type) type {
 
         pub fn init(device: DeviceReference, in_features: usize, out_features: usize, opts: struct {
             optim: ?zg.Optimizer = null,
+            graph: ?*Graph = null,
         }) !Self {
             const weights = try Tensor.random(device, &.{ out_features, in_features }, .{ .kaiming = in_features }, .{
+                .graph = opts.graph,
                 .label = "conv_weights",
                 .requires_grad = true,
                 .acquired = true,
@@ -72,6 +80,7 @@ pub fn GraphConvLayer(comptime T: type) type {
 
             errdefer weights.deinit();
             const bias = try Tensor.zeros(device, &.{out_features}, .{
+                .graph = opts.graph,
                 .label = "conv_bias",
                 .requires_grad = true,
                 .acquired = true,
@@ -117,6 +126,7 @@ pub fn GraphConvLayer(comptime T: type) type {
         pub fn propagate_scatter_gcn_deg_scaled(self: *Self, h: *Tensor, edge_index: *NDTensor(usize)) !*Tensor {
             const n_node = h.get_dim(0);
             const n_features = h.get_dim(1);
+            const graph = h.node.gb.promote();
             // std.debug.assert(edge_index.get_dim(1) == 2); // standard layout
             std.debug.assert(edge_index.get_dim(0) == 2); // optimized layout
             // const n_conn = edge_index.get_size() / 2; // in both cases, this holds
@@ -205,10 +215,16 @@ pub fn GraphConvLayer(comptime T: type) type {
             const src_indices = edge_index.data.data.raw[0..n_conn];
             const tgt_indices = edge_index.data.data.raw[n_conn..];
 
-            const deg = try Tensor.ones(self.device, &.{n_node}, .{ .requires_grad = false });
+            const deg = try Tensor.ones(self.device, &.{n_node}, .{
+                .requires_grad = false,
+                .graph = graph,
+            });
             defer deg.deinit();
 
-            const ones_edges = try Tensor.ones(self.device, &.{n_conn}, .{ .requires_grad = false });
+            const ones_edges = try Tensor.ones(self.device, &.{n_conn}, .{
+                .requires_grad = false,
+                .graph = graph,
+            });
 
             const deg_contrib = try ones_edges.scatter_add(tgt_indices, &.{n_node});
             ones_edges.deinit();

@@ -1383,10 +1383,10 @@ pub fn NDTensor(comptime T: type) type {
             std.debug.assert(src.data.size() == offsets.len);
 
             const ScatterAddBwd = struct {
-                offsets: []usize,
+                offsets: []const usize,
 
                 pub fn backward(y: *Self, children: *Node.Children, ctx: *@This()) !void {
-                    defer y.device.mem_free(ctx.offsets);
+                    defer if (ctx.offsets.len != 0) y.device.mem_free(ctx.offsets);
 
                     const input_tensor = children.get_bwd_upcast(Self, 0) orelse return;
                     const grad_input = try input_tensor.ensure_grad(0);
@@ -1401,7 +1401,10 @@ pub fn NDTensor(comptime T: type) type {
             var output = try DataType.zeros(dst_shape, src.device);
             src.data.scatter_add_(offsets, &output, src.device);
 
-            const offsets_copy = try src.device.mem_dupe(usize, offsets);
+            const offsets_copy = if (src.requires_grad())
+                try src.device.mem_dupe(usize, offsets)
+            else
+                &.{};
 
             return create_dependent(ScatterAddBwd, .{
                 .data = output,

@@ -18,6 +18,10 @@ pub fn MnistModel(comptime T: type) type {
         biases: [depth]*Tensor = undefined,
 
         pub fn init(device: DeviceReference) !Self {
+            return initWithGraph(device, null);
+        }
+
+        pub fn initWithGraph(device: DeviceReference, graph: ?*Graph) !Self {
             var w_i: usize = 0;
             var b_i: usize = 0;
 
@@ -39,6 +43,7 @@ pub fn MnistModel(comptime T: type) type {
                     &.{ out_features, in_features },
                     .{ .kaiming = in_features },
                     .{
+                        .graph = graph,
                         .label = std.fmt.comptimePrint("weights.{d}", .{i}),
                         .requires_grad = true,
                         .acquired = true,
@@ -50,6 +55,7 @@ pub fn MnistModel(comptime T: type) type {
                     device,
                     &.{out_features},
                     .{
+                        .graph = graph,
                         .label = std.fmt.comptimePrint("biases.{d}", .{i}),
                         .requires_grad = true,
                         .acquired = true,
