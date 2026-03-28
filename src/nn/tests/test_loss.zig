@@ -153,3 +153,33 @@ test "smooth_l1_loss" {
 
     try verify_smooth_l1_loss(test_cases.smooth_l1, allocator);
 }
+
+test "softmax supports non-last dimensions" {
+    var cpu = zg.device.HostDevice.init();
+    defer cpu.deinit();
+
+    const device = cpu.reference();
+    var graph = zg.Graph.init(std.testing.allocator, .{});
+    defer graph.deinit();
+
+    const input = try NDTensor(f32).from_slice(device, &.{
+        1.0, 2.0, 3.0,
+        4.0, 5.0, 6.0,
+    }, &.{ 2, 3 }, .{
+        .graph = &graph,
+        .requires_grad = true,
+    });
+    defer input.deinit();
+
+    const output = try softmax(f32, input, 0, device);
+    defer output.deinit();
+
+    const expected = [_]f32{
+        0.047425874, 0.047425874, 0.047425874,
+        0.95257413,  0.95257413,  0.95257413,
+    };
+
+    for (expected, output.get_data()) |want, got| {
+        try std.testing.expectApproxEqAbs(want, got, 1e-6);
+    }
+}

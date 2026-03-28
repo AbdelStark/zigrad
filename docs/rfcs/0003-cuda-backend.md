@@ -155,6 +155,37 @@ support:
 
 ## Agentic Context
 
+### 2026-03-28 Device-Safe Loss Fallbacks For Maintained Workloads
+
+- Completed:
+  - Reworked
+    [`src/nn/loss.zig`](../../src/nn/loss.zig)
+    so `softmax_cross_entropy_loss`, `softmax`, `smooth_l1_loss`, and
+    `mse_loss` no longer dereference off-host tensor storage directly from Zig
+    loops. The host path stays direct, while non-host devices now stage tensors
+    through explicit host copies before computing the reference loss or
+    gradient update.
+  - Added a regression test in
+    [`src/nn/tests/test_loss.zig`](../../src/nn/tests/test_loss.zig)
+    covering `softmax` over a non-last dimension, which also validates the
+    stride-aware host reference path reused by the new off-host fallback.
+  - Revalidated the maintained smoke portfolio through `zig build test`, so
+    the MNIST, DQN, and GCN training examples still run after the loss-layer
+    change.
+- Remains:
+  - Replace the host-staged fallback implementations with dedicated
+    device-native loss kernels once the device API and CUDA kernel surface are
+    ready for that narrower optimization pass.
+  - Execute the same maintained workloads on a real CUDA-capable host to prove
+    the new fallback path behaves correctly under actual device allocations and
+    stream ordering.
+- Blockers:
+  - This environment still exposes no CUDA toolkit or CUDA device, so the new
+    loss-path safety work was validated through host tests and smoke runs
+    rather than accelerator execution.
+- Validation performed:
+  - `zig build test`
+
 ### 2026-03-28 Benchmark Harness CUDA Integration
 
 - Completed:

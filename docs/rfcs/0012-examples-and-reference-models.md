@@ -139,6 +139,36 @@ documented rather than hidden in bespoke scripts.
 
 ## Agentic Context
 
+### 2026-03-28 Device-Safe Losses For Maintained Training Examples
+
+- Completed:
+  - Reworked
+    [`src/nn/loss.zig`](../../src/nn/loss.zig)
+    so the shared maintained-example loss surface
+    (`softmax_cross_entropy_loss`, `softmax`, `smooth_l1_loss`, and
+    `mse_loss`) keeps its direct host implementation but stages tensors through
+    explicit host copies on off-host devices instead of reading device memory
+    directly from Zig.
+  - Added a regression test in
+    [`src/nn/tests/test_loss.zig`](../../src/nn/tests/test_loss.zig)
+    for `softmax` over a non-last dimension, tightening coverage around the
+    stride-aware host reference implementation the maintained examples now
+    depend on.
+  - Revalidated the maintained smoke portfolio through `zig build test`, which
+    continues to exercise hello-world, MNIST, DQN, and GCN after the loss
+    changes.
+- Remains:
+  - Run the same maintained training paths on a real CUDA-capable host now
+    that the core loss surface no longer assumes host-readable tensors.
+  - Continue expanding RFC-0012 with new reference examples once the current
+    maintained portfolio has sustained backend validation.
+- Blockers:
+  - No CUDA toolkit or CUDA device was available in this run, so the updated
+    loss surface validated through host smoke coverage and unit tests rather
+    than actual accelerator execution.
+- Validation performed:
+  - `zig build test`
+
 ### 2026-03-28 Device-Safe Adam For Maintained Training Examples
 
 - Completed:

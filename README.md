@@ -335,6 +335,11 @@ Runtime backend expectations are now explicit:
 - DQN and GCN now avoid host-only tensor reads in their runtime paths, but
   dedicated CUDA hardware validation is still pending on a GPU-capable runner.
 
+The maintained loss surface also avoids direct off-host tensor dereferences in
+Zig now: `softmax_cross_entropy_loss`, `softmax`, `smooth_l1_loss`, and
+`mse_loss` keep their fast host implementation, while non-host backends stage
+through explicit host copies until dedicated device-native kernels land.
+
 Fast smoke-mode entrypoints are also available for runtime validation without
 full datasets or long training loops:
 

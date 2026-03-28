@@ -13,6 +13,95 @@ const NDTensor = zg.NDTensor;
 const Graph = zg.Graph;
 const Node = Graph.Node;
 
+fn copyDeviceSliceToHostOwned(comptime T: type, device: DeviceReference, src: []const T, allocator: std.mem.Allocator) ![]T {
+    const host = try allocator.alloc(T, src.len);
+    errdefer allocator.free(host);
+
+    if (device.is_host()) {
+        @memcpy(host, src);
+        return host;
+    }
+
+    device.sync();
+    device.mem_transfer(T, src, host, .DtoH);
+    device.sync();
+    return host;
+}
+
+fn writeHostSliceToDevice(comptime T: type, device: DeviceReference, dst: []T, src: []const T) void {
+    std.debug.assert(dst.len == src.len);
+
+    if (device.is_host()) {
+        @memcpy(dst, src);
+        return;
+    }
+
+    device.mem_transfer(T, src, dst, .HtoD);
+    device.sync();
+}
+
+fn softmaxForwardHostBuffer(comptime T: type, input: []const T, shape: Shape, dim: usize, output: []T) !void {
+    if (dim >= shape.len) return error.InvalidDimension;
+    std.debug.assert(input.len == output.len);
+
+    @memcpy(output, input);
+
+    const dim_size = shape.get(dim);
+    const total_size = shape.size();
+    const outer_size = @divExact(total_size, dim_size);
+    const strides = shape.strides();
+
+    var outer_idx: usize = 0;
+    while (outer_idx < outer_size) : (outer_idx += 1) {
+        const base_idx = (outer_idx / strides.get(dim)) * (strides.get(dim) * dim_size) + (outer_idx % strides.get(dim));
+
+        var max_val = output[base_idx];
+        for (1..dim_size) |j| {
+            const idx = base_idx + j * strides.get(dim);
+            max_val = @max(max_val, output[idx]);
+        }
+
+        var sum_exp: T = 0;
+        for (0..dim_size) |j| {
+            const idx = base_idx + j * strides.get(dim);
+            sum_exp += @exp(output[idx] - max_val);
+        }
+        const log_sum_exp = max_val + @log(sum_exp);
+
+        for (0..dim_size) |j| {
+            const idx = base_idx + j * strides.get(dim);
+            output[idx] = @exp(output[idx] - log_sum_exp);
+        }
+    }
+}
+
+fn softmaxBackwardHostBuffer(comptime T: type, y: []const T, y_grad: []const T, x_grad: []T, shape: Shape, dim: usize) !void {
+    if (dim >= shape.len) return error.InvalidDimension;
+    std.debug.assert(y.len == y_grad.len);
+    std.debug.assert(y.len == x_grad.len);
+
+    const dim_size = shape.get(dim);
+    const total_size = shape.size();
+    const outer_size = @divExact(total_size, dim_size);
+    const strides = shape.strides();
+
+    var outer_idx: usize = 0;
+    while (outer_idx < outer_size) : (outer_idx += 1) {
+        const base_idx = (outer_idx / strides.get(dim)) * (strides.get(dim) * dim_size) + (outer_idx % strides.get(dim));
+
+        var sum_grad: T = 0;
+        for (0..dim_size) |j| {
+            const idx = base_idx + j * strides.get(dim);
+            sum_grad += y[idx] * y_grad[idx];
+        }
+
+        for (0..dim_size) |j| {
+            const idx = base_idx + j * strides.get(dim);
+            x_grad[idx] += y[idx] * (y_grad[idx] - sum_grad);
+        }
+    }
+}
+
 /// NLL entry point
 /// NOTE: Reductions return NaN when "reduce" is set to false.
 /// This is for c-compatibility and this value is instead traded for null.
@@ -96,9 +185,22 @@ pub fn mse_loss(T: type, y_pred: *NDTensor(T), y: *NDTensor(T)) !*NDTensor(T) {
 
     const n = @as(T, @floatFromInt(y.get_size()));
     var sum_sq_diff: T = 0;
-    for (y_pred.get_data(), y.get_data()) |pred, target| {
-        const diff = pred - target;
-        sum_sq_diff += diff * diff;
+    if (y_pred.device.is_host()) {
+        for (y_pred.get_data(), y.get_data()) |pred, target| {
+            const diff = pred - target;
+            sum_sq_diff += diff * diff;
+        }
+    } else {
+        const allocator = std.heap.smp_allocator;
+        const pred_host = try y_pred.to_host_owned(allocator);
+        defer allocator.free(pred_host);
+        const target_host = try y.to_host_owned(allocator);
+        defer allocator.free(target_host);
+
+        for (pred_host, target_host) |pred, target| {
+            const diff = pred - target;
+            sum_sq_diff += diff * diff;
+        }
     }
     const mse = sum_sq_diff / n;
 
@@ -110,9 +212,27 @@ pub fn mse_loss(T: type, y_pred: *NDTensor(T), y: *NDTensor(T)) !*NDTensor(T) {
             const _n = @as(T, @floatFromInt(_y.get_size()));
             const scale = @as(T, 2) / _n;
 
-            for (try _y_pred.ensure_grad_data(0), _y_pred.get_data(), _y.get_data()) |*grad_val, pred_val, target_val| {
+            const grad_data = try _y_pred.ensure_grad_data(0);
+            if (_y_pred.device.is_host()) {
+                for (grad_data, _y_pred.get_data(), _y.get_data()) |*grad_val, pred_val, target_val| {
+                    grad_val.* += scale * (pred_val - target_val);
+                }
+                return;
+            }
+
+            const allocator = std.heap.smp_allocator;
+            const pred_host = try _y_pred.to_host_owned(allocator);
+            defer allocator.free(pred_host);
+            const target_host = try _y.to_host_owned(allocator);
+            defer allocator.free(target_host);
+            const grad_host = try copyDeviceSliceToHostOwned(T, _y_pred.device, grad_data, allocator);
+            defer allocator.free(grad_host);
+
+            for (grad_host, pred_host, target_host) |*grad_val, pred_val, target_val| {
                 grad_val.* += scale * (pred_val - target_val);
             }
+
+            writeHostSliceToDevice(T, _y_pred.device, grad_data, grad_host);
         }
     };
 
@@ -138,10 +258,22 @@ pub fn softmax_cross_entropy_loss(T: type, y_pred: *NDTensor(T), y: *NDTensor(T)
     const sm_preds = try _softmax_fwd(T, y_pred, last_dim);
     if (debug) sm_preds.set_label("sm_preds");
 
-    for (sm_preds.get_data(), 0..) |pred, i| {
-        const target = y.data.data.raw[i];
-        const safe_pred = @min(@max(pred, epsilon), 1.0 - epsilon);
-        sum_loss -= target * @log(safe_pred);
+    if (y_pred.device.is_host()) {
+        for (sm_preds.get_data(), y.get_data()) |pred, target| {
+            const safe_pred = @min(@max(pred, epsilon), 1.0 - epsilon);
+            sum_loss -= target * @log(safe_pred);
+        }
+    } else {
+        const allocator = std.heap.smp_allocator;
+        const preds_host = try sm_preds.to_host_owned(allocator);
+        defer allocator.free(preds_host);
+        const target_host = try y.to_host_owned(allocator);
+        defer allocator.free(target_host);
+
+        for (preds_host, target_host) |pred, target| {
+            const safe_pred = @min(@max(pred, epsilon), 1.0 - epsilon);
+            sum_loss -= target * @log(safe_pred);
+        }
     }
     const mean_loss = sum_loss / @as(T, @floatFromInt(batch_size));
 
@@ -153,9 +285,27 @@ pub fn softmax_cross_entropy_loss(T: type, y_pred: *NDTensor(T), y: *NDTensor(T)
             const label = children.get_upcast(Tensor, 1);
             const bw_batch_size = if (preds.data.shape.len > 1) preds.data.shape.get(0) else 1;
 
-            for (try preds.ensure_grad_data(0), ctx.sm_preds.get_data(), label.get_data()) |*bw_grad_val, bw_sm_val, bw_target_val| {
+            const grad_data = try preds.ensure_grad_data(0);
+            if (preds.device.is_host()) {
+                for (grad_data, ctx.sm_preds.get_data(), label.get_data()) |*bw_grad_val, bw_sm_val, bw_target_val| {
+                    bw_grad_val.* += (bw_sm_val - bw_target_val) / @as(T, @floatFromInt(bw_batch_size));
+                }
+                return;
+            }
+
+            const allocator = std.heap.smp_allocator;
+            const grad_host = try copyDeviceSliceToHostOwned(T, preds.device, grad_data, allocator);
+            defer allocator.free(grad_host);
+            const sm_host = try ctx.sm_preds.to_host_owned(allocator);
+            defer allocator.free(sm_host);
+            const label_host = try label.to_host_owned(allocator);
+            defer allocator.free(label_host);
+
+            for (grad_host, sm_host, label_host) |*bw_grad_val, bw_sm_val, bw_target_val| {
                 bw_grad_val.* += (bw_sm_val - bw_target_val) / @as(T, @floatFromInt(bw_batch_size));
             }
+
+            writeHostSliceToDevice(T, preds.device, grad_data, grad_host);
         }
     };
 
@@ -171,84 +321,57 @@ pub fn softmax_cross_entropy_loss(T: type, y_pred: *NDTensor(T), y: *NDTensor(T)
 }
 
 // There are a few ways to do this. Could SIMD sum outside the loop with an NDArray method, but accum seems like a solid idea rn.
-// mutate a view into result by directly operating on the backing ndarray
-fn _softmax_fwd(T: type, input: *NDTensor(T), dim: usize) !*NDTensor(T) {
-    const shape = input.data.shape.slice();
-    if (dim >= shape.len) return error.InvalidDimension;
-
-    const dim_size = shape[dim];
-    const total_size = input.get_size();
-    const outer_size = @divExact(total_size, dim_size);
-
+fn _softmax_fwd(T: type, input: *const NDTensor(T), dim: usize) !*NDTensor(T) {
     var result = try input.clone();
     errdefer result.deinit();
 
-    const strides = input.data.shape.strides();
-
-    // calc softmax
-    var outer_idx: usize = 0;
-    while (outer_idx < outer_size) : (outer_idx += 1) {
-        const base_idx = (outer_idx / strides.get(dim)) * (strides.get(dim) * dim_size) + (outer_idx % strides.get(dim));
-
-        //  max over slice
-        var max_val = result.data.data.raw[base_idx];
-        for (1..dim_size) |j| {
-            const idx = base_idx + j * strides.get(dim);
-            max_val = @max(max_val, result.data.data.raw[idx]);
-        }
-
-        // log-sum-exp
-        var sum_exp: T = 0;
-        for (0..dim_size) |j| {
-            const idx = base_idx + j * strides.get(dim);
-            sum_exp += @exp(result.data.data.raw[idx] - max_val);
-        }
-        const log_sum_exp = max_val + @log(sum_exp);
-
-        // normalize
-        for (0..dim_size) |j| {
-            const idx = base_idx + j * strides.get(dim);
-            result.data.data.raw[idx] = @exp(result.data.data.raw[idx] - log_sum_exp);
-        }
+    if (input.device.is_host()) {
+        try softmaxForwardHostBuffer(T, input.get_data(), input.data.shape, dim, result.get_data());
+        return result;
     }
+
+    const allocator = std.heap.smp_allocator;
+    const input_host = try input.to_host_owned(allocator);
+    defer allocator.free(input_host);
+    const result_host = try allocator.alloc(T, input_host.len);
+    defer allocator.free(result_host);
+
+    try softmaxForwardHostBuffer(T, input_host, input.data.shape, dim, result_host);
+    writeHostSliceToDevice(T, input.device, result.get_data(), result_host);
     return result;
 }
 
 pub fn softmax(T: type, input: *const NDTensor(T), dim: usize, device: DeviceReference) !*NDTensor(T) {
     const Tensor = NDTensor(T);
 
-    const result = try _softmax_fwd(T, input, dim, device);
+    const result = try _softmax_fwd(T, input, dim);
     const SmaxBwd = struct {
         dim: usize,
         pub fn backward(y: *Tensor, children: *Node.Children, ctx: *@This()) !void {
             const bw_input = children.get_bwd_upcast(Tensor, 0) orelse return;
             const bw_grad = try bw_input.ensure_grad_data(0);
-            const y_grad = try y.assume_grad_data();
 
-            const bw_dim_size = y.data.shape.get(ctx.dim);
-            const bw_total_size = y.get_size();
-            const bw_outer_size = @divExact(bw_total_size, bw_dim_size);
-
-            var bw_outer_idx: usize = 0;
-            while (bw_outer_idx < bw_outer_size) : (bw_outer_idx += 1) {
-                const bw_base_idx = bw_outer_idx * bw_dim_size;
-                var bw_sum_grad: T = 0;
-                for (0..bw_dim_size) |bw_j| {
-                    const bw_idx = bw_base_idx + bw_j;
-                    bw_sum_grad += y.data.data.raw[bw_idx] * y_grad[bw_idx];
-                }
-                for (0..bw_dim_size) |bw_j| {
-                    const bw_idx = bw_base_idx + bw_j;
-                    const bw_softmax_out = y.data.data.raw[bw_idx];
-                    bw_grad[bw_idx] += bw_softmax_out * (y_grad[bw_idx] - bw_sum_grad);
-                }
+            if (y.device.is_host()) {
+                try softmaxBackwardHostBuffer(T, y.get_data(), y.assume_grad_data(), bw_grad, y.data.shape, ctx.dim);
+                return;
             }
+
+            const allocator = std.heap.smp_allocator;
+            const bw_grad_host = try copyDeviceSliceToHostOwned(T, y.device, bw_grad, allocator);
+            defer allocator.free(bw_grad_host);
+            const y_host = try y.to_host_owned(allocator);
+            defer allocator.free(y_host);
+            const y_grad_host = try copyDeviceSliceToHostOwned(T, y.device, y.assume_grad_data(), allocator);
+            defer allocator.free(y_grad_host);
+
+            try softmaxBackwardHostBuffer(T, y_host, y_grad_host, bw_grad_host, y.data.shape, ctx.dim);
+            writeHostSliceToDevice(T, y.device, bw_grad, bw_grad_host);
         }
     };
 
     return try Tensor.create_dependent(SmaxBwd, .{
         .data = result.data,
-        .children = &.{&input.node},
+        .children = &.{@constCast(&input.node)},
         .label = "softmax",
         .device = device,
         .gb = input.node.gb,
@@ -263,13 +386,31 @@ pub fn smooth_l1_loss(T: type, y_pred: *NDTensor(T), y: *NDTensor(T), beta: T) !
     const n = @as(T, @floatFromInt(y.get_size()));
     var sum_loss: T = 0;
 
-    for (y_pred.get_data(), y.get_data()) |pred, target| {
-        const diff: T = pred - target;
-        const abs_diff: T = @abs(diff);
-        if (abs_diff < beta) {
-            sum_loss += 0.5 * (diff * diff) / beta;
-        } else {
-            sum_loss += abs_diff - (0.5 * beta);
+    if (y_pred.device.is_host()) {
+        for (y_pred.get_data(), y.get_data()) |pred, target| {
+            const diff: T = pred - target;
+            const abs_diff: T = @abs(diff);
+            if (abs_diff < beta) {
+                sum_loss += 0.5 * (diff * diff) / beta;
+            } else {
+                sum_loss += abs_diff - (0.5 * beta);
+            }
+        }
+    } else {
+        const allocator = std.heap.smp_allocator;
+        const pred_host = try y_pred.to_host_owned(allocator);
+        defer allocator.free(pred_host);
+        const target_host = try y.to_host_owned(allocator);
+        defer allocator.free(target_host);
+
+        for (pred_host, target_host) |pred, target| {
+            const diff: T = pred - target;
+            const abs_diff: T = @abs(diff);
+            if (abs_diff < beta) {
+                sum_loss += 0.5 * (diff * diff) / beta;
+            } else {
+                sum_loss += abs_diff - (0.5 * beta);
+            }
         }
     }
     const loss = sum_loss / n;
@@ -283,7 +424,28 @@ pub fn smooth_l1_loss(T: type, y_pred: *NDTensor(T), y: *NDTensor(T), beta: T) !
 
             const _n = @as(T, @floatFromInt(_y.get_size()));
 
-            for (try _y_pred.ensure_grad_data(0), _y_pred.get_data(), _y.get_data()) |*grad_val, pred_val, target_val| {
+            const grad_data = try _y_pred.ensure_grad_data(0);
+            if (_y_pred.device.is_host()) {
+                for (grad_data, _y_pred.get_data(), _y.get_data()) |*grad_val, pred_val, target_val| {
+                    const diff = pred_val - target_val;
+                    if (@abs(diff) < _beta) {
+                        grad_val.* += diff / (_beta * _n);
+                    } else {
+                        grad_val.* += std.math.sign(diff) / _n;
+                    }
+                }
+                return;
+            }
+
+            const allocator = std.heap.smp_allocator;
+            const grad_host = try copyDeviceSliceToHostOwned(T, _y_pred.device, grad_data, allocator);
+            defer allocator.free(grad_host);
+            const pred_host = try _y_pred.to_host_owned(allocator);
+            defer allocator.free(pred_host);
+            const target_host = try _y.to_host_owned(allocator);
+            defer allocator.free(target_host);
+
+            for (grad_host, pred_host, target_host) |*grad_val, pred_val, target_val| {
                 const diff = pred_val - target_val;
                 if (@abs(diff) < _beta) {
                     grad_val.* += diff / (_beta * _n);
@@ -291,6 +453,8 @@ pub fn smooth_l1_loss(T: type, y_pred: *NDTensor(T), y: *NDTensor(T), beta: T) !
                     grad_val.* += std.math.sign(diff) / _n;
                 }
             }
+
+            writeHostSliceToDevice(T, _y_pred.device, grad_data, grad_host);
         }
     };
 
