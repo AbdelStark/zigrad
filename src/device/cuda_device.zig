@@ -439,12 +439,30 @@ pub fn sum(self: *const Self, T: type, p: opspec.sum(T)) void {
     cuda.reduce_sum(dtype(T), self.context.cublas, p.x.ptr, p.y.ptr, p.x.len);
 }
 
-pub fn scale(self: *const Self, T: type, p: opspec.nrm2(T)) void {
+pub fn scale(self: *const Self, T: type, p: opspec.scale(T)) void {
     cuda.scale(dtype(T), self.context.cublas, p.x.ptr, p.x.len, p.alpha);
 }
 
 pub fn axpy(self: *const Self, T: type, p: opspec.axpy(T)) void {
     cuda.axpy(dtype(T), self.context.cublas, p.x.ptr, p.y.ptr, p.x.len, p.alpha);
+}
+
+pub fn adam(self: *const Self, T: type, p: opspec.adam(T)) void {
+    cuda.adam(
+        dtype(T),
+        self.context.stream,
+        p.param.ptr,
+        p.grad.ptr,
+        p.m.ptr,
+        p.v.ptr,
+        p.param.len,
+        p.beta1,
+        p.beta2,
+        p.one_minus_beta1,
+        p.one_minus_beta2,
+        p.step_size,
+        p.epsilon,
+    );
 }
 
 //////////////////

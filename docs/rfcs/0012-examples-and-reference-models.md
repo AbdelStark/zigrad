@@ -139,6 +139,37 @@ documented rather than hidden in bespoke scripts.
 
 ## Agentic Context
 
+### 2026-03-28 Device-Safe Adam For Maintained Training Examples
+
+- Completed:
+  - Fixed
+    [`src/nn/optim.zig`](../../src/nn/optim.zig)
+    so Adam advances its timestep once per logical optimizer step instead of
+    once per attached parameter, restoring correct bias correction for the
+    multi-parameter DQN and GCN training examples.
+  - Added a backend-dispatched Adam update path across
+    [`src/device/opspec.zig`](../../src/device/opspec.zig),
+    [`src/device/host_device.zig`](../../src/device/host_device.zig),
+    [`src/device/cuda_device.zig`](../../src/device/cuda_device.zig),
+    and the new CUDA kernel
+    [`src/cuda/blas/adam.cu`](../../src/cuda/blas/adam.cu),
+    so the maintained training examples no longer depend on a host-only
+    optimizer implementation.
+  - Added optimizer coverage in
+    [`src/nn/optim.zig`](../../src/nn/optim.zig)
+    and revalidated the maintained smoke portfolio through the top-level test
+    entrypoint.
+- Remains:
+  - Exercise the same DQN and GCN training paths on a real CUDA-capable host.
+  - Keep expanding the portfolio with new reference examples after the current
+    set has sustained backend validation.
+- Blockers:
+  - No CUDA toolkit or CUDA device was available in this run, so the example
+    portfolio validated through host smoke coverage and shared optimizer tests
+    rather than actual GPU execution.
+- Validation performed:
+  - `zig build test`
+
 ### 2026-03-28 DQN + GCN CUDA Example Enablement
 
 - Completed:

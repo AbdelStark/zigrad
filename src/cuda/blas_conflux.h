@@ -160,6 +160,22 @@ EXTERN_C void division(
   len_t z_len
 );
 
+EXTERN_C void adam(
+  dtype id,
+  StreamWrapper w,
+  void* param,
+  const void* grad,
+  void* m,
+  void* v,
+  len_t n,
+  double beta1,
+  double beta2,
+  double one_minus_beta1,
+  double one_minus_beta2,
+  double step_size,
+  double epsilon
+);
+
 
 EXTERN_C CutensorPlanWrapper get_contraction_plan(
   CutensorWrapper wrapper,

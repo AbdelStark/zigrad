@@ -9,6 +9,7 @@ const opspec = zg.opspec;
 const Error = zg.device.Error || std.mem.Allocator.Error;
 const OptimTag = enum { sgd, adam };
 const UpdateCallback = *const fn (*anyopaque, *zg.Graph.Node) Error!void;
+const StepCallback = *const fn (*anyopaque) Error!void;
 
 /// ParamEntry is a closure to support
 /// generic type optimization.
@@ -29,6 +30,7 @@ pub const Optimizer = struct {
     ptr: *anyopaque,
     tag: OptimTag,
     params: *ParamList,
+    begin_step: ?StepCallback = null,
 
     pub fn attach(self: Optimizer, object: anytype) !void {
         comptime std.debug.assert(@typeInfo(@TypeOf(object)) == .pointer);
@@ -44,6 +46,10 @@ pub const Optimizer = struct {
     }
 
     pub fn step(self: Optimizer) Error!void {
+        if (self.params.items.len == 0) return;
+        if (self.begin_step) |begin_step| {
+            try begin_step(self.ptr);
+        }
         for (self.params.items) |entry| {
             try entry.upd_call(self.ptr, entry.node_ptr);
         }
@@ -94,7 +100,7 @@ pub const SGD = struct {
     }
 
     pub fn optimizer(self: *SGD) Optimizer {
-        return .{ .ptr = self, .tag = .sgd, .params = &self.params };
+        return .{ .ptr = self, .tag = .sgd, .params = &self.params, .begin_step = null };
     }
 
     pub fn update(self: *SGD, param: anytype) Error!void {
@@ -137,6 +143,7 @@ pub const Adam = struct {
     grad_clip_max_norm: f32 = settings.grad_clip_max_norm,
     grad_clip_delta: f32 = settings.grad_clip_delta,
     t: usize,
+    step_size: f64,
 
     pub fn init(allocator: std.mem.Allocator, opts: struct {
         lr: f64,
@@ -158,6 +165,7 @@ pub const Adam = struct {
             .grad_clip_max_norm = opts.grad_clip_max_norm,
             .grad_clip_delta = opts.grad_clip_delta,
             .t = 0,
+            .step_size = 0,
         };
     }
 
@@ -171,24 +179,35 @@ pub const Adam = struct {
     }
 
     pub fn optimizer(self: *Adam) Optimizer {
-        return .{ .ptr = self, .tag = .adam, .params = &self.params };
+        return .{
+            .ptr = self,
+            .tag = .adam,
+            .params = &self.params,
+            .begin_step = beginStepCallback,
+        };
+    }
+
+    fn beginStepCallback(ctx: *anyopaque) Error!void {
+        const self: *Adam = @ptrCast(@alignCast(ctx));
+        try self.beginStep();
+    }
+
+    fn beginStep(self: *Adam) Error!void {
+        self.t += 1;
+        const t_f: f64 = @floatFromInt(self.t);
+        self.step_size = self.lr * math.sqrt(1 - math.pow(f64, self.beta2, t_f)) / (1 - math.pow(f64, self.beta1, t_f));
     }
 
     pub fn update(self: *Adam, param: anytype) Error!void {
-        if (!param.device.is_host())
-            @panic("TODO: implement for non-host devices");
-
         const Param = std.meta.Child(@TypeOf(param));
         const T = Param.ValueType;
 
-        const lr: T = @floatCast(self.lr);
         const beta1: T = @floatCast(self.beta1);
         const beta2: T = @floatCast(self.beta2);
+        const one_minus_beta1: T = @floatCast(1 - self.beta1);
+        const one_minus_beta2: T = @floatCast(1 - self.beta2);
+        const step_size: T = @floatCast(self.step_size);
         const epsilon: T = @floatCast(self.epsilon);
-
-        self.t += 1;
-        const t_f: T = @floatFromInt(self.t);
-        const lr_t = lr * math.sqrt(1 - math.pow(T, beta2, t_f)) / (1 - math.pow(T, beta1, t_f));
 
         switch (comptime Param.Category) {
             .dense => {
@@ -221,18 +240,65 @@ pub const Adam = struct {
                 const p_data = param.get_data();
                 const p_grad = param.assume_grad_data();
 
-                // TODO: SIMD or BLAS
-                for (0..param_size) |i| {
-                    const g = p_grad[i];
-                    m[i] = beta1 * m[i] + (1 - beta1) * g;
-                    v[i] = beta2 * v[i] + (1 - beta2) * g * g;
-                    p_data[i] -= lr_t * m[i] / (math.sqrt(v[i]) + epsilon);
-                }
+                param.device.dispatch(opspec.adam(T){
+                    .param = p_data,
+                    .grad = p_grad,
+                    .m = m,
+                    .v = v,
+                    .beta1 = beta1,
+                    .beta2 = beta2,
+                    .one_minus_beta1 = one_minus_beta1,
+                    .one_minus_beta2 = one_minus_beta2,
+                    .step_size = step_size,
+                    .epsilon = epsilon,
+                });
             },
             else => @compileError("Unimplemented: Adam for " ++ @typeName(Param)),
         }
     }
 };
+
+test "adam uses one timestep per optimizer step across attached parameters" {
+    var host = zg.device.HostDevice.init();
+    defer host.deinit();
+    const device = host.reference();
+
+    zg.global_graph_init(std.testing.allocator, .{});
+    defer zg.global_graph_deinit();
+
+    var adam = Adam.init(std.testing.allocator, .{
+        .lr = 0.1,
+        .beta1 = 0.9,
+        .beta2 = 0.999,
+        .epsilon = 1e-8,
+        .grad_clip_enabled = false,
+    });
+    defer adam.deinit();
+
+    const optimizer = adam.optimizer();
+    const param_a = try NDTensor(f32).from_slice(device, &.{1.0}, &.{1}, .{ .requires_grad = true });
+    defer param_a.deinit();
+    const param_b = try NDTensor(f32).from_slice(device, &.{2.0}, &.{1}, .{ .requires_grad = true });
+    defer param_b.deinit();
+
+    try optimizer.attach(param_a);
+    try optimizer.attach(param_b);
+
+    try param_a.setup_grad(0.5);
+    try param_b.setup_grad(0.5);
+
+    try optimizer.step();
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.9), param_a.get_data()[0], 1e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.9), param_b.get_data()[0], 1e-5);
+    try std.testing.expectEqual(@as(usize, 1), adam.t);
+
+    try optimizer.step();
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.8), param_a.get_data()[0], 1e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.8), param_b.get_data()[0], 1e-5);
+    try std.testing.expectEqual(@as(usize, 2), adam.t);
+}
 
 test {
     std.testing.refAllDeclsRecursive(@This());

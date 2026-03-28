@@ -70,7 +70,7 @@ documents we will implement against.
 | --- | --- | --- | --- | --- | --- |
 | RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, external baseline-runner smoke validation, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/MNIST/DQN/GCN plus conv-lowering and broadcast-fallback matmul coverage, and host thread-sweep/scaling-report workflows are landed; compare/provider/thread publication artifacts plus publication-bundle manifests/summaries now have dedicated smoke validation, while future CUDA/compiler/interop suites remain. |
 | RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, a provider-sensitive numerical parity suite, opt-in runtime diagnostics hooks, example runtime smoke coverage for hello-world/MNIST/DQN/GCN, and Markdown/JSON provider plus thread-scaling report generators are landed; publication-path smoke validation now covers provider/thread reports and CI emits thread-scaling bundle artifacts, while oneMKL execution and published provider comparison runs remain. |
-| RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Turns experimental CUDA into a supported execution backend. |
+| RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Runtime selection, diagnostics, CUDA-safe DQN/GCN kernels, and backend-dispatched Adam optimizer updates are landed; real GPU compile/run validation and CUDA benchmark suites remain. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
 | RFC-0005 | ggml/GGUF Interop | `Planned` | P1 | RFC-0001, RFC-0012 | Critical for LLM examples and inference compatibility. |
 | RFC-0006 | Lazy Tensors | `Planned` | P1 | RFC-0001, RFC-0002, RFC-0003 | Introduces capture without breaking eager execution. |
@@ -79,7 +79,7 @@ documents we will implement against.
 | RFC-0009 | MLIR Lowering Pipeline | `Exploratory` | P2 | RFC-0007, RFC-0008 | Optional compiler interoperability layer. |
 | RFC-0010 | ZML Inference Bridge | `Draft` | P2 | RFC-0007 | Enables inference handoff to ZML for pure serving flows. |
 | RFC-0011 | Apache TVM Integration | `Exploratory` | P3 | RFC-0001, RFC-0007, RFC-0009 | External compiler/autotuning path. |
-| RFC-0012 | Examples and Reference Models | `Planned` | P1 | RFC-0001, RFC-0002, RFC-0003 | Program-level validation for all major capabilities. |
+| RFC-0012 | Examples and Reference Models | `Planned` | P1 | RFC-0001, RFC-0002, RFC-0003 | Maintained smoke coverage exists for hello-world, MNIST, DQN, and GCN; DQN/GCN training no longer depend on host-only Adam updates, while new portfolio examples still remain. |
 
 ## Recommended Implementation Order
 
@@ -121,6 +121,41 @@ Every RFC in this folder set must maintain:
 - a section describing what will not be done in the RFC.
 
 ## Agentic Context
+
+### RFC-0003 2026-03-28 Backend-Dispatched Adam Updates
+
+- Completed:
+  - Added a fused `adam` backend op through
+    [`src/device/opspec.zig`](../src/device/opspec.zig),
+    [`src/device/host_device.zig`](../src/device/host_device.zig),
+    [`src/device/cuda_device.zig`](../src/device/cuda_device.zig),
+    [`src/cuda/blas_conflux.h`](../src/cuda/blas_conflux.h),
+    [`src/cuda/blas_conflux.cu`](../src/cuda/blas_conflux.cu),
+    and
+    [`src/cuda/blas/adam.cu`](../src/cuda/blas/adam.cu),
+    so dense Adam parameter updates no longer require host-side pointer access.
+  - Fixed
+    [`src/nn/optim.zig`](../src/nn/optim.zig)
+    so Adam increments its bias-correction timestep once per logical
+    `Optimizer.step()` instead of once per attached parameter, removing a
+    correctness bug that skewed later parameters in the same step.
+  - Removed the remaining non-host panic from Adam updates, which unblocks the
+    DQN and GCN training examples from relying on a host-only optimizer path
+    once the CUDA toolchain/runtime is available.
+  - Added optimizer coverage in
+    [`src/nn/optim.zig`](../src/nn/optim.zig)
+    that asserts attached parameters share the same Adam timestep across
+    repeated optimizer steps.
+- Remains:
+  - Compile and run the new CUDA Adam kernel on a real toolkit/device host.
+  - Add dedicated CPU-vs-CUDA optimizer parity or example-level CUDA smoke once
+    GPU-capable runners are available.
+- Blockers:
+  - This environment still has no CUDA toolkit or CUDA device, so the new
+    fused CUDA Adam path was validated through integrated host tests and code
+    integration only, not a real CUDA compile/run.
+- Validation:
+  - `zig build test`
 
 ### RFC-0001 2026-03-28 Benchmark Publication Bundle
 

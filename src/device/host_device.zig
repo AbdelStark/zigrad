@@ -677,6 +677,21 @@ pub fn clip_nrm2(self: *const Self, T: type, p: opspec.clip_nrm2(T)) void {
     }
 }
 
+pub fn adam(_: *const Self, T: type, p: opspec.adam(T)) void {
+    std.debug.assert(p.param.len == p.grad.len);
+    std.debug.assert(p.param.len == p.m.len);
+    std.debug.assert(p.param.len == p.v.len);
+
+    for (0..p.param.len) |i| {
+        const g = p.grad[i];
+        const m_next = p.beta1 * p.m[i] + p.one_minus_beta1 * g;
+        const v_next = p.beta2 * p.v[i] + p.one_minus_beta2 * g * g;
+        p.m[i] = m_next;
+        p.v[i] = v_next;
+        p.param[i] -= p.step_size * m_next / (std.math.sqrt(v_next) + p.epsilon);
+    }
+}
+
 /////////////////////////////////
 // non-linear ops
 

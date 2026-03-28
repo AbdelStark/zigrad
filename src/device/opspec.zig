@@ -198,6 +198,23 @@ pub fn clip_nrm2(T: type) type {
     };
 }
 
+pub fn adam(T: type) type {
+    return struct {
+        pub const __name__ = "adam";
+        pub const __type__ = T;
+        param: []align(1) T,
+        grad: []align(1) const T,
+        m: []align(1) T,
+        v: []align(1) T,
+        beta1: T,
+        beta2: T,
+        one_minus_beta1: T,
+        one_minus_beta2: T,
+        step_size: T,
+        epsilon: T,
+    };
+}
+
 /////////////////
 // non-linear ops
 

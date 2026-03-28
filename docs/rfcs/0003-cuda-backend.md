@@ -154,6 +154,44 @@ support:
 
 ## Agentic Context
 
+### 2026-03-28 Backend-Dispatched Adam Updates
+
+- Completed:
+  - Added a fused `adam` backend op through
+    [`src/device/opspec.zig`](../../src/device/opspec.zig),
+    [`src/device/host_device.zig`](../../src/device/host_device.zig),
+    [`src/device/cuda_device.zig`](../../src/device/cuda_device.zig),
+    [`src/cuda/blas_conflux.h`](../../src/cuda/blas_conflux.h),
+    [`src/cuda/blas_conflux.cu`](../../src/cuda/blas_conflux.cu),
+    and
+    [`src/cuda/blas/adam.cu`](../../src/cuda/blas/adam.cu),
+    so dense Adam updates no longer require host-side loops and the CUDA
+    backend has an optimizer update primitive that matches the host path.
+  - Fixed
+    [`src/nn/optim.zig`](../../src/nn/optim.zig)
+    so Adam increments its bias-correction timestep once per logical
+    `Optimizer.step()` instead of once per parameter, removing a correctness
+    bug that affected multi-parameter models such as DQN and GCN.
+  - Removed the explicit non-host panic from Adam updates in
+    [`src/nn/optim.zig`](../../src/nn/optim.zig),
+    which closes a concrete CUDA training blocker for the maintained example
+    models once the runtime is available.
+  - Added unit coverage in
+    [`src/nn/optim.zig`](../../src/nn/optim.zig)
+    asserting repeated optimizer steps share a single Adam timestep across all
+    attached parameters.
+- Remains:
+  - Compile and execute the new CUDA Adam kernel on a real toolkit/device
+    combination.
+  - Add dedicated optimizer parity or example-level CUDA smoke coverage on
+    GPU-capable infrastructure.
+- Blockers:
+  - This macOS host still had no CUDA toolkit or CUDA device available, so the
+    new fused optimizer path validated only through host builds/tests and code
+    integration rather than a real CUDA compile/run.
+- Validation performed:
+  - `zig build test`
+
 ### 2026-03-28 CUDA Example Path Audits
 
 - Completed:

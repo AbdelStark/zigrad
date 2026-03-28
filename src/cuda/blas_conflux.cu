@@ -7,6 +7,7 @@
 #include "blas/scale.cu"
 #include "blas/nrm2.cu"
 #include "blas/axpy.cu"
+#include "blas/adam.cu"
 #include "blas/addition.cu"
 #include "blas/subtraction.cu"
 #include "blas/multiplication.cu"
