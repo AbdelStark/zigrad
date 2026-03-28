@@ -269,6 +269,22 @@ pub fn build(b: *Build) !void {
     link(target, benchmark_thread_report_exe, host_blas);
     b.installArtifact(benchmark_thread_report_exe);
 
+    const benchmark_publication_bundle_exe = b.addExecutable(.{
+        .name = "benchmark_publication_bundle",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("benchmarks/src/publication_bundle_main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .imports = &.{
+                .{ .name = "benchmarking", .module = benchmark_module },
+            },
+        }),
+    });
+
+    link(target, benchmark_publication_bundle_exe, host_blas);
+    b.installArtifact(benchmark_publication_bundle_exe);
+
     const benchmark_validate_exe = b.addExecutable(.{
         .name = "benchmark_validate",
         .root_module = b.createModule(.{
@@ -353,6 +369,13 @@ pub fn build(b: *Build) !void {
     }
     const benchmark_thread_report_step = b.step("benchmark-thread-report", "Generate a host thread-scaling benchmark report");
     benchmark_thread_report_step.dependOn(&run_benchmark_thread_report.step);
+
+    const run_benchmark_publication_bundle = b.addRunArtifact(benchmark_publication_bundle_exe);
+    if (b.args) |args| {
+        run_benchmark_publication_bundle.addArgs(args);
+    }
+    const benchmark_publication_bundle_step = b.step("benchmark-publication-bundle", "Summarize benchmark publication artifacts into a reproducible bundle manifest");
+    benchmark_publication_bundle_step.dependOn(&run_benchmark_publication_bundle.step);
 
     const run_benchmark_validate = b.addRunArtifact(benchmark_validate_exe);
     if (b.args) |args| {

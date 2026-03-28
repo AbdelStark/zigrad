@@ -68,8 +68,8 @@ documents we will implement against.
 
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, external baseline-runner smoke validation, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/MNIST/DQN/GCN plus conv-lowering and broadcast-fallback matmul coverage, and host thread-sweep/scaling-report workflows are landed; compare/provider/thread publication artifacts now have dedicated smoke validation, while future CUDA/compiler/interop suites remain. |
-| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, a provider-sensitive numerical parity suite, opt-in runtime diagnostics hooks, example runtime smoke coverage for hello-world/MNIST/DQN/GCN, and Markdown/JSON provider plus thread-scaling report generators are landed; publication-path smoke validation now covers provider/thread reports, while oneMKL execution and published provider comparison runs remain. |
+| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, external baseline-runner smoke validation, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/MNIST/DQN/GCN plus conv-lowering and broadcast-fallback matmul coverage, and host thread-sweep/scaling-report workflows are landed; compare/provider/thread publication artifacts plus publication-bundle manifests/summaries now have dedicated smoke validation, while future CUDA/compiler/interop suites remain. |
+| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, a provider-sensitive numerical parity suite, opt-in runtime diagnostics hooks, example runtime smoke coverage for hello-world/MNIST/DQN/GCN, and Markdown/JSON provider plus thread-scaling report generators are landed; publication-path smoke validation now covers provider/thread reports and CI emits thread-scaling bundle artifacts, while oneMKL execution and published provider comparison runs remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Turns experimental CUDA into a supported execution backend. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
 | RFC-0005 | ggml/GGUF Interop | `Planned` | P1 | RFC-0001, RFC-0012 | Critical for LLM examples and inference compatibility. |
@@ -121,6 +121,45 @@ Every RFC in this folder set must maintain:
 - a section describing what will not be done in the RFC.
 
 ## Agentic Context
+
+### RFC-0001 2026-03-28 Benchmark Publication Bundle
+
+- Completed:
+  - Added
+    [`benchmarks/src/publication_bundle.zig`](../benchmarks/src/publication_bundle.zig)
+    and
+    [`benchmarks/src/publication_bundle_main.zig`](../benchmarks/src/publication_bundle_main.zig),
+    plus the `zig build benchmark-publication-bundle` entrypoint in
+    [`build.zig`](../build.zig),
+    so RFC-0001 can now package candidate, baseline, extra JSONL artifacts and
+    derived compare/provider/thread reports into a single validated publication
+    manifest plus Markdown summary.
+  - Extended
+    [`tests/src/benchmark_publication_smoke_main.zig`](../tests/src/benchmark_publication_smoke_main.zig)
+    so the publication smoke flow now validates publication-bundle JSON and
+    Markdown outputs in addition to the underlying compare/provider/thread
+    artifacts.
+  - Updated the benchmark smoke workflow in
+    [`.github/workflows/benchmark-smoke.yml`](../.github/workflows/benchmark-smoke.yml)
+    to emit a real OpenBLAS thread sweep, build a thread-scaling report, and
+    publish a bundle manifest/summary into the uploaded benchmark artifact set.
+- Remains:
+  - Extend the same bundle contract to future CUDA, compiler, and interop
+    publication surfaces as those suites land.
+  - Decide whether published docs should ingest the bundle manifest directly
+    once cross-provider and accelerator runs are available.
+- Blockers:
+  - The bundle flow can validate only the artifacts available on this host, so
+    real cross-provider provider-report publication still remains blocked on
+    OpenBLAS/oneMKL runtime access outside macOS Accelerate.
+- Validation:
+  - `zig build test-benchmark-publication-smoke`
+  - `zig build benchmark-publication-bundle -- --help`
+  - `zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json --output .zig-cache/publication-bundle-candidate.jsonl`
+  - `zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2 --output .zig-cache/publication-thread-sweep.jsonl`
+  - `zig build benchmark-thread-report -- --input .zig-cache/publication-thread-sweep.jsonl --baseline-thread-count 1 --markdown-output .zig-cache/publication-thread-report.md --json-output .zig-cache/publication-thread-report.json`
+  - `zig build benchmark-publication-bundle -- --candidate-jsonl .zig-cache/publication-bundle-candidate.jsonl --extra-results-jsonl .zig-cache/publication-thread-sweep.jsonl --thread-report-json .zig-cache/publication-thread-report.json --thread-report-markdown .zig-cache/publication-thread-report.md --manifest-output .zig-cache/publication-manifest.json --summary-output .zig-cache/publication-summary.md`
+  - `zig build test`
 
 ### RFC-0001 2026-03-28 Baseline Runner Contract Smoke
 

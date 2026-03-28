@@ -19,6 +19,7 @@ zig build benchmark-validate
 zig build test-benchmark-smoke
 zig build test-benchmark-baseline-smoke
 zig build test-benchmark-publication-smoke
+zig build benchmark-publication-bundle -- --candidate-jsonl benchmarks/results/latest.jsonl --summary-output benchmarks/results/publication-summary.md --manifest-output benchmarks/results/publication-manifest.json
 zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl
 zig build benchmark-provider-report -- --input benchmarks/results/accelerate.jsonl --input benchmarks/results/openblas.jsonl --baseline-provider accelerate
 zig build benchmark-thread-report -- --input benchmarks/results/thread-sweep.jsonl --baseline-thread-count 1
@@ -80,8 +81,9 @@ harness and then runs the validator on the generated artifact.
 requiring successful baseline emission to stay schema-valid while malformed or
 missing runners degrade into explicit `failed` records instead of disappearing.
 `test-benchmark-publication-smoke` builds on that by generating smoke-scale
-comparison, provider-report, and thread-report artifacts and failing if those
-publication outputs are missing, empty, or structurally invalid.
+comparison, provider-report, thread-report, and publication-bundle artifacts
+and failing if those publication outputs are missing, empty, or structurally
+invalid.
 
 For RFC-0002 host BLAS work, collect one JSONL file per provider and then
 generate a provider matrix report:
@@ -129,6 +131,28 @@ rows by thread count, and computes latency deltas, speedups, and scaling
 efficiency relative to the selected baseline thread count. If no
 `--baseline-thread-count` is provided, the smallest available successful thread
 count in each group becomes the baseline automatically.
+
+## Publication Bundles
+
+When you need a single publication artifact set for CI or docs workflows, point
+the bundle tool at the emitted JSONL files and derived reports:
+
+```sh
+zig build benchmark-publication-bundle -- \
+  --candidate-jsonl benchmarks/results/latest.jsonl \
+  --baseline-jsonl benchmarks/results/baseline.jsonl \
+  --extra-results-jsonl benchmarks/results/thread-sweep.jsonl \
+  --comparison-json benchmarks/results/comparison.json \
+  --comparison-text benchmarks/results/comparison.txt \
+  --thread-report-json benchmarks/results/thread-scaling.json \
+  --thread-report-markdown benchmarks/results/thread-scaling.md \
+  --manifest-output benchmarks/results/publication-manifest.json \
+  --summary-output benchmarks/results/publication-summary.md
+```
+
+The tool validates that comparison/provider/thread reports still reference the
+supplied JSONL inputs, records artifact sizes and runtime fingerprints, and
+emits both a machine-readable manifest and a Markdown summary for humans.
 
 ## Current Coverage
 

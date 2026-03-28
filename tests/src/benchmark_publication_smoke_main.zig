@@ -3,6 +3,7 @@ const benchmarking = @import("benchmarking");
 
 const compare = benchmarking.compare;
 const manifest = benchmarking.manifest;
+const publication_bundle = benchmarking.publication_bundle;
 const provider_report = benchmarking.provider_report;
 const result = benchmarking.result;
 const thread_report = benchmarking.thread_report;
@@ -42,6 +43,8 @@ pub fn main() !void {
     const provider_json_path = try std.fs.path.join(allocator, &.{ smoke_dir, "provider-report.json" });
     const thread_markdown_path = try std.fs.path.join(allocator, &.{ smoke_dir, "thread-report.md" });
     const thread_json_path = try std.fs.path.join(allocator, &.{ smoke_dir, "thread-report.json" });
+    const publication_manifest_path = try std.fs.path.join(allocator, &.{ smoke_dir, "publication-manifest.json" });
+    const publication_summary_path = try std.fs.path.join(allocator, &.{ smoke_dir, "publication-summary.md" });
 
     const thread_sweep_specs = try makeThreadSweepSpecs(allocator, thread_sweep_spec_path, &thread_sweep_counts);
     try emitBenchmarkResults(allocator, baseline_path, thread_sweep_specs);
@@ -138,6 +141,35 @@ pub fn main() !void {
     const thread_markdown = try readFileAlloc(allocator, thread_markdown_path);
     try expectContains(thread_markdown, "| 1 |");
     try expectContains(thread_markdown, "| 2 |");
+
+    const bundle = try publication_bundle.buildBundle(allocator, .{
+        .candidate_result_path = candidate_path,
+        .baseline_result_path = baseline_path,
+        .extra_result_paths = &.{provider_path},
+        .comparison_json_path = compare_json_path,
+        .comparison_text_path = compare_text_path,
+        .provider_report_json_path = provider_json_path,
+        .provider_report_markdown_path = provider_markdown_path,
+        .thread_report_json_path = thread_json_path,
+        .thread_report_markdown_path = thread_markdown_path,
+    });
+    try writePublicationArtifacts(allocator, publication_manifest_path, publication_summary_path, bundle);
+
+    const parsed_bundle = try loadJsonFile(publication_bundle.Bundle, allocator, publication_manifest_path);
+    if (parsed_bundle.artifacts.len != 9 or
+        parsed_bundle.baseline_results == null or
+        parsed_bundle.extra_results.len != 1 or
+        parsed_bundle.comparison == null or
+        parsed_bundle.provider_report == null or
+        parsed_bundle.thread_report == null)
+    {
+        return error.BenchmarkPublicationSmokeBundleSummaryMismatch;
+    }
+
+    const publication_summary = try readFileAlloc(allocator, publication_summary_path);
+    try expectContains(publication_summary, "# Benchmark Publication Bundle");
+    try expectContains(publication_summary, "Candidate results");
+    try expectContains(publication_summary, "Provider report");
 }
 
 fn makeThreadSweepSpecs(
@@ -345,6 +377,24 @@ fn writeJsonValue(path: []const u8, value: anytype) !void {
     try std.json.Stringify.value(value, .{}, writer);
     try writer.writeByte('\n');
     try writer.flush();
+}
+
+fn writePublicationArtifacts(
+    allocator: std.mem.Allocator,
+    manifest_path: []const u8,
+    summary_path: []const u8,
+    bundle: publication_bundle.Bundle,
+) !void {
+    try writeJsonValue(manifest_path, bundle);
+
+    const summary_file = try std.fs.cwd().createFile(summary_path, .{ .truncate = true });
+    defer summary_file.close();
+
+    var summary_buffer: [4096]u8 = undefined;
+    var summary_writer = summary_file.writer(&summary_buffer);
+    const summary = &summary_writer.interface;
+    try publication_bundle.writeMarkdownSummary(allocator, summary, bundle);
+    try summary.flush();
 }
 
 fn loadJsonFile(comptime T: type, allocator: std.mem.Allocator, path: []const u8) !T {

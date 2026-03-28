@@ -78,6 +78,7 @@ zig build benchmark-validate
 zig build test-benchmark-smoke
 zig build test-benchmark-baseline-smoke
 zig build test-benchmark-publication-smoke
+zig build benchmark-publication-bundle -- --candidate-jsonl benchmarks/results/latest.jsonl --summary-output benchmarks/results/publication-summary.md --manifest-output benchmarks/results/publication-manifest.json
 zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl
 zig build benchmark-provider-report -- --input benchmarks/results/accelerate.jsonl --input benchmarks/results/openblas.jsonl --baseline-provider accelerate
 zig build benchmark-thread-report -- --input benchmarks/results/thread-sweep.jsonl --baseline-thread-count 1
@@ -132,8 +133,9 @@ drift in the emitted JSONL artifact. `zig build
 test-benchmark-baseline-smoke` extends that to the external baseline interface
 by smoke-testing successful, malformed, and missing-runner cases. `zig build
 test-benchmark-publication-smoke` extends that coverage to the publication
-surface by generating compare, provider-report, and thread-report artifacts
-from smoke-scale inputs and rejecting empty or structurally invalid outputs.
+surface by generating compare, provider-report, thread-report, and publication
+bundle artifacts from smoke-scale inputs and rejecting empty or structurally
+invalid outputs.
 
 Provider-sensitive host BLAS correctness can be exercised independently with:
 
@@ -169,6 +171,27 @@ The thread-scaling report groups host records by benchmark id and provider,
 then emits per-thread rows with baseline-relative deltas, speedups, and
 scaling efficiency so RFC-0002 thread-behavior work can be validated from a
 single provider run before cross-provider publication.
+
+To package those outputs into a single manifest plus a human-readable summary,
+point `benchmark-publication-bundle` at the emitted JSONL files and any derived
+reports:
+
+```shell
+zig build benchmark-publication-bundle -- \
+  --candidate-jsonl benchmarks/results/latest.jsonl \
+  --baseline-jsonl benchmarks/results/baseline.jsonl \
+  --extra-results-jsonl benchmarks/results/thread-sweep.jsonl \
+  --comparison-json benchmarks/results/comparison.json \
+  --comparison-text benchmarks/results/comparison.txt \
+  --thread-report-json benchmarks/results/thread-scaling.json \
+  --thread-report-markdown benchmarks/results/thread-scaling.md \
+  --manifest-output benchmarks/results/publication-manifest.json \
+  --summary-output benchmarks/results/publication-summary.md
+```
+
+The bundle validates that comparison and report artifacts still reference the
+supplied JSONL inputs, records artifact sizes and runtime fingerprints, and
+emits Markdown suitable for CI summaries or docs publication notes.
 
 For runtime diagnostics outside the benchmark harness, set
 `ZG_HOST_DIAGNOSTICS=1` when running an example or call

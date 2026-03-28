@@ -156,6 +156,43 @@ regardless of provider:
 
 ## Agentic Context
 
+### 2026-03-28 Publication Bundle And CI Thread Artifacts
+
+- Completed:
+  - Added the benchmark publication-bundle tool in
+    [`benchmarks/src/publication_bundle.zig`](../../benchmarks/src/publication_bundle.zig)
+    and
+    [`benchmarks/src/publication_bundle_main.zig`](../../benchmarks/src/publication_bundle_main.zig),
+    with a `zig build benchmark-publication-bundle` entrypoint in
+    [`build.zig`](../../build.zig),
+    so RFC-0002 host thread-scaling outputs can now ship with a validated
+    manifest and Markdown summary instead of loose files.
+  - Extended
+    [`tests/src/benchmark_publication_smoke_main.zig`](../../tests/src/benchmark_publication_smoke_main.zig)
+    so provider/thread publication smoke coverage now includes the bundle layer
+    on top of the raw provider/thread report artifacts.
+  - Updated
+    [`.github/workflows/benchmark-smoke.yml`](../../.github/workflows/benchmark-smoke.yml)
+    to emit a real OpenBLAS thread sweep, build
+    `thread-scaling.{md,json}`, and attach those outputs through the bundle
+    manifest/summary in the uploaded benchmark artifact set.
+- Remains:
+  - Feed the same bundle flow with real OpenBLAS and oneMKL provider-report
+    outputs once Linux/x86 provider runs are available.
+  - Decide whether provider comparison and thread-scaling bundles should become
+    scheduled CI artifacts once cross-provider runners exist.
+- Blockers:
+  - This environment still exposes only Accelerate locally, so the new bundle
+    layer validates thread-report publication mechanics and synthetic
+    provider-report smoke inputs rather than real oneMKL/OpenBLAS artifacts.
+- Validation performed:
+  - `zig build test-benchmark-publication-smoke`
+  - `zig build benchmark-publication-bundle -- --help`
+  - `zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2 --output .zig-cache/publication-thread-sweep.jsonl`
+  - `zig build benchmark-thread-report -- --input .zig-cache/publication-thread-sweep.jsonl --baseline-thread-count 1 --markdown-output .zig-cache/publication-thread-report.md --json-output .zig-cache/publication-thread-report.json`
+  - `zig build benchmark-publication-bundle -- --candidate-jsonl .zig-cache/publication-bundle-candidate.jsonl --extra-results-jsonl .zig-cache/publication-thread-sweep.jsonl --thread-report-json .zig-cache/publication-thread-report.json --thread-report-markdown .zig-cache/publication-thread-report.md --manifest-output .zig-cache/publication-manifest.json --summary-output .zig-cache/publication-summary.md`
+  - `zig build test`
+
 ### 2026-03-28 Provider And Thread Report Publication Smoke
 
 - Completed:

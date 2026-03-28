@@ -1,4 +1,7 @@
+*.json
 *.jsonl
+*.md
+*.txt
 comparison.json
 comparison.txt
 !.gitignore

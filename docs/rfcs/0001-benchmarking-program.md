@@ -218,6 +218,47 @@ Regression gating should use broad thresholds first, for example:
 
 ## Agentic Context
 
+### 2026-03-28 Benchmark Publication Bundle
+
+- Completed:
+  - Added
+    [`benchmarks/src/publication_bundle.zig`](../../benchmarks/src/publication_bundle.zig)
+    and
+    [`benchmarks/src/publication_bundle_main.zig`](../../benchmarks/src/publication_bundle_main.zig),
+    plus the `zig build benchmark-publication-bundle` entrypoint in
+    [`build.zig`](../../build.zig),
+    so RFC-0001 can now package candidate, baseline, and auxiliary JSONL
+    artifacts alongside compare/provider/thread reports into a single
+    validated JSON manifest plus Markdown summary.
+  - Extended
+    [`tests/src/benchmark_publication_smoke_main.zig`](../../tests/src/benchmark_publication_smoke_main.zig)
+    so publication smoke coverage now includes the bundle manifest/summary in
+    addition to compare/provider/thread outputs.
+  - Updated
+    [`README.md`](../../README.md),
+    [`benchmarks/README.md`](../../benchmarks/README.md),
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md), and
+    [`.github/workflows/benchmark-smoke.yml`](../../.github/workflows/benchmark-smoke.yml)
+    so the CI smoke path now emits a real thread sweep and publishes the bundle
+    manifest/summary beside the raw JSONL and report artifacts.
+- Remains:
+  - Extend the same publication-bundle contract to future CUDA, compiler, and
+    interop suites once those artifact types exist.
+  - Decide whether downstream docs/reporting automation should ingest the
+    bundle manifest directly instead of pointing at individual files.
+- Blockers:
+  - This environment still lacks OpenBLAS/oneMKL runtime access, so the new
+    bundle contract validates publication structure and thread-scaling outputs
+    locally but cannot yet package real cross-provider provider-report inputs.
+- Validation performed:
+  - `zig build test-benchmark-publication-smoke`
+  - `zig build benchmark-publication-bundle -- --help`
+  - `zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json --output .zig-cache/publication-bundle-candidate.jsonl`
+  - `zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2 --output .zig-cache/publication-thread-sweep.jsonl`
+  - `zig build benchmark-thread-report -- --input .zig-cache/publication-thread-sweep.jsonl --baseline-thread-count 1 --markdown-output .zig-cache/publication-thread-report.md --json-output .zig-cache/publication-thread-report.json`
+  - `zig build benchmark-publication-bundle -- --candidate-jsonl .zig-cache/publication-bundle-candidate.jsonl --extra-results-jsonl .zig-cache/publication-thread-sweep.jsonl --thread-report-json .zig-cache/publication-thread-report.json --thread-report-markdown .zig-cache/publication-thread-report.md --manifest-output .zig-cache/publication-manifest.json --summary-output .zig-cache/publication-summary.md`
+  - `zig build test`
+
 ### 2026-03-28 Baseline Runner Contract Smoke
 
 - Completed:

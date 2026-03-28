@@ -104,7 +104,7 @@ generated artifacts. A benchmark change is not complete until either the
 updated spec set or the emitted JSONL artifact for the touched workflow has
 passed through the validator. When the change affects report consumers or
 published artifact shape, also rerun `zig build test-benchmark-publication-smoke`
-so compare/provider/thread outputs stay validated end to end.
+so compare/provider/thread/bundle outputs stay validated end to end.
 When the change touches an external baseline runner or `pytorch_runner`
 coverage, also rerun `zig build test-benchmark-baseline-smoke` so baseline
 launch failures and malformed output still degrade into explicit `failed`
@@ -194,11 +194,39 @@ Guidelines:
 - Treat scaling efficiency as a diagnostic, not a claim. Publish the raw
   latency and speedup columns alongside it.
 
+## Publication Bundles
+
+When you are preparing CI-facing or publishable artifacts, aggregate the raw
+JSONL inputs and derived reports with the publication-bundle tool:
+
+```sh
+zig build benchmark-publication-bundle -- \
+  --candidate-jsonl benchmarks/results/latest.jsonl \
+  --baseline-jsonl benchmarks/results/baseline.jsonl \
+  --extra-results-jsonl benchmarks/results/thread-sweep.jsonl \
+  --comparison-json benchmarks/results/comparison.json \
+  --comparison-text benchmarks/results/comparison.txt \
+  --thread-report-json benchmarks/results/thread-scaling.json \
+  --thread-report-markdown benchmarks/results/thread-scaling.md \
+  --manifest-output benchmarks/results/publication-manifest.json \
+  --summary-output benchmarks/results/publication-summary.md
+```
+
+Guidelines:
+
+- Feed every JSONL file that a derived report depends on through either
+  `--candidate-jsonl`, `--baseline-jsonl`, or repeated `--extra-results-jsonl`
+  so the bundle can validate those references.
+- Treat the manifest as the machine-readable publication contract and the
+  Markdown summary as the human-facing overview.
+- If the bundle rejects a report because it references an unexpected path,
+  regenerate that report from the exact artifact set you plan to publish.
+
 ## CI Expectations
 
 The smoke workflow benchmarks the current checkout and a baseline revision on
-the same runner, then compares the resulting JSONL files with
-`benchmark-compare`.
+the same runner, produces a dedicated thread sweep, and packages the resulting
+JSONL/report outputs into a publication bundle.
 
 When changing smoke-covered specs:
 

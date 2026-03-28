@@ -54,6 +54,15 @@ jobs:
       - name: Run candidate benchmark smoke suite
         run: zig build -Dhost_blas=openblas benchmark
 
+      - name: Run OpenBLAS thread-sweep smoke benchmark
+        run: |
+          zig build -Dhost_blas=openblas benchmark -- \
+            --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json \
+            --thread-count 1 \
+            --thread-count 2 \
+            --thread-count 4 \
+            --output benchmarks/results/thread-sweep.jsonl
+
       - name: Prepare baseline worktree
         if: steps.baseline.outputs.sha != ''
         shell: bash
@@ -87,15 +96,39 @@ jobs:
         if: steps.baseline.outputs.sha == ''
         run: echo "No baseline revision available; skipping benchmark comparison."
 
+      - name: Generate thread-scaling publication artifacts
+        run: |
+          zig build -Dhost_blas=openblas benchmark-thread-report -- \
+            --input benchmarks/results/thread-sweep.jsonl \
+            --baseline-thread-count 1 \
+            --markdown-output benchmarks/results/thread-scaling.md \
+            --json-output benchmarks/results/thread-scaling.json
+
+      - name: Build benchmark publication bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            --candidate-jsonl benchmarks/results/latest.jsonl
+            --extra-results-jsonl benchmarks/results/thread-sweep.jsonl
+            --thread-report-json benchmarks/results/thread-scaling.json
+            --thread-report-markdown benchmarks/results/thread-scaling.md
+            --manifest-output benchmarks/results/publication-manifest.json
+            --summary-output benchmarks/results/publication-summary.md
+          )
+          if [ -f benchmarks/results/baseline.jsonl ] && [ -f benchmarks/results/comparison.json ] && [ -f benchmarks/results/comparison.txt ]; then
+            args+=(--baseline-jsonl benchmarks/results/baseline.jsonl)
+            args+=(--comparison-json benchmarks/results/comparison.json)
+            args+=(--comparison-text benchmarks/results/comparison.txt)
+          fi
+          zig build -Dhost_blas=openblas benchmark-publication-bundle -- "${args[@]}"
+          cat benchmarks/results/publication-summary.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results
-          path: |
-            benchmarks/results/latest.jsonl
-            benchmarks/results/baseline.jsonl
-            benchmarks/results/comparison.json
-            benchmarks/results/comparison.txt
+          path: benchmarks/results
 
       - name: Remove baseline worktree
         if: always() && steps.baseline.outputs.sha != ''
