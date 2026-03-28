@@ -1,0 +1,277 @@
+const std = @import("std");
+
+pub const DeviceKind = enum {
+    host,
+    cuda,
+};
+
+pub const StorageKind = enum {
+    owned,
+    view,
+};
+
+pub const MaterializationReason = enum {
+    explicit,
+    host_read,
+};
+
+pub const TensorRecord = struct {
+    id: u32,
+    op_name: []const u8,
+    dtype_name: []const u8,
+    shape: []const usize,
+    device: DeviceKind,
+    requires_grad: bool,
+    attached: bool,
+    acquired: bool,
+    storage: StorageKind,
+    label: ?[]const u8,
+    parent_ids: []const u32,
+};
+
+pub const MaterializationRecord = struct {
+    tensor_id: u32,
+    reason: MaterializationReason,
+};
+
+pub const TensorCapture = struct {
+    tensor_key: usize,
+    parent_keys: []const usize = &.{},
+    op_name: []const u8,
+    dtype_name: []const u8,
+    shape: []const usize,
+    device: DeviceKind,
+    requires_grad: bool,
+    attached: bool,
+    acquired: bool,
+    storage: StorageKind = .owned,
+    label: ?[]const u8 = null,
+};
+
+threadlocal var active_session: ?*Session = null;
+
+pub fn isCapturing() bool {
+    return active_session != null;
+}
+
+pub fn maybeRecordTensor(capture: TensorCapture) !void {
+    if (active_session) |session| {
+        try session.recordTensor(capture);
+    }
+}
+
+pub fn maybeRecordMaterialization(tensor_key: usize, reason: MaterializationReason) !void {
+    if (active_session) |session| {
+        try session.recordMaterialization(tensor_key, reason);
+    }
+}
+
+pub const Session = struct {
+    allocator: std.mem.Allocator,
+    tensor_ids: std.AutoArrayHashMapUnmanaged(usize, u32) = .empty,
+    records: std.ArrayListUnmanaged(TensorRecord) = .empty,
+    materializations: std.ArrayListUnmanaged(MaterializationRecord) = .empty,
+    active_depth: usize = 0,
+
+    pub fn init(allocator: std.mem.Allocator) Session {
+        return .{ .allocator = allocator };
+    }
+
+    pub fn deinit(self: *Session) void {
+        self.reset();
+        self.tensor_ids.deinit(self.allocator);
+        self.records.deinit(self.allocator);
+        self.materializations.deinit(self.allocator);
+        self.* = undefined;
+    }
+
+    pub fn reset(self: *Session) void {
+        for (self.records.items) |record| {
+            self.allocator.free(record.shape);
+            self.allocator.free(record.parent_ids);
+            if (record.label) |label| self.allocator.free(label);
+        }
+        self.records.clearRetainingCapacity();
+        self.materializations.clearRetainingCapacity();
+        self.tensor_ids.clearRetainingCapacity();
+    }
+
+    pub fn begin(self: *Session) !Guard {
+        if (active_session) |current| {
+            if (current != self) return error.LazySessionAlreadyActive;
+        } else {
+            active_session = self;
+        }
+
+        self.active_depth += 1;
+        return .{ .session = self };
+    }
+
+    fn endCapture(self: *Session) void {
+        std.debug.assert(self.active_depth > 0);
+        std.debug.assert(active_session == self);
+
+        self.active_depth -= 1;
+        if (self.active_depth == 0) {
+            active_session = null;
+        }
+    }
+
+    pub fn tensors(self: *const Session) []const TensorRecord {
+        return self.records.items;
+    }
+
+    pub fn materializationEvents(self: *const Session) []const MaterializationRecord {
+        return self.materializations.items;
+    }
+
+    pub fn tensorById(self: *const Session, id: u32) ?*const TensorRecord {
+        if (id == 0 or id > self.records.items.len) return null;
+        return &self.records.items[id - 1];
+    }
+
+    pub fn lookupTensorId(self: *const Session, tensor_key: usize) ?u32 {
+        return self.tensor_ids.get(tensor_key);
+    }
+
+    pub fn writeSummary(self: *const Session, writer: anytype) !void {
+        try writer.print(
+            "lazy session tensors={d} materializations={d}\n",
+            .{ self.records.items.len, self.materializations.items.len },
+        );
+        for (self.records.items) |record| {
+            try writer.print(
+                "#{d} op={s} dtype={s} device={s} storage={s} grad={} attached={} acquired={}",
+                .{
+                    record.id,
+                    record.op_name,
+                    record.dtype_name,
+                    @tagName(record.device),
+                    @tagName(record.storage),
+                    record.requires_grad,
+                    record.attached,
+                    record.acquired,
+                },
+            );
+            try writer.writeAll(" shape=");
+            try writeShape(writer, record.shape);
+            if (record.parent_ids.len != 0) {
+                try writer.writeAll(" parents=[");
+                for (record.parent_ids, 0..) |parent_id, index| {
+                    if (index != 0) try writer.writeAll(",");
+                    try writer.print("{d}", .{parent_id});
+                }
+                try writer.writeAll("]");
+            }
+            if (record.label) |label| {
+                try writer.print(" label={s}", .{label});
+            }
+            try writer.writeByte('\n');
+        }
+        for (self.materializations.items) |event| {
+            try writer.print(
+                "materialize tensor=#{d} reason={s}\n",
+                .{ event.tensor_id, @tagName(event.reason) },
+            );
+        }
+    }
+
+    pub fn writeD2(self: *const Session, writer: anytype) !void {
+        for (self.records.items) |record| {
+            try writer.print("t{d}: \"{s} #{d}\\n{s} ", .{
+                record.id,
+                record.op_name,
+                record.id,
+                record.dtype_name,
+            });
+            try writeShape(writer, record.shape);
+            try writer.print("\\n{s} {s}", .{
+                @tagName(record.device),
+                @tagName(record.storage),
+            });
+            if (record.requires_grad) try writer.writeAll(" grad");
+            if (record.label) |label| try writer.print("\\nlabel={s}", .{label});
+            try writer.writeAll("\"\n");
+        }
+
+        for (self.records.items) |record| {
+            for (record.parent_ids) |parent_id| {
+                try writer.print("t{d} -> t{d}\n", .{ parent_id, record.id });
+            }
+        }
+
+        for (self.materializations.items, 0..) |event, index| {
+            try writer.print("m{d}: \"materialize {s}\"\n", .{
+                index + 1,
+                @tagName(event.reason),
+            });
+            try writer.print("t{d} -> m{d}\n", .{
+                event.tensor_id,
+                index + 1,
+            });
+        }
+    }
+
+    fn recordTensor(self: *Session, capture: TensorCapture) !void {
+        if (self.tensor_ids.contains(capture.tensor_key)) return;
+
+        const parent_ids = try self.allocator.alloc(u32, capture.parent_keys.len);
+        errdefer self.allocator.free(parent_ids);
+        for (capture.parent_keys, 0..) |parent_key, index| {
+            parent_ids[index] = self.tensor_ids.get(parent_key) orelse return error.UnknownCapturedParent;
+        }
+
+        const shape_copy = try self.allocator.dupe(usize, capture.shape);
+        errdefer self.allocator.free(shape_copy);
+
+        const label_copy = if (capture.label) |label|
+            try self.allocator.dupe(u8, label)
+        else
+            null;
+        errdefer if (label_copy) |label| self.allocator.free(label);
+
+        const next_id: u32 = @intCast(self.records.items.len + 1);
+        try self.records.append(self.allocator, .{
+            .id = next_id,
+            .op_name = capture.op_name,
+            .dtype_name = capture.dtype_name,
+            .shape = shape_copy,
+            .device = capture.device,
+            .requires_grad = capture.requires_grad,
+            .attached = capture.attached,
+            .acquired = capture.acquired,
+            .storage = capture.storage,
+            .label = label_copy,
+            .parent_ids = parent_ids,
+        });
+        try self.tensor_ids.put(self.allocator, capture.tensor_key, next_id);
+    }
+
+    fn recordMaterialization(self: *Session, tensor_key: usize, reason: MaterializationReason) !void {
+        const tensor_id = self.tensor_ids.get(tensor_key) orelse return;
+        try self.materializations.append(self.allocator, .{
+            .tensor_id = tensor_id,
+            .reason = reason,
+        });
+    }
+};
+
+pub const Guard = struct {
+    session: *Session,
+    active: bool = true,
+
+    pub fn end(self: *Guard) void {
+        if (!self.active) return;
+        self.active = false;
+        self.session.endCapture();
+    }
+};
+
+fn writeShape(writer: anytype, shape: []const usize) !void {
+    try writer.writeByte('[');
+    for (shape, 0..) |dim, index| {
+        if (index != 0) try writer.writeByte('x');
+        try writer.print("{d}", .{dim});
+    }
+    try writer.writeByte(']');
+}

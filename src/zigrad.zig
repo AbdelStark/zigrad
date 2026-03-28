@@ -15,6 +15,7 @@ pub const Shape = @import("ndarray.zig").Shape;
 pub const arrayutils = @import("ndarray.zig").utils;
 pub const NDTensor = @import("ndtensor.zig").NDTensor;
 pub const Op = @import("ndtensor.zig").Op;
+pub const lazy = @import("lazy.zig");
 pub const loss = @import("nn/loss.zig");
 pub const Graph = @import("graph.zig");
 pub const TensorOpts = @import("ndtensor/utils.zig").TensorOpts;

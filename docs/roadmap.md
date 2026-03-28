@@ -73,7 +73,7 @@ documents we will implement against.
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Runtime selection, diagnostics, CUDA-safe DQN/GCN kernels, backend-dispatched Adam optimizer updates, host-staged loss fallbacks for maintained training workloads, and benchmark-harness integration for checked-in CUDA-targeted specs are landed; real GPU compile/run validation and executed CUDA benchmark suites remain. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
 | RFC-0005 | ggml/GGUF Interop | `Planned` | P1 | RFC-0001, RFC-0012 | Critical for LLM examples and inference compatibility. |
-| RFC-0006 | Lazy Tensors | `Planned` | P1 | RFC-0001, RFC-0002, RFC-0003 | Introduces capture without breaking eager execution. |
+| RFC-0006 | Lazy Tensors | `Ready` | P1 | RFC-0001, RFC-0002, RFC-0003 | Opt-in lazy-session capture, graph inspection dumps, and explicit materialization events are landed; deferred execution, lowering, and autograd-aware realization remain. |
 | RFC-0007 | Static Graph Optimization | `Planned` | P1 | RFC-0006 | First optimization layer and foundation for compiler work. |
 | RFC-0008 | Dynamic Graph Compiler | `Draft` | P2 | RFC-0006, RFC-0007 | Specialization and caching for dynamic workloads. |
 | RFC-0009 | MLIR Lowering Pipeline | `Exploratory` | P2 | RFC-0007, RFC-0008 | Optional compiler interoperability layer. |
@@ -291,6 +291,37 @@ Every RFC in this folder set must maintain:
   - `cd examples/corridor && ZG_EXAMPLE_SMOKE=1 zig build run`
   - `zig build test-example-smoke`
   - `zig build test-benchmark-smoke`
+
+### RFC-0006 2026-03-29 Opt-In Lazy Capture Session Foundation
+
+- Completed:
+  - Landed
+    [`src/lazy.zig`](../src/lazy.zig)
+    and exported it through
+    [`src/zigrad.zig`](../src/zigrad.zig),
+    giving the repo a first opt-in lazy-session API with stable tensor records,
+    materialization events, and text/D2 inspection output while keeping eager
+    execution as the default and only execution path.
+  - Instrumented generic tensor birth sites in
+    [`src/ndtensor.zig`](../src/ndtensor.zig)
+    so constructor-created tensors, dependent ops, view aliases, and host-read
+    boundaries all register into the lazy session without per-op bespoke wiring.
+  - Added regression tests in
+    [`src/ndtensor.zig`](../src/ndtensor.zig)
+    covering eager-op capture, external inputs that predate the capture scope,
+    view recording, and explicit versus host-read materialization events.
+- Remains:
+  - Move from shadow-capturing eager execution to actual deferred execution and
+    subgraph realization.
+  - Capture richer op attributes and lower the session records into RFC-0007’s
+    future optimizer IR.
+- Blockers:
+  - The current slice intentionally records metadata only; it does not yet
+    delay backend work, so RFC-0007 stays sequenced behind more RFC-0006
+    execution work.
+- Validation:
+  - `zig fmt src/lazy.zig src/ndtensor.zig src/zigrad.zig`
+  - `zig build test`
 
 ### RFC-0001 2026-03-28 Char-LM Benchmark Coverage
 

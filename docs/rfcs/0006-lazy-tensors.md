@@ -1,10 +1,10 @@
 # RFC-0006: Lazy Tensors
 
-Status: `Planned`  
-Priority: `P1`  
-Depends on: RFC-0001, RFC-0002, RFC-0003  
-Blocks: RFC-0007, RFC-0008, RFC-0010  
-Last updated: `2026-03-27`
+Status: `Ready`
+Priority: `P1`
+Depends on: RFC-0001, RFC-0002, RFC-0003
+Blocks: RFC-0007, RFC-0008, RFC-0010
+Last updated: `2026-03-29`
 
 ## Summary
 
@@ -160,3 +160,43 @@ The exact API should stay minimal until implementation experience is gathered.
 - Should shape inference happen eagerly at capture time or lazily during lower?
 - Can the existing graph manager participate directly, or do we need a new IR?
 
+## Agentic Context
+
+### 2026-03-29 Opt-In Lazy Capture Session Foundation
+
+- Completed:
+  - Added a first-class `zg.lazy` capture surface in
+    [`src/lazy.zig`](../../src/lazy.zig)
+    and exported it through
+    [`src/zigrad.zig`](../../src/zigrad.zig),
+    including scoped session guards, stable tensor records, text plus D2 graph
+    dumps, and recorded materialization events.
+  - Instrumented generic tensor construction in
+    [`src/ndtensor.zig`](../../src/ndtensor.zig)
+    so eager tensor constructors and dependent ops now feed the lazy session
+    without changing eager execution semantics. The landed slice records dtype,
+    shape, device, storage kind, labels, parent edges, and whether tensors are
+    attached or require gradients.
+  - Added an explicit `NDTensor.realize()` boundary and host-read capture hooks
+    so RFC-0006 now has a concrete, testable materialization API even though
+    execution is still eager under the hood.
+  - Added regression coverage in
+    [`src/ndtensor.zig`](../../src/ndtensor.zig)
+    for in-session capture, external-input capture when tensors predate the
+    capture region, view recording via `alias()`, D2/text dump emission, and
+    explicit versus host-read materialization events.
+- Remains:
+  - Introduce a true lazy execution mode where captured tensors can defer
+    backend work until `realize()` rather than only shadowing eager execution.
+  - Define operation-attribute capture beyond the current op-name/shape/device
+    metadata so RFC-0007 can lower the session records into a richer optimizer
+    IR.
+  - Decide whether the eventual public API uses a separate `LazyTensor` handle
+    or continues with scoped capture on the existing tensor type.
+- Blockers:
+  - This slice intentionally preserves eager execution; no deferred scheduler,
+    subgraph realization engine, or backend lowering exists yet, so RFC-0007
+    remains blocked on additional RFC-0006 work.
+- Validation performed:
+  - `zig fmt src/lazy.zig src/ndtensor.zig src/zigrad.zig`
+  - `zig build test`

@@ -17,6 +17,7 @@ const ndarray = @import("ndarray.zig");
 const Range = ndarray.Range;
 const Shape = ndarray.Shape;
 const NDArray = ndarray.NDArray;
+const BoundedArray = @import("utils/bounded_array.zig").BoundedArray;
 const log = zg.logging.scoped(.zg_ndtensor);
 
 pub const MaxAlongOptions = struct {
@@ -70,6 +71,7 @@ pub fn NDTensor(comptime T: type) type {
                 }),
             };
 
+            try self.captureStandalone("source");
             return self;
         }
 
@@ -186,6 +188,7 @@ pub fn NDTensor(comptime T: type) type {
 
         pub fn copy_to_host(self: *const Self, dst: []T) !void {
             if (dst.len != self.get_size()) return error.InvalidHostCopySize;
+            try self.captureMaterialization(.host_read);
 
             if (self.device.is_host()) {
                 @memcpy(dst, self.get_data());
@@ -202,6 +205,12 @@ pub fn NDTensor(comptime T: type) type {
             errdefer allocator.free(host);
             try self.copy_to_host(host);
             return host;
+        }
+
+        pub fn realize(self: *Self) !*Self {
+            try self.captureMaterialization(.explicit);
+            self.device.sync();
+            return self;
         }
 
         pub fn get_dim(self: *const Self, i: usize) usize {
@@ -272,12 +281,15 @@ pub fn NDTensor(comptime T: type) type {
         pub fn CreateDependentOpts(BwdCallback: type) type {
             return struct {
                 data: DataType,
+                grad: ?DataType = null,
                 gb: *Graph.Builder,
                 children: []const *Node,
                 callback: BwdCallback,
                 device: DeviceReference,
+                status: Status = .owned,
                 label: ?[]const u8 = null,
                 op: ?Op = null,
+                capture_name: ?[]const u8 = null,
             };
         }
 
@@ -299,7 +311,9 @@ pub fn NDTensor(comptime T: type) type {
 
             self.* = Self{
                 .data = opts.data,
+                .grad = opts.grad,
                 .device = opts.device,
+                .status = opts.status,
                 .op = opts.op,
                 .node = .init(Self, opts.gb, bwd_ctx, opts.label, .{
                     .requires_grad = req_grad,
@@ -308,6 +322,10 @@ pub fn NDTensor(comptime T: type) type {
                 }),
             };
 
+            try self.captureTensor(
+                opts.capture_name orelse if (opts.op) |op| @tagName(op) else "op",
+                opts.children,
+            );
             return self;
         }
 
@@ -472,6 +490,7 @@ pub fn NDTensor(comptime T: type) type {
                 }),
             };
 
+            try result.captureStandalone("clone");
             return result;
         }
 
@@ -649,9 +668,10 @@ pub fn NDTensor(comptime T: type) type {
                 .gb = self.node.gb,
                 .children = &.{&self.node},
                 .device = self.device,
+                .status = status,
                 .callback = .{ .start = start },
+                .capture_name = "subset",
             });
-            tmp.status = status;
             return tmp;
         }
 
@@ -674,9 +694,10 @@ pub fn NDTensor(comptime T: type) type {
                 .gb = self.node.gb,
                 .children = &.{&self.node},
                 .device = self.device,
+                .status = .view,
                 .callback = .{},
+                .capture_name = "alias",
             });
-            tmp.status = .view;
             return tmp;
         }
 
@@ -1023,6 +1044,7 @@ pub fn NDTensor(comptime T: type) type {
                 .device = self.device,
                 .gb = self.node.gb,
                 .callback = .{},
+                .capture_name = "sqrt",
             });
         }
 
@@ -1046,6 +1068,7 @@ pub fn NDTensor(comptime T: type) type {
                 .device = self.device,
                 .gb = self.node.gb,
                 .callback = .{},
+                .capture_name = "rsqrt",
             });
         }
 
@@ -1350,6 +1373,7 @@ pub fn NDTensor(comptime T: type) type {
                 .device = self.device,
                 .gb = self.node.gb,
                 .callback = .{},
+                .capture_name = "max_along",
             });
         }
 
@@ -1395,6 +1419,7 @@ pub fn NDTensor(comptime T: type) type {
                     .dim = dim,
                     .src_shape = Shape.init(self.get_shape()),
                 },
+                .capture_name = "gather",
             });
         }
 
@@ -1544,6 +1569,55 @@ pub fn NDTensor(comptime T: type) type {
             }
             var next_children = self.node.child_iterator() orelse return;
             while (next_children.next()) |elem| elem.upcast(Self).print_arrows();
+        }
+
+        fn captureStandalone(self: *const Self, capture_name: []const u8) !void {
+            if (!zg.lazy.isCapturing()) return;
+
+            try zg.lazy.maybeRecordTensor(.{
+                .tensor_key = @intFromPtr(&self.node),
+                .op_name = capture_name,
+                .dtype_name = @typeName(T),
+                .shape = self.get_shape(),
+                .device = if (self.device.is_host()) .host else .cuda,
+                .requires_grad = self.node.flags.get(.requires_grad),
+                .attached = self.node.attached(),
+                .acquired = self.node.acquired(),
+                .storage = if (self.status == .owned) .owned else .view,
+                .label = self.get_label(),
+            });
+        }
+
+        fn captureTensor(self: *const Self, capture_name: []const u8, children: []const *Node) !void {
+            if (!zg.lazy.isCapturing()) return;
+
+            var parent_keys = BoundedArray(usize, settings.backward_children_capacity){};
+            for (children) |child| {
+                const input = child.upcast(Self);
+                try input.captureStandalone("external_input");
+                try parent_keys.append(@intFromPtr(child));
+            }
+
+            try zg.lazy.maybeRecordTensor(.{
+                .tensor_key = @intFromPtr(&self.node),
+                .parent_keys = parent_keys.slice(),
+                .op_name = capture_name,
+                .dtype_name = @typeName(T),
+                .shape = self.get_shape(),
+                .device = if (self.device.is_host()) .host else .cuda,
+                .requires_grad = self.node.flags.get(.requires_grad),
+                .attached = self.node.attached(),
+                .acquired = self.node.acquired(),
+                .storage = if (self.status == .owned) .owned else .view,
+                .label = self.get_label(),
+            });
+        }
+
+        fn captureMaterialization(self: *const Self, reason: zg.lazy.MaterializationReason) !void {
+            if (!zg.lazy.isCapturing()) return;
+
+            try self.captureStandalone("external_input");
+            try zg.lazy.maybeRecordMaterialization(@intFromPtr(&self.node), reason);
         }
     };
 }
@@ -2361,6 +2435,117 @@ test "tensor/to_host_owned duplicates tensor contents" {
     defer std.testing.allocator.free(host);
 
     try std.testing.expectEqualSlices(f32, &.{ 1, 2, 3, 4 }, host);
+}
+
+test "tensor/lazy session captures eager ops and materialization boundaries" {
+    var cpu = zg.device.HostDevice.init();
+    defer cpu.deinit();
+
+    const device = cpu.reference();
+
+    var graph = Graph.init(std.testing.allocator, .{});
+    defer graph.deinit();
+
+    var session = zg.lazy.Session.init(std.testing.allocator);
+    defer session.deinit();
+
+    var capture = try session.begin();
+    defer capture.end();
+
+    const Tensor = NDTensor(f32);
+
+    const lhs = try Tensor.from_slice(device, &.{ 1, 2, 3, 4 }, &.{ 2, 2 }, .{
+        .requires_grad = true,
+        .graph = &graph,
+        .label = "lhs",
+    });
+    defer lhs.deinit();
+
+    const rhs = try Tensor.from_slice(device, &.{ 5, 6, 7, 8 }, &.{ 2, 2 }, .{
+        .requires_grad = true,
+        .graph = &graph,
+        .label = "rhs",
+    });
+    defer rhs.deinit();
+
+    const sum = try lhs.add(rhs);
+    defer sum.deinit();
+
+    const view = try sum.alias();
+    defer view.deinit();
+
+    _ = try view.realize();
+
+    const host = try view.to_host_owned(std.testing.allocator);
+    defer std.testing.allocator.free(host);
+
+    try std.testing.expectEqualSlices(f32, &.{ 6, 8, 10, 12 }, host);
+    try std.testing.expectEqual(@as(usize, 4), session.tensors().len);
+    try std.testing.expectEqual(@as(usize, 2), session.materializationEvents().len);
+
+    const records = session.tensors();
+    try std.testing.expectEqualStrings("source", records[0].op_name);
+    try std.testing.expectEqualStrings("source", records[1].op_name);
+    try std.testing.expectEqualStrings("ADD", records[2].op_name);
+    try std.testing.expectEqualStrings("alias", records[3].op_name);
+    try std.testing.expectEqual(zg.lazy.StorageKind.view, records[3].storage);
+    try std.testing.expectEqualSlices(u32, &.{ 1, 2 }, records[2].parent_ids);
+    try std.testing.expectEqualSlices(u32, &.{3}, records[3].parent_ids);
+
+    const materializations = session.materializationEvents();
+    try std.testing.expectEqual(zg.lazy.MaterializationReason.explicit, materializations[0].reason);
+    try std.testing.expectEqual(zg.lazy.MaterializationReason.host_read, materializations[1].reason);
+    try std.testing.expectEqual(@as(u32, 4), materializations[0].tensor_id);
+
+    var summary = std.ArrayList(u8){};
+    defer summary.deinit(std.testing.allocator);
+    try session.writeSummary(summary.writer(std.testing.allocator));
+    try std.testing.expect(std.mem.indexOf(u8, summary.items, "op=ADD") != null);
+    try std.testing.expect(std.mem.indexOf(u8, summary.items, "storage=view") != null);
+    try std.testing.expect(std.mem.indexOf(u8, summary.items, "materialize tensor=#4 reason=explicit") != null);
+
+    var d2 = std.ArrayList(u8){};
+    defer d2.deinit(std.testing.allocator);
+    try session.writeD2(d2.writer(std.testing.allocator));
+    try std.testing.expect(std.mem.indexOf(u8, d2.items, "t1 -> t3") != null);
+    try std.testing.expect(std.mem.indexOf(u8, d2.items, "t3 -> t4") != null);
+    try std.testing.expect(std.mem.indexOf(u8, d2.items, "t4 -> m1") != null);
+}
+
+test "tensor/lazy session treats preexisting tensors as external inputs" {
+    var cpu = zg.device.HostDevice.init();
+    defer cpu.deinit();
+
+    const device = cpu.reference();
+
+    var graph = Graph.init(std.testing.allocator, .{});
+    defer graph.deinit();
+
+    const Tensor = NDTensor(f32);
+    const input = try Tensor.from_slice(device, &.{ 1, 4, 9, 16 }, &.{ 2, 2 }, .{
+        .requires_grad = true,
+        .graph = &graph,
+        .label = "preexisting",
+    });
+    defer input.deinit();
+
+    var session = zg.lazy.Session.init(std.testing.allocator);
+    defer session.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), session.tensors().len);
+
+    var capture = try session.begin();
+    defer capture.end();
+
+    const output = try input.sqrt();
+    defer output.deinit();
+
+    const records = session.tensors();
+    try std.testing.expectEqual(@as(usize, 2), records.len);
+    try std.testing.expectEqualStrings("external_input", records[0].op_name);
+    try std.testing.expectEqualStrings("sqrt", records[1].op_name);
+    try std.testing.expectEqualSlices(u32, &.{1}, records[1].parent_ids);
+    try std.testing.expectEqualStrings("preexisting", records[0].label.?);
 }
 
 test "tensor/pow" {

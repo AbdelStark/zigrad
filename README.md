@@ -119,6 +119,31 @@ zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthe
 zig build benchmark-validate -- --input .zig-cache/zigrad-compiler-capture.jsonl
 ```
 
+The first RFC-0006 lazy-capture surface is also available now through
+`zg.lazy`. Capture remains opt-in and eager execution remains the default, but
+you can wrap a region in a session to collect a stable tensor graph with dtype,
+shape, device, parent-edge, and materialization-boundary metadata for debug or
+future compiler work:
+
+```zig
+var session = zg.lazy.Session.init(allocator);
+defer session.deinit();
+
+var capture = try session.begin();
+defer capture.end();
+
+const y = try x.add(w);
+_ = try y.realize();
+
+try session.writeSummary(std.io.getStdOut().writer());
+```
+
+`session.writeSummary(...)` and `session.writeD2(...)` dump the captured graph,
+and tensors created before the capture scope are recorded automatically as
+`external_input` nodes when they enter the region. This slice is still
+shadowing eager execution; deferred realization and lowering are tracked in
+[`docs/rfcs/0006-lazy-tensors.md`](./docs/rfcs/0006-lazy-tensors.md).
+
 Interop checkpoint specs such as
 [`benchmarks/specs/interop/mnist-mlp-safetensors-import-synthetic.json`](./benchmarks/specs/interop/mnist-mlp-safetensors-import-synthetic.json)
 and
