@@ -112,8 +112,13 @@ pub fn DQNAgent(
             allocator: std.mem.Allocator,
             tb_logger: tb.TensorBoardLogger,
             device: DeviceReference,
+            batch_size: usize,
         ) !T {
-            const bs = 128;
+            if (batch_size == 0) return error.InvalidBatchSize;
+            if (batch_size > buffer_capacity) return error.BatchSizeExceedsReplayCapacity;
+            if (self.replay_buffer.size < batch_size) return error.InsufficientReplayBufferSamples;
+
+            const bs = batch_size;
             var batch = try self.replay_buffer.sample2(bs, allocator);
             defer batch.deinit(allocator);
 

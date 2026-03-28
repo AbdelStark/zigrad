@@ -17,7 +17,25 @@ fn maybeWriteHostDiagnostics(cpu: *const zg.device.HostDevice, label: []const u8
     }) catch {};
 }
 
+pub const RunConfig = struct {
+    num_epochs: usize = 50,
+};
+
+pub const RunSummary = struct {
+    epochs_completed: usize,
+    final_loss: T,
+    train_acc: f32,
+    eval_acc: f32,
+    test_acc: f32,
+};
+
 pub fn run_cora(data_dir: []const u8) !void {
+    _ = try run_cora_with_config(data_dir, .{});
+}
+
+pub fn run_cora_with_config(data_dir: []const u8, config: RunConfig) !RunSummary {
+    if (config.num_epochs == 0) return error.InvalidEpochCount;
+
     var debug_allocator = std.heap.DebugAllocator(.{}).init;
     const allocator = debug_allocator.allocator();
     defer {
@@ -46,6 +64,41 @@ pub fn run_cora(data_dir: []const u8) !void {
     const dataset = try Dataset(T).load_cora(allocator, device, node_path, edge_path);
     defer dataset.deinit();
 
+    return run_dataset(dataset, allocator, device, config);
+}
+
+pub fn runSyntheticSmoke() !RunSummary {
+    const config = RunConfig{ .num_epochs = 2 };
+
+    var debug_allocator = std.heap.DebugAllocator(.{}).init;
+    const allocator = debug_allocator.allocator();
+    defer {
+        const leak = debug_allocator.deinit();
+        if (leak == std.heap.Check.leak) {
+            std.debug.print("memory leak !!\n", .{});
+        }
+    }
+
+    zg.global_graph_init(allocator, .{
+        .eager_teardown = true,
+    });
+    defer zg.global_graph_deinit();
+
+    var cpu = zg.device.HostDevice.init();
+    defer cpu.deinit();
+    maybeWriteHostDiagnostics(&cpu, "gcn:start", false);
+    defer maybeWriteHostDiagnostics(&cpu, "gcn:summary", true);
+
+    const device = cpu.reference();
+    const dataset = try Dataset(T).loadSyntheticSmoke(device);
+    defer dataset.deinit();
+
+    return run_dataset(dataset, allocator, device, config);
+}
+
+fn run_dataset(dataset: Dataset(T), allocator: std.mem.Allocator, device: zg.DeviceReference, config: RunConfig) !RunSummary {
+    if (config.num_epochs == 0) return error.InvalidEpochCount;
+
     var adam = Optimizer.init(allocator, .{
         .lr = 0.01,
         .beta1 = 0.9,
@@ -73,8 +126,9 @@ pub fn run_cora(data_dir: []const u8) !void {
 
     var max_train_time = std.math.floatMin(f64);
     var max_test_time = std.math.floatMin(f64);
-    const num_epochs = 50;
-    for (0..num_epochs) |epoch| {
+    var final_loss: T = 0;
+    var final_acc = [_]f32{ 0, 0, 0 };
+    for (0..config.num_epochs) |epoch| {
         var loss_val: T = 0;
         var acc = [_]f32{ 0, 0, 0 };
         var train_time_ms: f64 = 0;
@@ -133,44 +187,62 @@ pub fn run_cora(data_dir: []const u8) !void {
             total_test_time += test_time_ms;
             max_test_time = @max(max_test_time, test_time_ms);
         }
+        final_loss = loss_val;
+        final_acc = acc;
         std.debug.print(
             "Epoch: {d:>2}, Loss: {d:<5.4}, Train_acc: {d:<2.2}, Val_acc: {d:<2.2}, Test_acc: {d:<2.2}, Train_time {d:<3.2} ms, Test_time {d:<3.2} ms\n",
             .{ epoch + 1, loss_val, acc[0], acc[1], acc[2], train_time_ms, test_time_ms },
         );
     }
-    std.debug.print("Avg epoch train time: {d:.2} ms, Avg epoch test time: {d:.2} ms\n", .{ total_train_time / num_epochs, total_test_time / num_epochs });
+    const epoch_count_f64 = @as(f64, @floatFromInt(config.num_epochs));
+    std.debug.print("Avg epoch train time: {d:.2} ms, Avg epoch test time: {d:.2} ms\n", .{ total_train_time / epoch_count_f64, total_test_time / epoch_count_f64 });
     std.debug.print("Total train time: {d:.2} ms, Total test time: {d:.2} ms\n", .{ total_train_time, total_test_time });
 
     const total_train_time_ms_trimmed = total_train_time - max_train_time;
     const total_test_time_ms_trimmed = total_test_time - max_test_time;
-    std.debug.print("(trimmed) Avg epoch train time: {d:.2} ms, Avg epoch test time: {d:.2} ms\n", .{
-        total_train_time_ms_trimmed / (num_epochs - 1),
-        total_test_time_ms_trimmed / (num_epochs - 1),
-    });
-    std.debug.print("(trimmed) Total train time: {d:.2} ms, Total test time: {d:.2} ms\n", .{
-        total_train_time_ms_trimmed,
-        total_test_time_ms_trimmed,
-    });
+    if (config.num_epochs > 1) {
+        std.debug.print("(trimmed) Avg epoch train time: {d:.2} ms, Avg epoch test time: {d:.2} ms\n", .{
+            total_train_time_ms_trimmed / @as(f64, @floatFromInt(config.num_epochs - 1)),
+            total_test_time_ms_trimmed / @as(f64, @floatFromInt(config.num_epochs - 1)),
+        });
+        std.debug.print("(trimmed) Total train time: {d:.2} ms, Total test time: {d:.2} ms\n", .{
+            total_train_time_ms_trimmed,
+            total_test_time_ms_trimmed,
+        });
+    }
 
     var json_out: std.io.Writer.Allocating = .init(allocator);
     defer json_out.deinit();
 
     try std.json.Stringify.value(.{
-        .avg_epoch_train_fbs_ms = total_train_time / num_epochs,
-        .avg_epoch_test_fbs_ms = total_test_time / num_epochs,
+        .avg_epoch_train_fbs_ms = total_train_time / epoch_count_f64,
+        .avg_epoch_test_fbs_ms = total_test_time / epoch_count_f64,
         .total_train_fbs_ms = total_train_time,
         .total_test_fbs_ms = total_test_time,
-        .avg_epoch_train_fbs_trimmed_ms = total_train_time_ms_trimmed / (num_epochs - 1),
-        .avg_epoch_test_fbs_trimmed_ms = total_test_time_ms_trimmed / (num_epochs - 1),
+        .avg_epoch_train_fbs_trimmed_ms = if (config.num_epochs > 1) total_train_time_ms_trimmed / @as(f64, @floatFromInt(config.num_epochs - 1)) else total_train_time,
+        .avg_epoch_test_fbs_trimmed_ms = if (config.num_epochs > 1) total_test_time_ms_trimmed / @as(f64, @floatFromInt(config.num_epochs - 1)) else total_test_time,
         .total_train_fbs_trimmed_ms = total_train_time_ms_trimmed,
         .total_test_fbs_trimmed_ms = total_test_time_ms_trimmed,
     }, .{ .whitespace = .indent_2 }, &json_out.writer);
 
     const stdout = std.fs.File.stdout().deprecatedWriter();
     try stdout.print("{s}\n", .{json_out.written()});
+
+    return .{
+        .epochs_completed = config.num_epochs,
+        .final_loss = final_loss,
+        .train_acc = final_acc[0],
+        .eval_acc = final_acc[1],
+        .test_acc = final_acc[2],
+    };
 }
 
 pub fn main() !void {
+    if ((std.posix.getenv("ZG_EXAMPLE_SMOKE") orelse "0")[0] == '1') {
+        _ = try runSyntheticSmoke();
+        return;
+    }
+
     const data_dir = std.posix.getenv("ZG_DATA_DIR") orelse "data";
     try run_cora(data_dir);
 }

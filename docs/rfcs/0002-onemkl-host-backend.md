@@ -272,6 +272,53 @@ regardless of provider:
   - `cd examples/dqn && zig build -Dhost_blas=accelerate`
   - `cd examples/gcn && zig build -Dhost_blas=accelerate`
 
+### 2026-03-28 Example Runtime Smoke Suite
+
+- Completed:
+  - Added configurable smoke execution paths to
+    [`examples/mnist/src/main.zig`](../../examples/mnist/src/main.zig),
+    [`examples/dqn/src/dqn_train.zig`](../../examples/dqn/src/dqn_train.zig),
+    [`examples/dqn/src/main.zig`](../../examples/dqn/src/main.zig), and
+    [`examples/gcn/src/main.zig`](../../examples/gcn/src/main.zig) while
+    preserving their default full-workload behavior; MNIST now runs against
+    bundled small CSVs without loading or saving `mnist.stz`, DQN exercises a
+    bounded replay-buffer training loop, and GCN can execute against a new
+    synthetic graph fixture in
+    [`examples/gcn/src/dataset.zig`](../../examples/gcn/src/dataset.zig).
+  - Added a dedicated `zig build test-example-smoke` runner in
+    [`build.zig`](../../build.zig) backed by
+    [`tests/src/example_smoke_main.zig`](../../tests/src/example_smoke_main.zig),
+    so hello-world, MNIST, DQN, and GCN execute real runtime paths as part of
+    the default `zig build test` surface instead of remaining compile-only
+    examples.
+  - Fixed
+    [`examples/dqn/src/replay_buffer.zig`](../../examples/dqn/src/replay_buffer.zig)
+    so `sample2` no longer treats zero-initialized bookkeeping slots as
+    consumed indices, which previously could hang without-replacement sampling
+    during small deterministic DQN runs.
+  - Wired the same smoke runner into
+    [`.github/workflows/benchmark-smoke.yml`](../../.github/workflows/benchmark-smoke.yml)
+    under `-Dhost_blas=openblas` and documented the new validation commands in
+    [`README.md`](../../README.md).
+- Remains:
+  - Execute the same example smoke suite on Linux OpenBLAS and oneMKL hosts so
+    provider-sensitive runtime behavior is observed beyond the local
+    Accelerate backend.
+  - Decide whether future RFC-0012 artifact checks should extend this smoke
+    runner with checkpoint and downloadable-dataset validation.
+- Blockers:
+  - This run still only had the macOS Accelerate backend locally, so the new
+    runtime smoke suite is wired for Linux/OpenBLAS CI but was not exercised on
+    OpenBLAS or oneMKL in this environment.
+- Validation performed:
+  - `zig build test-example-smoke`
+  - `zig build test`
+  - `cd examples/hello-world && zig build run`
+  - `cd examples/mnist && ZG_EXAMPLE_SMOKE=1 zig build run`
+  - `cd examples/dqn && ZG_EXAMPLE_SMOKE=1 zig build run`
+  - `cd examples/gcn && ZG_EXAMPLE_SMOKE=1 zig build run`
+  - `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/benchmark-smoke.yml"); puts "workflow ok"'`
+
 ### 2026-03-28 Host Provider Numerical Parity Suite
 
 - Completed:
@@ -330,7 +377,8 @@ regardless of provider:
   - Run the same telemetry checks on Linux OpenBLAS and oneMKL builds.
   - Add cross-provider numerical parity coverage and published provider
     comparison tables once Linux/x86 environments are available.
-  - Add runtime smoke coverage for the broader example portfolio.
+  - Run the new example runtime smoke suite on Linux OpenBLAS and oneMKL
+    builds.
 - Blockers:
   - This run still had no Linux OpenBLAS/oneMKL environment, so the new
     fallback telemetry was validated only on the macOS Accelerate backend.
@@ -434,8 +482,8 @@ regardless of provider:
     cross-provider numerical parity coverage.
   - Audit conv and linear call paths beyond the matmul broadcast fix and add
     example/runtime smoke coverage for the provider-sensitive paths.
-  - Add runtime smoke coverage for the example portfolio now that the explicit
-    `host_blas` entrypoints are aligned.
+  - Run the new example smoke suite under OpenBLAS and oneMKL now that the
+    explicit `host_blas` entrypoints are aligned.
 - Blockers:
   - This run still had no Linux OpenBLAS/oneMKL environment, so provider parity
     remains unexecuted locally.

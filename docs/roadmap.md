@@ -69,7 +69,7 @@ documents we will implement against.
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
 | RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, smoke CI, synthetic BLAS/autograd/memory/MNIST/DQN/GCN plus conv-lowering and broadcast-fallback matmul coverage, and host thread-sweep/scaling-report workflows are landed; Zig JSONL output now carries host BLAS dispatch telemetry, while future CUDA/compiler/interop suites remain. |
-| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, a provider-sensitive numerical parity suite, opt-in runtime diagnostics hooks, and Markdown/JSON provider plus thread-scaling report generators are landed; oneMKL execution and published provider comparison runs remain. |
+| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, a provider-sensitive numerical parity suite, opt-in runtime diagnostics hooks, example runtime smoke coverage for hello-world/MNIST/DQN/GCN, and Markdown/JSON provider plus thread-scaling report generators are landed; oneMKL execution and published provider comparison runs remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Turns experimental CUDA into a supported execution backend. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
 | RFC-0005 | ggml/GGUF Interop | `Planned` | P1 | RFC-0001, RFC-0012 | Critical for LLM examples and inference compatibility. |
@@ -476,6 +476,50 @@ Every RFC in this folder set must maintain:
   - `cd examples/dqn && zig build -Dhost_blas=accelerate`
   - `cd examples/gcn && zig build -Dhost_blas=accelerate`
 
+### RFC-0002 2026-03-28 Example Runtime Smoke Suite
+
+- Completed:
+  - Added configurable smoke execution paths to
+    [`examples/mnist/src/main.zig`](../examples/mnist/src/main.zig),
+    [`examples/dqn/src/dqn_train.zig`](../examples/dqn/src/dqn_train.zig),
+    [`examples/dqn/src/main.zig`](../examples/dqn/src/main.zig), and
+    [`examples/gcn/src/main.zig`](../examples/gcn/src/main.zig) while
+    preserving their default full-workload behavior; MNIST now uses bundled
+    small CSVs without touching `mnist.stz`, DQN runs a bounded replay-buffer
+    training loop, and GCN can execute against a new synthetic in-memory graph
+    fixture from [`examples/gcn/src/dataset.zig`](../examples/gcn/src/dataset.zig).
+  - Added a repo-level `zig build test-example-smoke` runner in
+    [`build.zig`](../build.zig) backed by
+    [`tests/src/example_smoke_main.zig`](../tests/src/example_smoke_main.zig),
+    so hello-world, MNIST, DQN, and GCN all execute real runtime paths as part
+    of the default `zig build test` surface.
+  - Fixed
+    [`examples/dqn/src/replay_buffer.zig`](../examples/dqn/src/replay_buffer.zig)
+    so `sample2` no longer treats zero-initialized bookkeeping slots as
+    already-consumed indices, which previously made full-buffer
+    without-replacement sampling hang in small deterministic runs.
+  - Wired the same smoke gate into
+    [`.github/workflows/benchmark-smoke.yml`](../.github/workflows/benchmark-smoke.yml)
+    under `-Dhost_blas=openblas`, and documented the new validation commands in
+    [`README.md`](../README.md).
+- Remains:
+  - Execute the same example smoke suite on oneMKL-configured Linux/x86
+    hardware.
+  - Decide whether future RFC-0012 example artifacts should extend this smoke
+    runner with checkpoint and downloadable-dataset validation.
+- Blockers:
+  - Local validation still only exercised the macOS Accelerate backend, so the
+    new suite is wired for Linux/OpenBLAS CI but not yet observed on OpenBLAS
+    or oneMKL locally.
+- Validation:
+  - `zig build test-example-smoke`
+  - `zig build test`
+  - `cd examples/hello-world && zig build run`
+  - `cd examples/mnist && ZG_EXAMPLE_SMOKE=1 zig build run`
+  - `cd examples/dqn && ZG_EXAMPLE_SMOKE=1 zig build run`
+  - `cd examples/gcn && ZG_EXAMPLE_SMOKE=1 zig build run`
+  - `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/benchmark-smoke.yml"); puts "workflow ok"'`
+
 ### RFC-0002 2026-03-28 Batched GEMM Broadcast Correctness
 
 - Completed:
@@ -495,7 +539,8 @@ Every RFC in this folder set must maintain:
 - Remains:
   - Add Linux OpenBLAS/oneMKL numerical parity coverage and benchmark tables.
   - Audit conv and linear example/runtime paths beyond the batched matmul core.
-  - Add runtime smoke coverage for the refreshed example entrypoints.
+  - Execute the new runtime smoke coverage on Linux OpenBLAS and oneMKL
+    builds.
 - Blockers:
   - No Linux OpenBLAS or oneMKL runtime was available in this run.
 - Validation:

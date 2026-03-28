@@ -134,6 +134,45 @@ pub fn Dataset(comptime T: type) type {
             };
         }
 
+        pub fn loadSyntheticSmoke(device: DeviceReference) !Self {
+            const x_values = [_]T{
+                1.0, 0.0, 0.5,
+                0.9, 0.1, 0.4,
+                0.1, 0.8, 0.3,
+                0.2, 0.7, 0.6,
+            };
+            const y_values = [_]T{
+                1.0, 0.0,
+                1.0, 0.0,
+                0.0, 1.0,
+                0.0, 1.0,
+            };
+            const edge_values = [_]usize{
+                0, 1, 1, 2, 2, 3,
+                1, 0, 2, 1, 3, 2,
+            };
+            const train_mask_values = [_]bool{ true, true, false, false };
+            const eval_mask_values = [_]bool{ false, false, true, false };
+            const test_mask_values = [_]bool{ false, false, false, true };
+
+            const config: zg.TensorOpts = .{
+                .requires_grad = true,
+                .acquired = true,
+            };
+
+            return .{
+                .x = try Tensor(T).from_slice(device, &x_values, &[_]usize{ 4, 3 }, config),
+                .y = try Tensor(T).from_slice(device, &y_values, &[_]usize{ 4, 2 }, .{}),
+                .edge_index = try Tensor(usize).from_slice(device, &edge_values, &[_]usize{ 2, 6 }, .{}),
+                .num_features = 3,
+                .num_classes = 2,
+                .train_mask = try Tensor(bool).from_slice(device, &train_mask_values, &[_]usize{ 4, 1 }, .{}),
+                .eval_mask = try Tensor(bool).from_slice(device, &eval_mask_values, &[_]usize{ 4, 1 }, .{}),
+                .test_mask = try Tensor(bool).from_slice(device, &test_mask_values, &[_]usize{ 4, 1 }, .{}),
+                .device = device,
+            };
+        }
+
         pub fn deinit(self: @This()) void {
             self.x.release();
             self.x.deinit();

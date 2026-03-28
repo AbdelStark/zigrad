@@ -26,7 +26,28 @@ fn maybeWriteHostDiagnostics(cpu: *const zg.device.HostDevice, label: []const u8
     }) catch {};
 }
 
+pub const RunConfig = struct {
+    batch_size: usize = 64,
+    num_epochs: usize = 3,
+    verbose: ?bool = null,
+    load_path: ?[]const u8 = "mnist.stz",
+    save_path: ?[]const u8 = "mnist.stz",
+};
+
+pub const RunSummary = struct {
+    epochs_completed: usize,
+    train_batches: usize,
+    train_accuracy: f32,
+    test_accuracy: f32,
+};
+
 pub fn run_mnist(train_path: []const u8, test_path: []const u8) !void {
+    _ = try run_mnist_with_config(train_path, test_path, .{});
+}
+
+pub fn run_mnist_with_config(train_path: []const u8, test_path: []const u8, config: RunConfig) !RunSummary {
+    if (config.batch_size == 0) return error.InvalidBatchSize;
+
     const allocator = std.heap.smp_allocator;
 
     // use global graph for project
@@ -53,31 +74,34 @@ pub fn run_mnist(train_path: []const u8, test_path: []const u8) !void {
         .grad_clip_delta = 1e-6,
         .grad_clip_enabled = false,
     });
-    sgd.deinit();
+    defer sgd.deinit();
 
     const optim = sgd.optimizer();
 
     std.debug.print("Loading model..\n", .{});
 
-    var model = MnistModel(T).load("mnist.stz", device) catch |err| switch (err) {
-        std.fs.File.OpenError.FileNotFound => try MnistModel(f32).init(device),
-        else => return err,
-    };
+    var model = if (config.load_path) |load_path|
+        MnistModel(T).load(load_path, device) catch |err| switch (err) {
+            std.fs.File.OpenError.FileNotFound => try MnistModel(T).init(device),
+            else => return err,
+        }
+    else
+        try MnistModel(T).init(device);
     defer model.deinit();
 
     try model.attach_optimizer(optim);
 
-    const verbose = (std.posix.getenv("ZG_VERBOSE") orelse "0")[0] == '1';
+    const verbose = config.verbose orelse ((std.posix.getenv("ZG_VERBOSE") orelse "0")[0] == '1');
     if (verbose) std.debug.print("Loading train data...\n", .{});
-    const batch_size = 64;
-    const train_dataset = try MnistDataset(T).load(allocator, device, train_path, batch_size);
+    const train_dataset = try MnistDataset(T).load(allocator, device, train_path, config.batch_size);
+
+    var train_batches: usize = 0;
 
     // Train -------------------------------------------------------------------
     if (verbose) std.debug.print("Training...\n", .{});
-    const num_epochs = 3;
     var timer = try std.time.Timer.start();
     var step_timer = try std.time.Timer.start();
-    for (0..num_epochs) |epoch| {
+    for (0..config.num_epochs) |epoch| {
         var total_loss: f64 = 0;
         for (train_dataset.images, train_dataset.labels, 0..) |image, label, i| {
             image.set_label("image_batch");
@@ -101,8 +125,9 @@ pub fn run_mnist(train_path: []const u8, test_path: []const u8) !void {
             std.debug.assert(image.grad == null);
 
             const t1 = @as(f64, @floatFromInt(step_timer.read()));
-            const ms_per_sample = t1 / @as(f64, @floatFromInt(std.time.ns_per_ms * batch_size));
+            const ms_per_sample = t1 / @as(f64, @floatFromInt(std.time.ns_per_ms * config.batch_size));
             total_loss += loss_val;
+            train_batches += 1;
 
             if (verbose) std.debug.print("train_loss: {d:<5.5} [{d}/{d}] [ms/sample: {d}]\n", .{
                 loss_val,
@@ -125,19 +150,51 @@ pub fn run_mnist(train_path: []const u8, test_path: []const u8) !void {
 
     // Eval on test set
     std.debug.print("Loading test data...\n", .{});
-    const test_dataset = try MnistDataset(T).load(allocator, device, test_path, batch_size);
+    const test_dataset = try MnistDataset(T).load(allocator, device, test_path, config.batch_size);
     defer test_dataset.deinit();
     timer.reset();
     const test_eval = try eval_mnist(&model, test_dataset);
     const eval_test_time_ms = @as(f64, @floatFromInt(timer.lap())) / @as(f64, @floatFromInt(std.time.ns_per_ms));
     std.debug.print("Test acc: {d:.2} (n={d})\n", .{ test_eval.acc * 100, test_eval.n });
 
-    std.debug.print("Training complete ({d} epochs). [{d}ms]\n", .{ num_epochs, train_time_ms });
+    std.debug.print("Training complete ({d} epochs). [{d}ms]\n", .{ config.num_epochs, train_time_ms });
     std.debug.print("Eval train: {d:.2} (n={d}) [{d}ms]\n", .{ train_eval.acc * 100, train_eval.n, eval_train_time_ms });
     std.debug.print("Eval test: {d:.2} (n={d}) {d}ms\n", .{ test_eval.acc * 100, test_eval.n, eval_test_time_ms });
 
-    std.debug.print("Saving model..\n", .{});
-    try model.save("mnist.stz");
+    if (config.save_path) |save_path| {
+        std.debug.print("Saving model..\n", .{});
+        try model.save(save_path);
+    }
+
+    return .{
+        .epochs_completed = config.num_epochs,
+        .train_batches = train_batches,
+        .train_accuracy = train_eval.acc,
+        .test_accuracy = test_eval.acc,
+    };
+}
+
+pub fn main() !void {
+    const smoke = (std.posix.getenv("ZG_EXAMPLE_SMOKE") orelse "0")[0] == '1';
+
+    var buf1: [1024]u8 = undefined;
+    var buf2: [1024]u8 = undefined;
+    const data_sub_dir = std.posix.getenv("ZG_DATA_DIR") orelse "data";
+    const train_name = if (smoke) "mnist_train_small.csv" else "mnist_train_full.csv";
+    const test_name = if (smoke) "mnist_test_small.csv" else "mnist_test_full.csv";
+    const train_path = try std.fmt.bufPrint(&buf1, "{s}/{s}", .{ data_sub_dir, train_name });
+    const test_path = try std.fmt.bufPrint(&buf2, "{s}/{s}", .{ data_sub_dir, test_name });
+
+    _ = try run_mnist_with_config(train_path, test_path, if (smoke)
+        .{
+            .batch_size = 16,
+            .num_epochs = 1,
+            .verbose = false,
+            .load_path = null,
+            .save_path = null,
+        }
+    else
+        .{});
 }
 
 fn eval_mnist(model: *MnistModel(T), dataset: MnistDataset(T)) !struct { correct: f32, n: u32, acc: f32 } {
@@ -160,23 +217,24 @@ fn eval_mnist(model: *MnistModel(T), dataset: MnistDataset(T)) !struct { correct
     return .{ .correct = correct, .n = n, .acc = correct / @as(f32, @floatFromInt(n)) };
 }
 
-pub fn main() !void {
-    var buf1: [1024]u8 = undefined;
-    var buf2: [1024]u8 = undefined;
-    const data_sub_dir = std.posix.getenv("ZG_DATA_DIR") orelse "data";
-    const train_full = try std.fmt.bufPrint(&buf1, "{s}/{s}", .{ data_sub_dir, "mnist_train_full.csv" });
-    const test_full = try std.fmt.bufPrint(&buf2, "{s}/{s}", .{ data_sub_dir, "mnist_test_full.csv" });
-    try run_mnist(train_full, test_full);
-}
-
 test run_mnist {
-    var buf1: [1024]u8 = undefined;
-    var buf2: [1024]u8 = undefined;
-    const data_sub_dir = std.posix.getenv("ZG_DATA_DIR") orelse "data";
-    const train_small = try std.fmt.bufPrint(&buf1, "{s}/{s}", .{ data_sub_dir, "mnist_train_small.csv" });
-    const test_small = try std.fmt.bufPrint(&buf2, "{s}/{s}", .{ data_sub_dir, "mnist_test_small.csv" });
-    run_mnist(train_small, test_small) catch |err| switch (err) {
-        std.fs.File.OpenError.FileNotFound => std.log.warn("{s} error opening test file. Skipping `run_mnist` test.", .{@errorName(err)}),
+    const summary = run_mnist_with_config(
+        "examples/mnist/data/mnist_train_small.csv",
+        "examples/mnist/data/mnist_test_small.csv",
+        .{
+            .batch_size = 16,
+            .num_epochs = 1,
+            .verbose = false,
+            .load_path = null,
+            .save_path = null,
+        },
+    ) catch |err| switch (err) {
+        std.fs.File.OpenError.FileNotFound => {
+            std.log.warn("{s} error opening test file. Skipping `run_mnist` test.", .{@errorName(err)});
+            return;
+        },
         else => return err,
     };
+    try std.testing.expectEqual(@as(usize, 1), summary.epochs_completed);
+    try std.testing.expect(summary.train_batches > 0);
 }

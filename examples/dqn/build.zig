@@ -31,4 +31,12 @@ pub fn build(b: *std.Build) void {
     });
     exe.linkLibC();
     b.installArtifact(exe);
+
+    const run_step = b.step("run", "Train the DQN agent");
+    const run_exe = b.addRunArtifact(exe);
+    run_exe.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_exe.addArgs(args);
+    }
+    run_step.dependOn(&run_exe.step);
 }

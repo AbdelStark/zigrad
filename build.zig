@@ -157,6 +157,54 @@ pub fn build(b: *Build) !void {
         },
     }));
 
+    const protobuf_module = b.addModule("protobuf", .{
+        .root_source_file = b.path("tensorboard/src/third_party/protobuf/protobuf.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const tensorboard_module = b.addModule("tensorboard", .{
+        .root_source_file = b.path("tensorboard/src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "protobuf", .module = protobuf_module },
+        },
+    });
+
+    const example_hello_world_main_module = b.createModule(.{
+        .root_source_file = b.path("examples/hello-world/src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zigrad", .module = zigrad },
+        },
+    });
+    const example_mnist_main_module = b.createModule(.{
+        .root_source_file = b.path("examples/mnist/src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zigrad", .module = zigrad },
+        },
+    });
+    const example_dqn_train_module = b.createModule(.{
+        .root_source_file = b.path("examples/dqn/src/dqn_train.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zigrad", .module = zigrad },
+            .{ .name = "tensorboard", .module = tensorboard_module },
+        },
+    });
+    const example_gcn_main_module = b.createModule(.{
+        .root_source_file = b.path("examples/gcn/src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zigrad", .module = zigrad },
+        },
+    });
+
     const benchmark_exe = b.addExecutable(.{
         .name = "benchmark",
         .root_module = b.createModule(.{
@@ -336,6 +384,29 @@ pub fn build(b: *Build) !void {
     );
     provider_parity_step.dependOn(&run_provider_parity_tests.step);
     test_step.dependOn(&run_provider_parity_tests.step);
+
+    const example_smoke_exe = b.addExecutable(.{
+        .name = "example_smoke",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/src/example_smoke_main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "examples_hello_world_main", .module = example_hello_world_main_module },
+                .{ .name = "examples_mnist_main", .module = example_mnist_main_module },
+                .{ .name = "examples_dqn_train", .module = example_dqn_train_module },
+                .{ .name = "examples_gcn_main", .module = example_gcn_main_module },
+            },
+        }),
+    });
+    link(target, example_smoke_exe, host_blas);
+    const run_example_smoke = b.addRunArtifact(example_smoke_exe);
+    const example_smoke_step = b.step(
+        "test-example-smoke",
+        "Run runtime smoke tests for the example portfolio",
+    );
+    example_smoke_step.dependOn(&run_example_smoke.step);
+    test_step.dependOn(&run_example_smoke.step);
 
     const safetensors_unit_tests = b.addTest(.{
         .name = "safetensors_zg",

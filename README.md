@@ -69,6 +69,7 @@ dispatch telemetry so fallback usage is visible in the JSONL output:
 ```shell
 zig build benchmark
 zig build test-provider-parity
+zig build test-example-smoke
 zig build benchmark-primitive
 zig build benchmark-blas
 zig build benchmark-memory
@@ -110,8 +111,10 @@ Provider-sensitive host BLAS correctness can be exercised independently with:
 
 ```shell
 zig build test-provider-parity
+zig build test-example-smoke
 zig build test-provider-parity -Dhost_blas=openblas
 zig build test-provider-parity -Dhost_blas=mkl -Dmkl_include_dir=/opt/intel/oneapi/mkl/latest/include -Dmkl_library_dir=/opt/intel/oneapi/mkl/latest/lib
+zig build test-example-smoke -Dhost_blas=openblas
 ```
 
 To turn multiple provider runs into publishable tables, generate provider-tagged
@@ -234,6 +237,20 @@ Run the mnist demo
 cd zigrad/examples/mnist
 make help
 make
+```
+
+Fast smoke-mode entrypoints are also available for runtime validation without
+full datasets or long training loops:
+
+```shell
+cd zigrad/examples/mnist
+ZG_EXAMPLE_SMOKE=1 zig build run
+
+cd zigrad/examples/dqn
+ZG_EXAMPLE_SMOKE=1 zig build run
+
+cd zigrad/examples/gcn
+ZG_EXAMPLE_SMOKE=1 zig build run
 ```
 
 ## Vendored Dependencies

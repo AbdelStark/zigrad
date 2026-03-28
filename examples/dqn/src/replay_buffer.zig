@@ -1,5 +1,4 @@
 const std = @import("std");
-const log = std.log.scoped(.zg_dqn_replay_buffer);
 
 pub fn ReplayBuffer(T: type, capacity: usize) type {
     return struct {
@@ -34,6 +33,7 @@ pub fn ReplayBuffer(T: type, capacity: usize) type {
 
         /// Sample without replacement. COM.
         pub fn sample2(self: Self, n: usize, allocator: std.mem.Allocator) !Sample {
+            if (self.size < n) return error.InsufficientSamples;
             std.debug.assert(n <= capacity);
             var soa = Sample{};
             var zeros: [capacity]usize = undefined;
@@ -41,11 +41,8 @@ pub fn ReplayBuffer(T: type, capacity: usize) type {
             const taken = zeros[0..n];
             for (0..n) |i| {
                 var idx = std.crypto.random.uintLessThan(usize, self.size);
-                var retries: usize = 0;
-                while (std.mem.containsAtLeast(usize, taken, 1, &.{idx})) {
+                while (std.mem.containsAtLeast(usize, taken[0..i], 1, &.{idx})) {
                     idx = std.crypto.random.uintLessThan(usize, self.size);
-                    retries += 1;
-                    if (retries >= n - n / 2) log.debug("retry:{d} idx:{d} n:{d} size:{d} capacity:{d}\n", .{ retries, idx, n, self.size, capacity });
                 }
                 taken[i] = idx;
                 try soa.append(allocator, self.data[idx]);
@@ -146,4 +143,29 @@ test ReplayBuffer {
         s = try rb.sample2(bs, allocator);
     }
     s.deinit(allocator);
+}
+
+test "sample2 can consume the full buffer without dropping index zero" {
+    const Entry = struct {
+        idx: usize,
+    };
+
+    var rb = ReplayBuffer(Entry, 4).init();
+    for (0..4) |i| {
+        rb.add(.{ .idx = i });
+    }
+
+    var sample = try rb.sample2(4, std.testing.allocator);
+    defer sample.deinit(std.testing.allocator);
+
+    var seen = [_]bool{ false, false, false, false };
+    for (sample.items(.idx)) |idx| {
+        try std.testing.expect(idx < seen.len);
+        try std.testing.expect(!seen[idx]);
+        seen[idx] = true;
+    }
+
+    for (seen) |hit| {
+        try std.testing.expect(hit);
+    }
 }
