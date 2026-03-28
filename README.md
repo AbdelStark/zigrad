@@ -63,9 +63,10 @@ telemetry. The current smoke suite covers deterministic primitive and BLAS
 workloads, including conv-lowering coverage and a nested-broadcast matmul
 fallback case, plus MNIST MLP, a char-level causal language model, pendulum
 dynamics regression, CartPole-style DQN, and two-layer GCN workloads. The
-harness now also includes a dedicated `compiler` suite for repeated eager
-graph-session capture on the same maintained families, measuring
-forward-plus-loss graph construction and teardown separately from model setup.
+harness now also includes dedicated `compiler` and `interop` suites: compiler
+coverage measures repeated eager graph-session capture on the same maintained
+families, while interop coverage measures in-memory safetensors checkpoint
+export/import on maintained affine-stack models.
 Host benchmark/build metadata now records the explicit BLAS provider as
 `accelerate`, `openblas`, or `mkl`, and Zig runs also report host BLAS
 dispatch telemetry so fallback usage is visible in the JSONL output:
@@ -79,6 +80,7 @@ zig build benchmark-blas
 zig build benchmark-autograd
 zig build benchmark-memory
 zig build benchmark-compiler
+zig build benchmark-interop
 zig build benchmark-models
 zig build benchmark-validate
 zig build test-benchmark-smoke
@@ -114,6 +116,19 @@ compiler-facing benchmark surface before RFC-0006 lazy tensors land:
 zig build benchmark-compiler
 zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json --baseline pytorch --output .zig-cache/zigrad-compiler-capture.jsonl
 zig build benchmark-validate -- --input .zig-cache/zigrad-compiler-capture.jsonl
+```
+
+Interop checkpoint specs such as
+[`benchmarks/specs/interop/mnist-mlp-safetensors-import-synthetic.json`](./benchmarks/specs/interop/mnist-mlp-safetensors-import-synthetic.json)
+and
+[`benchmarks/specs/interop/dqn-cartpole-safetensors-export-synthetic.json`](./benchmarks/specs/interop/dqn-cartpole-safetensors-export-synthetic.json)
+exercise maintained checkpoint save/load paths without depending on filesystem
+throughput:
+
+```shell
+zig build benchmark-interop
+zig build benchmark -- --spec benchmarks/specs/interop/mnist-mlp-safetensors-import-synthetic.json --output .zig-cache/zigrad-interop-checkpoint.jsonl
+zig build benchmark-validate -- --input .zig-cache/zigrad-interop-checkpoint.jsonl
 ```
 
 Specs can now target a backend directly through a checked-in `device` field.

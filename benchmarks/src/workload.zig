@@ -131,6 +131,9 @@ pub fn expectedShapeMetadata(
         .mnist_mlp_train,
         .mnist_mlp_infer,
         => shapeMetadataFromMnist(allocator, spec),
+        .interop_mnist_mlp_safetensors_export,
+        .interop_mnist_mlp_safetensors_import,
+        => shapeMetadataFromMnistCheckpoint(allocator),
         .compiler_char_lm_capture,
         .char_lm_train,
         .char_lm_infer,
@@ -139,6 +142,9 @@ pub fn expectedShapeMetadata(
         .pendulum_dynamics_infer,
         => shapeMetadataFromPendulum(allocator, spec),
         .compiler_dqn_cartpole_capture => shapeMetadataFromDqnTrain(allocator, spec),
+        .interop_dqn_cartpole_safetensors_export,
+        .interop_dqn_cartpole_safetensors_import,
+        => shapeMetadataFromDqnCheckpoint(allocator),
         .compiler_gcn_capture => shapeMetadataFromGcn(allocator, spec, spec.input_shape.?[0] * 4, true),
         .dqn_cartpole_train => shapeMetadataFromDqnTrain(allocator, spec),
         .dqn_cartpole_infer => shapeMetadataFromDqnInfer(allocator, spec),
@@ -190,7 +196,7 @@ fn maybeCaptureHostBlasTelemetry(host: ?*zg.device.HostDevice) ?result.HostBlasT
 pub fn run(allocator: std.mem.Allocator, spec: manifest.Spec) !RunResult {
     applyThreadCount(spec.thread_count);
 
-    if (spec.device.kind != .host and spec.suite == .memory) {
+    if (spec.device.kind != .host and (spec.suite == .memory or spec.suite == .interop)) {
         return .{
             .status = .skipped,
             .backend = try metadata.requestedBackend(allocator, spec.device, spec.thread_count),
@@ -232,6 +238,10 @@ pub fn run(allocator: std.mem.Allocator, spec: manifest.Spec) !RunResult {
         .compiler_char_lm_capture => runCompilerCharLmCapture(allocator, spec, &context),
         .compiler_dqn_cartpole_capture => runCompilerDqnCapture(allocator, spec, &context),
         .compiler_gcn_capture => runCompilerGcnCapture(allocator, spec, &context),
+        .interop_mnist_mlp_safetensors_export => runInteropMnistSafetensorsExport(allocator, spec, &context),
+        .interop_mnist_mlp_safetensors_import => runInteropMnistSafetensorsImport(allocator, spec, &context),
+        .interop_dqn_cartpole_safetensors_export => runInteropDqnSafetensorsExport(allocator, spec, &context),
+        .interop_dqn_cartpole_safetensors_import => runInteropDqnSafetensorsImport(allocator, spec, &context),
         .mnist_mlp_train => runMnistTrain(allocator, spec, &context),
         .mnist_mlp_infer => runMnistInfer(allocator, spec, &context),
         .char_lm_train => runCharLmTrain(allocator, spec, &context),
@@ -1028,6 +1038,182 @@ fn runCompilerGcnCapture(allocator: std.mem.Allocator, spec: manifest.Spec, cont
         .throughput_items = node_count,
         .throughput_unit = "nodes",
         .memory = compilerCaptureMemoryStats(host, peak_graph_arena_bytes, graph.queryArenaCapacityBytes()),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runInteropMnistSafetensorsExport(
+    allocator: std.mem.Allocator,
+    spec: manifest.Spec,
+    context: *RunContext,
+) !RunOutput {
+    const host = context.host();
+    const device = context.device();
+    const io_allocator = std.heap.page_allocator;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    var timer = try std.time.Timer.start();
+    var model = try MnistBenchmarkModel(f32).init(allocator, device, &graph, spec.seed);
+    defer model.deinit();
+
+    const sample_checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+    defer io_allocator.free(sample_checkpoint);
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    for (0..spec.warmup_iterations) |_| {
+        const checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+        io_allocator.free(checkpoint);
+    }
+    maybeResetHostBenchmarkTelemetry(host);
+    for (timings) |*timing| {
+        timer.reset();
+        const checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+        timing.* = timer.read();
+        io_allocator.free(checkpoint);
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromMnistCheckpoint(allocator),
+        .batch_size = null,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = sample_checkpoint.len,
+        .throughput_unit = "bytes",
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runInteropMnistSafetensorsImport(
+    allocator: std.mem.Allocator,
+    spec: manifest.Spec,
+    context: *RunContext,
+) !RunOutput {
+    const host = context.host();
+    const device = context.device();
+    const io_allocator = std.heap.page_allocator;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    var timer = try std.time.Timer.start();
+    var model = try MnistBenchmarkModel(f32).init(allocator, device, &graph, spec.seed);
+    defer model.deinit();
+
+    const checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+    defer io_allocator.free(checkpoint);
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    for (0..spec.warmup_iterations) |_| {
+        try oneAffineCheckpointImport(MnistBenchmarkModel(f32), io_allocator, device, checkpoint);
+    }
+    maybeResetHostBenchmarkTelemetry(host);
+    for (timings) |*timing| {
+        timer.reset();
+        try oneAffineCheckpointImport(MnistBenchmarkModel(f32), io_allocator, device, checkpoint);
+        timing.* = timer.read();
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromMnistCheckpoint(allocator),
+        .batch_size = null,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = checkpoint.len,
+        .throughput_unit = "bytes",
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runInteropDqnSafetensorsExport(
+    allocator: std.mem.Allocator,
+    spec: manifest.Spec,
+    context: *RunContext,
+) !RunOutput {
+    const host = context.host();
+    const device = context.device();
+    const io_allocator = std.heap.page_allocator;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    var timer = try std.time.Timer.start();
+    var model = try DqnBenchmarkModel(f32).init(allocator, device, &graph, spec.seed);
+    defer model.deinit();
+
+    const sample_checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+    defer io_allocator.free(sample_checkpoint);
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    for (0..spec.warmup_iterations) |_| {
+        const checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+        io_allocator.free(checkpoint);
+    }
+    maybeResetHostBenchmarkTelemetry(host);
+    for (timings) |*timing| {
+        timer.reset();
+        const checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+        timing.* = timer.read();
+        io_allocator.free(checkpoint);
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromDqnCheckpoint(allocator),
+        .batch_size = null,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = sample_checkpoint.len,
+        .throughput_unit = "bytes",
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runInteropDqnSafetensorsImport(
+    allocator: std.mem.Allocator,
+    spec: manifest.Spec,
+    context: *RunContext,
+) !RunOutput {
+    const host = context.host();
+    const device = context.device();
+    const io_allocator = std.heap.page_allocator;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    var timer = try std.time.Timer.start();
+    var model = try DqnBenchmarkModel(f32).init(allocator, device, &graph, spec.seed);
+    defer model.deinit();
+
+    const checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+    defer io_allocator.free(checkpoint);
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    for (0..spec.warmup_iterations) |_| {
+        try oneAffineCheckpointImport(DqnBenchmarkModel(f32), io_allocator, device, checkpoint);
+    }
+    maybeResetHostBenchmarkTelemetry(host);
+    for (timings) |*timing| {
+        timer.reset();
+        try oneAffineCheckpointImport(DqnBenchmarkModel(f32), io_allocator, device, checkpoint);
+        timing.* = timer.read();
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromDqnCheckpoint(allocator),
+        .batch_size = null,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = checkpoint.len,
+        .throughput_unit = "bytes",
         .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
         .notes = spec.notes,
     };
@@ -2047,6 +2233,48 @@ fn oneCompilerGcnCaptureStep(
     graph.teardown(&loss.node);
 }
 
+fn serializeAffineCheckpoint(
+    allocator: std.mem.Allocator,
+    weights: anytype,
+    biases: anytype,
+) ![]u8 {
+    var params = zg.LayerMap.init(allocator);
+    defer params.deinit();
+
+    for (weights, biases, 0..) |weight, bias, index| {
+        var weight_name_buf: [32]u8 = undefined;
+        const weight_name = try std.fmt.bufPrint(&weight_name_buf, "weights.{d}", .{index});
+        try params.put(weight_name, weight, .{});
+
+        var bias_name_buf: [32]u8 = undefined;
+        const bias_name = try std.fmt.bufPrint(&bias_name_buf, "biases.{d}", .{index});
+        try params.put(bias_name, bias, .{});
+    }
+
+    return params.serialize(allocator);
+}
+
+fn oneAffineCheckpointImport(
+    comptime Model: type,
+    allocator: std.mem.Allocator,
+    device: zg.DeviceReference,
+    checkpoint: []const u8,
+) !void {
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    var params = try zg.LayerMap.deserialize(checkpoint, allocator, device, .{
+        .requires_grad = true,
+        .acquired = true,
+        .owning = false,
+        .graph = &graph,
+    });
+    defer params.deinit();
+
+    var model = try params.extract(Model, "", .{});
+    defer model.deinit();
+}
+
 fn prepareAutogradDotOperands(
     allocator: std.mem.Allocator,
     device: zg.DeviceReference,
@@ -2400,6 +2628,28 @@ fn shapeMetadataFromDqnTrain(allocator: std.mem.Allocator, spec: manifest.Spec) 
 fn shapeMetadataFromDqnInfer(allocator: std.mem.Allocator, spec: manifest.Spec) ![]const result.ShapeMetadata {
     const shapes = try allocator.alloc(result.ShapeMetadata, 1);
     shapes[0] = .{ .name = "state", .dims = spec.input_shape.? };
+    return shapes;
+}
+
+fn shapeMetadataFromMnistCheckpoint(allocator: std.mem.Allocator) ![]const result.ShapeMetadata {
+    const shapes = try allocator.alloc(result.ShapeMetadata, 6);
+    shapes[0] = .{ .name = "weights.0", .dims = try allocDims(allocator, &.{ 128, 784 }) };
+    shapes[1] = .{ .name = "biases.0", .dims = try allocDims(allocator, &.{128}) };
+    shapes[2] = .{ .name = "weights.1", .dims = try allocDims(allocator, &.{ 64, 128 }) };
+    shapes[3] = .{ .name = "biases.1", .dims = try allocDims(allocator, &.{64}) };
+    shapes[4] = .{ .name = "weights.2", .dims = try allocDims(allocator, &.{ 10, 64 }) };
+    shapes[5] = .{ .name = "biases.2", .dims = try allocDims(allocator, &.{10}) };
+    return shapes;
+}
+
+fn shapeMetadataFromDqnCheckpoint(allocator: std.mem.Allocator) ![]const result.ShapeMetadata {
+    const shapes = try allocator.alloc(result.ShapeMetadata, 6);
+    shapes[0] = .{ .name = "weights.0", .dims = try allocDims(allocator, &.{ 128, 4 }) };
+    shapes[1] = .{ .name = "biases.0", .dims = try allocDims(allocator, &.{128}) };
+    shapes[2] = .{ .name = "weights.1", .dims = try allocDims(allocator, &.{ 128, 128 }) };
+    shapes[3] = .{ .name = "biases.1", .dims = try allocDims(allocator, &.{128}) };
+    shapes[4] = .{ .name = "weights.2", .dims = try allocDims(allocator, &.{ 2, 128 }) };
+    shapes[5] = .{ .name = "biases.2", .dims = try allocDims(allocator, &.{2}) };
     return shapes;
 }
 

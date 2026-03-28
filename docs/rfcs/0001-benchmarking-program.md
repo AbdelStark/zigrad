@@ -223,6 +223,49 @@ Regression gating should use broad thresholds first, for example:
 
 ## Agentic Context
 
+### 2026-03-28 Safetensors Checkpoint Interop Benchmark Suite
+
+- Completed:
+  - Extended
+    [`benchmarks/src/manifest.zig`](../../benchmarks/src/manifest.zig),
+    [`benchmarks/src/cli.zig`](../../benchmarks/src/cli.zig),
+    [`benchmarks/src/validate.zig`](../../benchmarks/src/validate.zig),
+    [`benchmarks/src/workload.zig`](../../benchmarks/src/workload.zig), and
+    [`build.zig`](../../build.zig)
+    with a first-class `interop` suite plus the
+    `zig build benchmark-interop` entrypoint, so RFC-0001 now benchmarks an
+    executable import/export-facing surface instead of leaving interop coverage
+    entirely to future ONNX/GGUF/ZML RFCs.
+  - Added checked-in interop specs in
+    [`benchmarks/specs/interop/`](../../benchmarks/specs/interop/)
+    covering deterministic safetensors checkpoint export/import for MNIST MLP
+    and CartPole-style DQN benchmark models, each measuring in-memory artifact
+    translation and, for import, full model reconstruction from checkpoint
+    bytes.
+  - Updated
+    [`tests/src/benchmark_smoke_main.zig`](../../tests/src/benchmark_smoke_main.zig),
+    [`README.md`](../../README.md),
+    [`benchmarks/README.md`](../../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md)
+    so the interop suite is smoke-tested and documented alongside the existing
+    primitive, compiler, model, memory, and CUDA-aware benchmark surfaces.
+- Remains:
+  - Extend the interop suite beyond safetensors checkpoints into ONNX import,
+    GGUF load, and ZML translation cost once those RFCs produce executable
+    artifact pipelines.
+  - Decide whether interop records need dedicated tensor-count or artifact-size
+    metadata in addition to the current checkpoint-byte throughput metric.
+- Blockers:
+  - This environment has no ONNX, GGUF, or ZML execution path yet, so the
+    interop suite currently stops at maintained safetensors checkpoint
+    encode/decode coverage rather than external-format translation benchmarks.
+- Validation performed:
+  - `zig build benchmark-interop`
+  - `zig build benchmark-validate -- --group interop`
+  - `zig build benchmark-validate -- --input benchmarks/results/interop.jsonl`
+  - `zig build test-benchmark-smoke`
+  - `zig build test`
+
 ### 2026-03-28 Compiler Capture Benchmark Suite
 
 - Completed:

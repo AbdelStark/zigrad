@@ -7,6 +7,7 @@ pub const Suite = enum {
     autograd,
     memory,
     compiler,
+    interop,
     model_train,
     model_infer,
 
@@ -17,6 +18,7 @@ pub const Suite = enum {
             .autograd => "autograd",
             .memory => "memory",
             .compiler => "compiler",
+            .interop => "interop",
             .model_train => "model-train",
             .model_infer => "model-infer",
         };
@@ -37,6 +39,10 @@ pub const Kind = enum {
     compiler_char_lm_capture,
     compiler_dqn_cartpole_capture,
     compiler_gcn_capture,
+    interop_mnist_mlp_safetensors_export,
+    interop_mnist_mlp_safetensors_import,
+    interop_dqn_cartpole_safetensors_export,
+    interop_dqn_cartpole_safetensors_import,
     mnist_mlp_train,
     mnist_mlp_infer,
     char_lm_train,
@@ -63,6 +69,10 @@ pub const Kind = enum {
             .compiler_char_lm_capture => "compiler_char_lm_capture",
             .compiler_dqn_cartpole_capture => "compiler_dqn_cartpole_capture",
             .compiler_gcn_capture => "compiler_gcn_capture",
+            .interop_mnist_mlp_safetensors_export => "interop_mnist_mlp_safetensors_export",
+            .interop_mnist_mlp_safetensors_import => "interop_mnist_mlp_safetensors_import",
+            .interop_dqn_cartpole_safetensors_export => "interop_dqn_cartpole_safetensors_export",
+            .interop_dqn_cartpole_safetensors_import => "interop_dqn_cartpole_safetensors_import",
             .mnist_mlp_train => "mnist_mlp_train",
             .mnist_mlp_infer => "mnist_mlp_infer",
             .char_lm_train => "char_lm_train",
@@ -235,6 +245,11 @@ fn validate(path: []const u8, raw: RawSpec) !Spec {
                 return error.InvalidLabelShape;
             }
         },
+        .interop_mnist_mlp_safetensors_export,
+        .interop_mnist_mlp_safetensors_import,
+        .interop_dqn_cartpole_safetensors_export,
+        .interop_dqn_cartpole_safetensors_import,
+        => {},
         .mnist_mlp_train => {
             try requireBatchedModelShapes(raw, true);
         },
@@ -304,6 +319,7 @@ fn parseSuite(value: []const u8) !Suite {
     if (std.mem.eql(u8, value, "autograd")) return .autograd;
     if (std.mem.eql(u8, value, "memory")) return .memory;
     if (std.mem.eql(u8, value, "compiler")) return .compiler;
+    if (std.mem.eql(u8, value, "interop")) return .interop;
     if (std.mem.eql(u8, value, "model-train")) return .model_train;
     if (std.mem.eql(u8, value, "model-infer")) return .model_infer;
     return error.UnknownBenchmarkSuite;
@@ -323,6 +339,10 @@ fn parseKind(value: []const u8) !Kind {
     if (std.mem.eql(u8, value, "compiler_char_lm_capture")) return .compiler_char_lm_capture;
     if (std.mem.eql(u8, value, "compiler_dqn_cartpole_capture")) return .compiler_dqn_cartpole_capture;
     if (std.mem.eql(u8, value, "compiler_gcn_capture")) return .compiler_gcn_capture;
+    if (std.mem.eql(u8, value, "interop_mnist_mlp_safetensors_export")) return .interop_mnist_mlp_safetensors_export;
+    if (std.mem.eql(u8, value, "interop_mnist_mlp_safetensors_import")) return .interop_mnist_mlp_safetensors_import;
+    if (std.mem.eql(u8, value, "interop_dqn_cartpole_safetensors_export")) return .interop_dqn_cartpole_safetensors_export;
+    if (std.mem.eql(u8, value, "interop_dqn_cartpole_safetensors_import")) return .interop_dqn_cartpole_safetensors_import;
     if (std.mem.eql(u8, value, "mnist_mlp_train")) return .mnist_mlp_train;
     if (std.mem.eql(u8, value, "mnist_mlp_infer")) return .mnist_mlp_infer;
     if (std.mem.eql(u8, value, "char_lm_train")) return .char_lm_train;
@@ -503,6 +523,32 @@ test "load pendulum benchmark spec from json slice" {
     try std.testing.expectEqual(@as(usize, 16), spec.batch_size.?);
     try std.testing.expectEqual(@as(usize, 4), spec.input_shape.?[1]);
     try std.testing.expectEqual(@as(usize, 3), spec.label_shape.?[1]);
+}
+
+test "load interop benchmark spec from json slice" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const raw =
+        \\{
+        \\  "id": "interop.mnist-mlp.safetensors.export.synthetic.f32",
+        \\  "suite": "interop",
+        \\  "kind": "interop_mnist_mlp_safetensors_export",
+        \\  "dtype": "f32",
+        \\  "warmup_iterations": 1,
+        \\  "measured_iterations": 2,
+        \\  "provenance": {
+        \\    "data_source": "synthetic.splitmix64",
+        \\    "preprocessing": ["materialize deterministic benchmark model", "encode parameters as safetensors bytes"]
+        \\  }
+        \\}
+    ;
+    const parsed = try std.json.parseFromSliceLeaky(RawSpec, allocator, raw, .{});
+    const spec = try validate("inline-interop.json", parsed);
+
+    try std.testing.expectEqual(Suite.interop, spec.suite);
+    try std.testing.expectEqual(Kind.interop_mnist_mlp_safetensors_export, spec.kind);
+    try std.testing.expectEqual(DType.f32, spec.dtype);
 }
 
 test "load autograd matvec benchmark spec from json slice" {

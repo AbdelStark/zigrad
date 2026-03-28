@@ -7,6 +7,8 @@ const smoke_specs = [_][]const u8{
     "benchmarks/specs/autograd/dot-backward-f32-65536.json",
     "benchmarks/specs/memory/tensor-cache-cycle-f32-batch8-256x256.json",
     "benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json",
+    "benchmarks/specs/interop/mnist-mlp-safetensors-export-synthetic.json",
+    "benchmarks/specs/interop/mnist-mlp-safetensors-import-synthetic.json",
     "benchmarks/specs/model-train/mnist-mlp-synthetic.json",
     "benchmarks/specs/model-infer/mnist-mlp-synthetic.json",
     "benchmarks/specs/model-train/char-lm-synthetic.json",

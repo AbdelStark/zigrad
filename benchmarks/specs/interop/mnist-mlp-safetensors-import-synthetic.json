@@ -1,0 +1,18 @@
+{
+  "id": "interop.mnist-mlp.safetensors.import.synthetic.f32",
+  "suite": "interop",
+  "kind": "interop_mnist_mlp_safetensors_import",
+  "dtype": "f32",
+  "warmup_iterations": 5,
+  "measured_iterations": 20,
+  "seed": 81761,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "materialize deterministic benchmark mnist mlp parameters",
+      "encode checkpoint fixture as safetensors bytes",
+      "decode affine parameter stack from safetensors bytes"
+    ]
+  },
+  "notes": "Measures in-memory checkpoint import and model reconstruction cost."
+}

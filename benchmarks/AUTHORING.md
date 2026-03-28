@@ -75,6 +75,15 @@ keeping the measured loop focused on forward-plus-loss graph construction:
 - explicitly document whether the capture slice stops before backward or
   optimizer execution
 
+Interop checkpoint workloads should keep artifact translation deterministic and
+host-local:
+
+- prefer in-memory encode/decode timing over filesystem throughput
+- keep checkpoint fixture generation in setup when the measured loop is focused
+  on import cost
+- use emitted shape metadata to describe serialized parameter tensors when the
+  spec itself does not need explicit shape fields
+
 For conv-lowering benchmarks, encode the input tensor in `lhs_shape`, the
 weights in `rhs_shape`, and the lowering parameters in `stride`, `padding`, and
 `dilation`.
@@ -98,6 +107,7 @@ zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json
 zig build benchmark -- --spec benchmarks/specs/blas/dot-f32-262144.json
 zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json
 zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json
+zig build benchmark -- --spec benchmarks/specs/interop/mnist-mlp-safetensors-import-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/char-lm-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/pendulum-dynamics-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json
@@ -114,6 +124,7 @@ zig build benchmark-blas
 zig build benchmark-autograd
 zig build benchmark-memory
 zig build benchmark-compiler
+zig build benchmark-interop
 zig build benchmark-models
 zig build benchmark
 zig build test-benchmark-smoke
@@ -147,7 +158,8 @@ CUDA-targeted specs should preserve graceful degradation:
   Zig records rather than aborting the harness
 - successful CUDA runs should populate `backend.device = "cuda"`,
   `backend.accelerator`, and `backend.cuda`
-- host-only suites such as `memory` should skip clearly when pointed at CUDA
+- host-only suites such as `memory` and `interop` should skip clearly when
+  pointed at CUDA
 - PyTorch baselines for CUDA-targeted specs should emit explicit `skipped`
   rows until a real CUDA baseline path exists
 

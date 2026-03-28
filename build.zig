@@ -389,6 +389,14 @@ pub fn build(b: *Build) !void {
     const benchmark_compiler_step = b.step("benchmark-compiler", "Run compiler benchmark specs");
     benchmark_compiler_step.dependOn(&run_benchmark_compiler.step);
 
+    const run_benchmark_interop = b.addRunArtifact(benchmark_exe);
+    run_benchmark_interop.addArgs(&.{ "--group", "interop", "--output", "benchmarks/results/interop.jsonl" });
+    if (b.args) |args| {
+        run_benchmark_interop.addArgs(args);
+    }
+    const benchmark_interop_step = b.step("benchmark-interop", "Run interop benchmark specs");
+    benchmark_interop_step.dependOn(&run_benchmark_interop.step);
+
     const run_benchmark_models = b.addRunArtifact(benchmark_exe);
     run_benchmark_models.addArgs(&.{ "--group", "models", "--output", "benchmarks/results/models.jsonl" });
     if (b.args) |args| {

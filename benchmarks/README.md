@@ -15,6 +15,7 @@ zig build benchmark-blas
 zig build benchmark-autograd
 zig build benchmark-memory
 zig build benchmark-compiler
+zig build benchmark-interop
 zig build benchmark-models
 zig build benchmark-validate
 zig build test-benchmark-smoke
@@ -46,6 +47,7 @@ zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic.j
 zig build benchmark -- --spec benchmarks/specs/model-infer/char-lm-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/pendulum-dynamics-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json
+zig build benchmark -- --spec benchmarks/specs/interop/mnist-mlp-safetensors-import-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json
 zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2 --thread-count 4
 ```
@@ -185,6 +187,11 @@ emits both a machine-readable manifest and a Markdown summary for humans.
   - synthetic char-level causal language model forward-plus-loss graph capture
   - synthetic CartPole-shaped DQN loss graph capture
   - synthetic two-layer GCN forward-plus-loss graph capture on a deterministic graph
+- `interop`
+  - synthetic MNIST MLP safetensors checkpoint export
+  - synthetic MNIST MLP safetensors checkpoint import and model reconstruction
+  - synthetic CartPole-shaped DQN safetensors checkpoint export
+  - synthetic CartPole-shaped DQN safetensors checkpoint import and model reconstruction
 - `model-train`
   - synthetic MNIST-style MLP training step
   - synthetic char-level causal language model training step
@@ -211,6 +218,10 @@ The compiler suite measures repeated eager graph-session capture on persistent
 reference-model parameters, pairing each capture step with explicit graph
 teardown so setup cost stays separate from measured forward-plus-loss graph
 construction.
+The interop suite currently measures in-memory safetensors checkpoint
+encode/decode cost for maintained affine-stack model families, which keeps the
+signal focused on artifact translation and model reconstruction instead of
+filesystem throughput noise.
 
 ## Spec Format
 
@@ -219,7 +230,7 @@ Benchmark specs live under [`benchmarks/specs/`](./specs/) as JSON files.
 Common fields:
 
 - `id`: stable benchmark identifier
-- `suite`: `primitive`, `blas`, `autograd`, `memory`, `compiler`, `model-train`, or `model-infer`
+- `suite`: `primitive`, `blas`, `autograd`, `memory`, `compiler`, `interop`, `model-train`, or `model-infer`
 - `kind`: workload selector
 - `dtype`: currently `f32`
 - `warmup_iterations`
@@ -242,6 +253,9 @@ Workload-specific fields:
 - `lhs_shape` plus `batch_size` for memory tensor-cache cycle workloads
 - `batch_size`, `input_shape`, and `label_shape` for compiler capture workloads
   that build forward-plus-loss graphs without running optimizer updates
+- no extra shape fields for the current interop safetensors checkpoint
+  workloads; model dimensions live in the workload implementation and emitted
+  shape metadata captures the serialized parameter tensors
 - `batch_size`, `input_shape`, `label_shape` for batched model workloads
 - `input_shape`, optional `label_shape`, and derived synthetic graph topology
   for GCN workloads
@@ -251,9 +265,9 @@ CUDA-targeted specs are part of the committed benchmark contract. On a build
 without CUDA support, or on a host with no CUDA device, the Zig runner emits
 an explicit `skipped` record for those specs instead of failing the whole
 harness. Successful CUDA runs carry structured device metadata in
-`backend.cuda`. The `memory` suite remains host-only for now, and PyTorch
-baseline rows for CUDA-targeted specs currently emit explicit `skipped`
-records.
+`backend.cuda`. The `memory` and `interop` suites remain host-only for now,
+and PyTorch baseline rows for CUDA-targeted specs currently emit explicit
+`skipped` records.
 
 The harness also accepts repeated `--thread-count <n>` CLI overrides. When
 present, it duplicates each selected spec across the requested thread counts
