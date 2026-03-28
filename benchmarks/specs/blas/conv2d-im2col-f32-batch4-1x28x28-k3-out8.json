@@ -7,6 +7,14 @@
   "measured_iterations": 3,
   "thread_count": 1,
   "seed": 81761,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "reshape input to lhs_shape",
+      "reshape weights to rhs_shape",
+      "apply declared stride, padding, and dilation"
+    ]
+  },
   "lhs_shape": [4, 1, 28, 28],
   "rhs_shape": [8, 1, 3, 3],
   "stride": 1,

@@ -6,6 +6,13 @@
   "warmup_iterations": 3,
   "measured_iterations": 8,
   "thread_count": 1,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "reshape lhs to lhs_shape",
+      "reshape rhs to rhs_shape"
+    ]
+  },
   "lhs_shape": [1024, 1024],
   "rhs_shape": [1024, 1024],
   "notes": "Contiguous elementwise add with deterministic inputs."

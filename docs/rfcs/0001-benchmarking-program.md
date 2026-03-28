@@ -215,6 +215,44 @@ Regression gating should use broad thresholds first, for example:
 
 ## Agentic Context
 
+### 2026-03-28 Benchmark Provenance Contract
+
+- Completed:
+  - Promoted explicit benchmark provenance into the checked-in spec contract by
+    requiring `provenance.data_source` and `provenance.preprocessing` in
+    [`benchmarks/src/manifest.zig`](../../benchmarks/src/manifest.zig) and in
+    every committed JSON spec under [`benchmarks/specs/`](../../benchmarks/specs/).
+  - Extended the JSONL result schema in
+    [`benchmarks/src/result.zig`](../../benchmarks/src/result.zig),
+    [`benchmarks/src/metadata.zig`](../../benchmarks/src/metadata.zig), and
+    [`benchmarks/src/cli.zig`](../../benchmarks/src/cli.zig) so every emitted
+    record now carries the originating `spec_path`, declared provenance, CPU
+    frequency policy when discoverable, and captured host thread-environment
+    hints.
+  - Mirrored the same reproducibility metadata in the optional PyTorch baseline
+    runner at
+    [`benchmarks/runners/pytorch/mnist_mlp.py`](../../benchmarks/runners/pytorch/mnist_mlp.py)
+    so cross-framework JSONL comparisons remain schema-aligned.
+  - Updated benchmark documentation in
+    [`README.md`](../../README.md),
+    [`benchmarks/README.md`](../../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md).
+- Remains:
+  - Extend the same provenance discipline to future dataset-backed suites so
+    dataset manifests and preprocessing revisions are encoded as explicitly as
+    the current synthetic workloads.
+  - Carry equivalent accelerator-specific environment metadata once CUDA and
+    compiler benchmark suites become executable.
+- Blockers:
+  - CPU frequency policy is only discoverable on Linux hosts that expose the
+    standard cpufreq governor file; this macOS validation run therefore
+    exercised the field as optional metadata rather than a populated output.
+- Validation performed:
+  - `zig build test`
+  - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`
+  - `zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json --output /tmp/zigrad-benchmark-provenance.jsonl`
+  - `zig build benchmark -- --spec benchmarks/specs/blas/dot-f32-262144.json --baseline pytorch --thread-count 2 --output /tmp/zigrad-benchmark-baseline-provenance.jsonl`
+
 ### 2026-03-28 Host Thread Scaling Workflow
 
 - Completed:

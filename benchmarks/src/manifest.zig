@@ -1,4 +1,5 @@
 const std = @import("std");
+const result = @import("result.zig");
 
 pub const Suite = enum {
     primitive,
@@ -86,9 +87,15 @@ pub const Spec = struct {
     stride: usize = 1,
     padding: usize = 0,
     dilation: usize = 1,
+    provenance: result.BenchmarkProvenance,
     notes: ?[]const u8 = null,
     pytorch_runner: ?[]const u8 = null,
     path: []const u8,
+};
+
+const RawBenchmarkProvenance = struct {
+    data_source: ?[]const u8 = null,
+    preprocessing: ?[]const []const u8 = null,
 };
 
 const RawSpec = struct {
@@ -109,6 +116,7 @@ const RawSpec = struct {
     stride: usize = 1,
     padding: usize = 0,
     dilation: usize = 1,
+    provenance: ?RawBenchmarkProvenance = null,
     notes: ?[]const u8 = null,
     pytorch_runner: ?[]const u8 = null,
 };
@@ -126,6 +134,7 @@ fn validate(path: []const u8, raw: RawSpec) !Spec {
     const suite = try parseSuite(raw.suite);
     const kind = try parseKind(raw.kind);
     const dtype = try parseDType(raw.dtype);
+    const provenance = try validateProvenance(raw.provenance orelse return error.MissingBenchmarkProvenance);
 
     if (raw.measured_iterations == 0) return error.InvalidBenchmarkIterations;
 
@@ -194,6 +203,7 @@ fn validate(path: []const u8, raw: RawSpec) !Spec {
         .stride = raw.stride,
         .padding = raw.padding,
         .dilation = raw.dilation,
+        .provenance = provenance,
         .notes = raw.notes,
         .pytorch_runner = raw.pytorch_runner,
         .path = path,
@@ -264,6 +274,21 @@ fn requireConv2dShapes(raw: RawSpec) !void {
     if (raw.stride == 0 or raw.dilation == 0) return error.InvalidBenchmarkShape;
 }
 
+fn validateProvenance(raw: RawBenchmarkProvenance) !result.BenchmarkProvenance {
+    const data_source = std.mem.trim(u8, raw.data_source orelse return error.MissingBenchmarkDataSource, " \t\r\n");
+    if (data_source.len == 0) return error.InvalidBenchmarkDataSource;
+
+    const preprocessing = raw.preprocessing orelse return error.MissingBenchmarkPreprocessing;
+    for (preprocessing) |step| {
+        if (std.mem.trim(u8, step, " \t\r\n").len == 0) return error.InvalidBenchmarkPreprocessing;
+    }
+
+    return .{
+        .data_source = data_source,
+        .preprocessing = preprocessing,
+    };
+}
+
 test "load benchmark spec from json slice" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -276,6 +301,10 @@ test "load benchmark spec from json slice" {
         \\  "dtype": "f32",
         \\  "warmup_iterations": 1,
         \\  "measured_iterations": 2,
+        \\  "provenance": {
+        \\    "data_source": "synthetic.splitmix64",
+        \\    "preprocessing": ["reshape lhs", "reshape rhs"]
+        \\  },
         \\  "lhs_shape": [64, 64],
         \\  "rhs_shape": [64, 64]
         \\}
@@ -288,6 +317,8 @@ test "load benchmark spec from json slice" {
     try std.testing.expectEqual(Kind.primitive_add, spec.kind);
     try std.testing.expectEqual(DType.f32, spec.dtype);
     try std.testing.expectEqual(@as(usize, 2), spec.lhs_shape.?.len);
+    try std.testing.expectEqualStrings("synthetic.splitmix64", spec.provenance.data_source);
+    try std.testing.expectEqual(@as(usize, 2), spec.provenance.preprocessing.len);
 }
 
 test "load dqn benchmark spec from json slice" {
@@ -302,6 +333,10 @@ test "load dqn benchmark spec from json slice" {
         \\  "dtype": "f32",
         \\  "warmup_iterations": 1,
         \\  "measured_iterations": 2,
+        \\  "provenance": {
+        \\    "data_source": "synthetic.splitmix64",
+        \\    "preprocessing": ["reshape states", "derive transitions"]
+        \\  },
         \\  "batch_size": 32,
         \\  "input_shape": [32, 4]
         \\}
@@ -325,6 +360,10 @@ test "load autograd matvec benchmark spec from json slice" {
         \\  "dtype": "f32",
         \\  "warmup_iterations": 1,
         \\  "measured_iterations": 2,
+        \\  "provenance": {
+        \\    "data_source": "synthetic.splitmix64",
+        \\    "preprocessing": ["reshape matrix", "reshape vector"]
+        \\  },
         \\  "lhs_shape": [128, 64],
         \\  "rhs_shape": [64]
         \\}
@@ -350,6 +389,10 @@ test "load memory benchmark spec from json slice" {
         \\  "dtype": "f32",
         \\  "warmup_iterations": 1,
         \\  "measured_iterations": 2,
+        \\  "provenance": {
+        \\    "data_source": "synthetic.splitmix64",
+        \\    "preprocessing": ["reshape tensors", "reuse identical shapes"]
+        \\  },
         \\  "batch_size": 4,
         \\  "lhs_shape": [64, 64]
         \\}
@@ -375,6 +418,10 @@ test "load conv2d benchmark spec from json slice" {
         \\  "dtype": "f32",
         \\  "warmup_iterations": 1,
         \\  "measured_iterations": 2,
+        \\  "provenance": {
+        \\    "data_source": "synthetic.splitmix64",
+        \\    "preprocessing": ["reshape input", "reshape weights", "im2col lowering parameters"]
+        \\  },
         \\  "lhs_shape": [8, 1, 28, 28],
         \\  "rhs_shape": [8, 1, 3, 3],
         \\  "stride": 1,
@@ -390,4 +437,25 @@ test "load conv2d benchmark spec from json slice" {
     try std.testing.expectEqual(@as(usize, 1), spec.stride);
     try std.testing.expectEqual(@as(usize, 1), spec.padding);
     try std.testing.expectEqual(@as(usize, 1), spec.dilation);
+}
+
+test "benchmark spec requires explicit provenance" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const raw =
+        \\{
+        \\  "id": "primitive.add.f32",
+        \\  "suite": "primitive",
+        \\  "kind": "primitive_add",
+        \\  "dtype": "f32",
+        \\  "warmup_iterations": 1,
+        \\  "measured_iterations": 2,
+        \\  "lhs_shape": [64, 64],
+        \\  "rhs_shape": [64, 64]
+        \\}
+    ;
+    const parsed = try std.json.parseFromSliceLeaky(RawSpec, allocator, raw, .{});
+
+    try std.testing.expectError(error.MissingBenchmarkProvenance, validate("inline-missing-provenance.json", parsed));
 }

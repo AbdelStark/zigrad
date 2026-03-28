@@ -8,6 +8,13 @@
   "batch_size": 8,
   "thread_count": 1,
   "seed": 81761,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "reshape tensors to lhs_shape",
+      "reuse identical allocation sizes across each cache cycle"
+    ]
+  },
   "lhs_shape": [256, 256],
   "notes": "Allocates and releases eight same-shaped host tensors per iteration to track cache high-water marks."
 }

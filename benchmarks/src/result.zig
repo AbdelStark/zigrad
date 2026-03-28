@@ -11,6 +11,27 @@ pub const ShapeMetadata = struct {
     dims: []const usize,
 };
 
+pub const BenchmarkProvenance = struct {
+    data_source: []const u8,
+    preprocessing: []const []const u8,
+};
+
+pub const ThreadEnvironment = struct {
+    veclib_maximum_threads: ?[]const u8 = null,
+    openblas_num_threads: ?[]const u8 = null,
+    omp_num_threads: ?[]const u8 = null,
+    mkl_num_threads: ?[]const u8 = null,
+    mkl_dynamic: ?[]const u8 = null,
+
+    pub fn hasValues(self: ThreadEnvironment) bool {
+        return self.veclib_maximum_threads != null or
+            self.openblas_num_threads != null or
+            self.omp_num_threads != null or
+            self.mkl_num_threads != null or
+            self.mkl_dynamic != null;
+    }
+};
+
 pub const RuntimeMetadata = struct {
     timestamp_unix_ms: i64,
     git_commit: []const u8,
@@ -25,6 +46,7 @@ pub const SystemMetadata = struct {
     arch: []const u8,
     cpu_model: []const u8,
     cpu_logical_cores: usize,
+    cpu_frequency_policy: ?[]const u8 = null,
     total_memory_bytes: ?u64 = null,
 };
 
@@ -33,6 +55,7 @@ pub const BackendMetadata = struct {
     host_provider: []const u8,
     thread_count: ?u32 = null,
     accelerator: ?[]const u8 = null,
+    thread_environment: ?ThreadEnvironment = null,
     host_blas_telemetry: ?HostBlasTelemetry = null,
 };
 
@@ -110,6 +133,7 @@ pub const MemoryStats = struct {
 
 pub const Record = struct {
     benchmark_id: []const u8,
+    spec_path: ?[]const u8 = null,
     suite: []const u8,
     kind: []const u8,
     runner: []const u8,
@@ -120,6 +144,7 @@ pub const Record = struct {
     batch_size: ?usize,
     seed: u64,
     shapes: []const ShapeMetadata,
+    provenance: ?BenchmarkProvenance = null,
     runtime: RuntimeMetadata,
     system: SystemMetadata,
     backend: BackendMetadata,
@@ -216,15 +241,21 @@ test "summary stats compute deterministic aggregates" {
 }
 
 test "load jsonl records from slice" {
-    const allocator = std.testing.allocator;
-    var loaded = try LoadedFile.loadFromSlice(allocator,
-        \\{"benchmark_id":"primitive.add.f32.1x1","suite":"primitive","kind":"primitive_add","runner":"zig","status":"ok","dtype":"f32","warmup_iterations":1,"measured_iterations":2,"batch_size":null,"seed":1,"shapes":[{"name":"lhs","dims":[1]},{"name":"rhs","dims":[1]}],"runtime":{"timestamp_unix_ms":0,"git_commit":"deadbeef","git_dirty":false,"zig_version":"0.15.2","harness_version":"0.1.0"},"system":{"os":"linux","kernel":"test","arch":"x86_64","cpu_model":"cpu","cpu_logical_cores":1,"total_memory_bytes":null},"backend":{"device":"host","host_provider":"blas","thread_count":1,"accelerator":null},"setup_latency_ns":10,"stats":{"min_ns":10,"median_ns":10,"mean_ns":10.0,"p95_ns":10,"max_ns":10,"throughput_per_second":100.0,"throughput_unit":"elements"},"memory":{"peak_live_bytes":64,"final_live_bytes":0,"peak_graph_arena_bytes":null,"final_graph_arena_bytes":null,"peak_scratch_bytes":32},"notes":null}
-    );
-    defer loaded.deinit();
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
-    try std.testing.expectEqual(@as(usize, 1), loaded.records.len);
-    try std.testing.expectEqualStrings("primitive.add.f32.1x1", loaded.records[0].benchmark_id);
-    try std.testing.expectEqual(Status.ok, loaded.records[0].status);
-    try std.testing.expectApproxEqAbs(@as(f64, 10.0), loaded.records[0].stats.?.mean_ns, 1e-9);
-    try std.testing.expectEqual(@as(u64, 64), loaded.records[0].memory.?.peak_live_bytes.?);
+    const records = try parseJsonLines(allocator,
+        \\{"benchmark_id":"primitive.add.f32.1x1","spec_path":"benchmarks/specs/primitive/add.json","suite":"primitive","kind":"primitive_add","runner":"zig","status":"ok","dtype":"f32","warmup_iterations":1,"measured_iterations":2,"batch_size":null,"seed":1,"shapes":[{"name":"lhs","dims":[1]},{"name":"rhs","dims":[1]}],"provenance":{"data_source":"synthetic.splitmix64","preprocessing":["reshape lhs","reshape rhs"]},"runtime":{"timestamp_unix_ms":0,"git_commit":"deadbeef","git_dirty":false,"zig_version":"0.15.2","harness_version":"0.1.0"},"system":{"os":"linux","kernel":"test","arch":"x86_64","cpu_model":"cpu","cpu_logical_cores":1,"cpu_frequency_policy":"performance","total_memory_bytes":null},"backend":{"device":"host","host_provider":"blas","thread_count":1,"accelerator":null,"thread_environment":{"omp_num_threads":"1"}},"setup_latency_ns":10,"stats":{"min_ns":10,"median_ns":10,"mean_ns":10.0,"p95_ns":10,"max_ns":10,"throughput_per_second":100.0,"throughput_unit":"elements"},"memory":{"peak_live_bytes":64,"final_live_bytes":0,"peak_graph_arena_bytes":null,"final_graph_arena_bytes":null,"peak_scratch_bytes":32},"notes":null}
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), records.len);
+    try std.testing.expectEqualStrings("primitive.add.f32.1x1", records[0].benchmark_id);
+    try std.testing.expectEqualStrings("benchmarks/specs/primitive/add.json", records[0].spec_path.?);
+    try std.testing.expectEqual(Status.ok, records[0].status);
+    try std.testing.expectEqualStrings("synthetic.splitmix64", records[0].provenance.?.data_source);
+    try std.testing.expectEqualStrings("performance", records[0].system.cpu_frequency_policy.?);
+    try std.testing.expectEqualStrings("1", records[0].backend.thread_environment.?.omp_num_threads.?);
+    try std.testing.expectApproxEqAbs(@as(f64, 10.0), records[0].stats.?.mean_ns, 1e-9);
+    try std.testing.expectEqual(@as(u64, 64), records[0].memory.?.peak_live_bytes.?);
 }

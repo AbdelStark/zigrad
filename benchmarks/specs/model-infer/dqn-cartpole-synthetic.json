@@ -8,6 +8,12 @@
   "batch_size": 128,
   "thread_count": 1,
   "seed": 81761,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "reshape states to input_shape"
+    ]
+  },
   "input_shape": [128, 4],
   "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py",
   "notes": "Synthetic CartPole-shaped DQN forward-pass benchmark."

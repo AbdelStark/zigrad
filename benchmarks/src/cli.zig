@@ -62,6 +62,7 @@ fn emitAll(
         );
         try result.writeJsonLine(writer, .{
             .benchmark_id = spec.id,
+            .spec_path = spec.path,
             .suite = spec.suite.asString(),
             .kind = spec.kind.asString(),
             .runner = "zig",
@@ -72,6 +73,7 @@ fn emitAll(
             .batch_size = run_output.batch_size,
             .seed = spec.seed,
             .shapes = run_output.shapes,
+            .provenance = spec.provenance,
             .runtime = snapshot.runtime,
             .system = snapshot.system,
             .backend = snapshot.backend,
@@ -286,6 +288,10 @@ test "thread count overrides expand and sort specs by id then thread count" {
             .suite = .primitive,
             .kind = .primitive_add,
             .dtype = .f32,
+            .provenance = .{
+                .data_source = "synthetic.splitmix64",
+                .preprocessing = &.{ "reshape lhs", "reshape rhs" },
+            },
             .path = "inline",
         },
         .{
@@ -293,6 +299,10 @@ test "thread count overrides expand and sort specs by id then thread count" {
             .suite = .primitive,
             .kind = .primitive_add,
             .dtype = .f32,
+            .provenance = .{
+                .data_source = "synthetic.splitmix64",
+                .preprocessing = &.{ "reshape lhs", "reshape rhs" },
+            },
             .path = "inline",
         },
     };

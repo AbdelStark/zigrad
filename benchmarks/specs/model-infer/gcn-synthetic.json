@@ -7,6 +7,13 @@
   "measured_iterations": 6,
   "thread_count": 1,
   "seed": 81761,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "reshape node features to input_shape",
+      "generate deterministic ring-plus-skip edge_index"
+    ]
+  },
   "input_shape": [128, 64],
   "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py",
   "notes": "Synthetic two-layer GCN forward-pass benchmark on a deterministic ring-plus-skip graph."

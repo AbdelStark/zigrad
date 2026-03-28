@@ -113,6 +113,30 @@ def cpu_model() -> str:
     return platform.processor() or platform.machine()
 
 
+def cpu_frequency_policy() -> str | None:
+    if sys.platform != "linux":
+        return None
+    path = Path("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
+    try:
+        value = path.read_text().strip()
+    except Exception:
+        return None
+    return value or None
+
+
+def thread_environment() -> dict | None:
+    env = {
+        "veclib_maximum_threads": os.getenv("VECLIB_MAXIMUM_THREADS"),
+        "openblas_num_threads": os.getenv("OPENBLAS_NUM_THREADS"),
+        "omp_num_threads": os.getenv("OMP_NUM_THREADS"),
+        "mkl_num_threads": os.getenv("MKL_NUM_THREADS"),
+        "mkl_dynamic": os.getenv("MKL_DYNAMIC"),
+    }
+    if all(value is None for value in env.values()):
+        return None
+    return env
+
+
 def shape_metadata(spec: dict):
     kind = spec["kind"]
     if kind in {"blas_dot", "autograd_dot_backward"}:
@@ -169,6 +193,7 @@ def shape_metadata(spec: dict):
 def make_record(spec: dict, status: str, notes: str, stats: dict | None):
     return {
         "benchmark_id": spec["id"],
+        "spec_path": spec.get("_spec_path"),
         "suite": spec["suite"],
         "kind": spec["kind"],
         "runner": "pytorch",
@@ -179,6 +204,7 @@ def make_record(spec: dict, status: str, notes: str, stats: dict | None):
         "batch_size": spec.get("batch_size"),
         "seed": spec.get("seed", 81761),
         "shapes": shape_metadata(spec),
+        "provenance": spec.get("provenance"),
         "runtime": {
             "timestamp_unix_ms": int(time.time() * 1000),
             "git_commit": git_commit(),
@@ -192,6 +218,7 @@ def make_record(spec: dict, status: str, notes: str, stats: dict | None):
             "arch": platform.machine(),
             "cpu_model": cpu_model(),
             "cpu_logical_cores": os.cpu_count() or 0,
+            "cpu_frequency_policy": cpu_frequency_policy(),
             "total_memory_bytes": None,
         },
         "backend": {
@@ -199,6 +226,7 @@ def make_record(spec: dict, status: str, notes: str, stats: dict | None):
             "host_provider": host_provider(),
             "thread_count": spec.get("thread_count"),
             "accelerator": None,
+            "thread_environment": thread_environment(),
         },
         "setup_latency_ns": None if stats is None else stats.pop("setup_latency_ns"),
         "stats": stats,
@@ -246,6 +274,7 @@ def main() -> int:
     args = parser.parse_args()
 
     spec = json.loads(Path(args.spec).read_text())
+    spec["_spec_path"] = args.spec
     if args.thread_count is not None:
         spec["thread_count"] = args.thread_count
     try:

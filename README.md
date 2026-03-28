@@ -55,13 +55,16 @@ https://github.com/user-attachments/assets/3842aa72-9b16-4c25-8789-eac7159e3768
 The benchmark harness now lives in
 [`benchmarks/`](./benchmarks/)
 and emits machine-readable JSONL results with hardware and backend metadata,
-plus a comparison tool for base-vs-candidate regression checks. The current
-smoke suite covers deterministic primitive and BLAS workloads, including
-conv-lowering coverage and a nested-broadcast matmul fallback case, plus MNIST
-MLP, CartPole-style DQN, and two-layer GCN workloads. Host benchmark/build
-metadata now records the explicit BLAS provider as `accelerate`, `openblas`,
-or `mkl`, and Zig runs also report host BLAS dispatch telemetry so fallback
-usage is visible in the JSONL output:
+plus a comparison tool for base-vs-candidate regression checks. The emitted
+records now carry the checked-in spec path, declared benchmark provenance
+(`data_source` plus preprocessing steps), CPU frequency policy when
+discoverable, and captured host thread-environment hints alongside backend
+telemetry. The current smoke suite covers deterministic primitive and BLAS
+workloads, including conv-lowering coverage and a nested-broadcast matmul
+fallback case, plus MNIST MLP, CartPole-style DQN, and two-layer GCN
+workloads. Host benchmark/build metadata now records the explicit BLAS provider
+as `accelerate`, `openblas`, or `mkl`, and Zig runs also report host BLAS
+dispatch telemetry so fallback usage is visible in the JSONL output:
 
 ```shell
 zig build benchmark

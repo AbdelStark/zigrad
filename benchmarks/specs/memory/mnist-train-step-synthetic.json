@@ -8,6 +8,13 @@
   "batch_size": 16,
   "thread_count": 1,
   "seed": 81761,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "reshape inputs to input_shape",
+      "derive one-hot labels from deterministic class pattern"
+    ]
+  },
   "input_shape": [16, 1, 28, 28],
   "label_shape": [16, 10],
   "notes": "Measures host cache and graph arena high-water marks for a deterministic synthetic MNIST training step."

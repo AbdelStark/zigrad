@@ -46,6 +46,8 @@ Required fields:
 - `warmup_iterations`
 - `measured_iterations`
 - `seed`
+- `provenance.data_source`
+- `provenance.preprocessing`
 
 Shape and batch fields depend on the workload kind. The manifest validator
 should reject incomplete specs with clear errors. Batched workloads should make
@@ -55,6 +57,14 @@ their leading dimension explicit through `batch_size`; graph workloads may omit
 For conv-lowering benchmarks, encode the input tensor in `lhs_shape`, the
 weights in `rhs_shape`, and the lowering parameters in `stride`, `padding`, and
 `dilation`.
+
+Treat provenance as part of the benchmark contract, not optional commentary:
+
+- `data_source` should identify where the benchmark inputs come from.
+- `preprocessing` should list the deterministic shaping/materialization steps
+  that turn the source into benchmark-ready tensors.
+- Keep provenance concise but specific enough that a later result archive can be
+  understood without opening the workload implementation.
 
 ## Validation Workflow
 

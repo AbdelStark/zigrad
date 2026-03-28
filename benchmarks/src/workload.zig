@@ -1398,6 +1398,13 @@ fn setEnv(name: []const u8, value: [:0]const u8) void {
     _ = setenv(name_z.ptr, value.ptr, 1);
 }
 
+fn inlineProvenance(preprocessing: []const []const u8) result.BenchmarkProvenance {
+    return .{
+        .data_source = "synthetic.splitmix64",
+        .preprocessing = preprocessing,
+    };
+}
+
 test "run dqn infer benchmark" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -1414,6 +1421,7 @@ test "run dqn infer benchmark" {
         .thread_count = 1,
         .seed = 1,
         .input_shape = input_shape[0..],
+        .provenance = inlineProvenance(&.{"reshape states to input_shape"}),
         .path = "inline",
     };
 
@@ -1440,6 +1448,7 @@ test "run blas dot benchmark" {
         .seed = 1,
         .lhs_shape = lhs_shape[0..],
         .rhs_shape = rhs_shape[0..],
+        .provenance = inlineProvenance(&.{ "reshape lhs to lhs_shape", "reshape rhs to rhs_shape" }),
         .path = "inline",
     };
 
@@ -1466,6 +1475,7 @@ test "run autograd matvec benchmark" {
         .seed = 1,
         .lhs_shape = matrix_shape[0..],
         .rhs_shape = vector_shape[0..],
+        .provenance = inlineProvenance(&.{ "reshape matrix to lhs_shape", "reshape vector to rhs_shape" }),
         .path = "inline",
     };
 
@@ -1495,6 +1505,11 @@ test "run conv2d im2col benchmark" {
         .stride = 1,
         .padding = 1,
         .dilation = 1,
+        .provenance = inlineProvenance(&.{
+            "reshape input to lhs_shape",
+            "reshape weights to rhs_shape",
+            "apply declared stride, padding, and dilation",
+        }),
         .path = "inline",
     };
 
@@ -1521,6 +1536,10 @@ test "run memory tensor cache benchmark" {
         .thread_count = 1,
         .seed = 1,
         .lhs_shape = buffer_shape[0..],
+        .provenance = inlineProvenance(&.{
+            "reshape tensors to lhs_shape",
+            "reuse identical allocation sizes across each cache cycle",
+        }),
         .path = "inline",
     };
 
@@ -1550,6 +1569,10 @@ test "run memory mnist training benchmark" {
         .seed = 1,
         .input_shape = input_shape[0..],
         .label_shape = label_shape[0..],
+        .provenance = inlineProvenance(&.{
+            "reshape inputs to input_shape",
+            "derive one-hot labels from deterministic class pattern",
+        }),
         .path = "inline",
     };
 
@@ -1577,6 +1600,11 @@ test "run gcn train benchmark" {
         .seed = 1,
         .input_shape = input_shape[0..],
         .label_shape = label_shape[0..],
+        .provenance = inlineProvenance(&.{
+            "reshape node features to input_shape",
+            "generate deterministic ring-plus-skip edge_index",
+            "derive one-hot node labels from deterministic class pattern",
+        }),
         .path = "inline",
     };
 

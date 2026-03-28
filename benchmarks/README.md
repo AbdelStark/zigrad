@@ -142,6 +142,9 @@ Common fields:
 - `measured_iterations`
 - `thread_count`
 - `seed`
+- `provenance`:
+  - `data_source`: explicit workload input origin such as `synthetic.splitmix64`
+  - `preprocessing`: ordered preprocessing/materialization steps that shape the benchmark inputs
 - `notes`
 
 Workload-specific fields:
@@ -164,9 +167,12 @@ without changing the checked-in JSON spec files.
 
 Each run emits one JSON object per benchmark with:
 
-- benchmark id, suite, kind, runner, and status
+- benchmark id, checked-in spec path, suite, kind, runner, and status
 - dtype, batch size, warmup/measured iteration counts, and seed
 - shape metadata
+- benchmark provenance:
+  - declared data source
+  - declared preprocessing steps
 - runtime metadata:
   - git commit
   - dirty tree flag
@@ -178,11 +184,18 @@ Each run emits one JSON object per benchmark with:
   - kernel
   - CPU model
   - logical core count
+  - CPU frequency policy when discoverable
   - total memory when discoverable
 - backend metadata:
   - device kind
   - host provider (`accelerate`, `openblas`, or `mkl`)
   - configured thread count
+  - captured thread-environment hints when present:
+    - `VECLIB_MAXIMUM_THREADS`
+    - `OPENBLAS_NUM_THREADS`
+    - `OMP_NUM_THREADS`
+    - `MKL_NUM_THREADS`
+    - `MKL_DYNAMIC`
   - optional host BLAS telemetry for Zig runs:
     - `dot_calls`
     - `matvec_calls`

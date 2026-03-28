@@ -7,6 +7,13 @@
   "measured_iterations": 6,
   "thread_count": 1,
   "seed": 81761,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "reshape lhs to lhs_shape",
+      "reshape rhs to rhs_shape"
+    ]
+  },
   "lhs_shape": [65536],
   "rhs_shape": [65536],
   "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py",

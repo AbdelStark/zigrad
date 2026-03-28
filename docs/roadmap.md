@@ -122,6 +122,29 @@ Every RFC in this folder set must maintain:
 
 ## Agentic Context
 
+### RFC-0001 2026-03-28 Benchmark Provenance Contract
+
+- Completed:
+  - Required every committed benchmark spec to declare machine-readable
+    provenance (`data_source` plus preprocessing steps) and threaded that
+    provenance into emitted JSONL records alongside the originating `spec_path`.
+  - Extended benchmark runtime metadata to capture CPU frequency policy when
+    discoverable plus host thread-environment hints, and mirrored the same
+    fields into optional PyTorch baseline records.
+  - Updated benchmark authoring and README documentation so the reproducibility
+    contract now matches the shipped harness behavior.
+- Remains:
+  - Apply the same provenance discipline to future dataset-backed and
+    accelerator-backed suites once those RFCs land executable workloads.
+- Blockers:
+  - This macOS run could not populate Linux-only CPU governor metadata, so the
+    field validated as optional rather than populated.
+- Validation:
+  - `zig build test`
+  - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`
+  - `zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json --output /tmp/zigrad-benchmark-provenance.jsonl`
+  - `zig build benchmark -- --spec benchmarks/specs/blas/dot-f32-262144.json --baseline pytorch --thread-count 2 --output /tmp/zigrad-benchmark-baseline-provenance.jsonl`
+
 ### RFC-0002 2026-03-28 Thread Scaling Workflow
 
 - Completed:

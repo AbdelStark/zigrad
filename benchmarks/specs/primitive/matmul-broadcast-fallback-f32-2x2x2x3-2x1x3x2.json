@@ -5,6 +5,13 @@
   "dtype": "f32",
   "warmup_iterations": 3,
   "measured_iterations": 10,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "reshape lhs to lhs_shape",
+      "reshape rhs to rhs_shape"
+    ]
+  },
   "lhs_shape": [2, 2, 2, 3],
   "rhs_shape": [2, 1, 3, 2],
   "notes": "Exercises nested broadcast batch matmul fallback instead of direct batched BLAS dispatch."
