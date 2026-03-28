@@ -29,6 +29,7 @@ pub const MetricComparison = struct {
 pub const Comparison = struct {
     benchmark_id: []const u8,
     runner: []const u8,
+    thread_count: ?u32 = null,
     classification: Classification,
     baseline_status: ?result.Status = null,
     candidate_status: ?result.Status = null,
@@ -85,6 +86,7 @@ const TestRecordSpec = struct {
     status: result.Status = .ok,
     mean_ns: ?f64 = 100.0,
     throughput_per_second: ?f64 = 10.0,
+    thread_count: ?u32 = 1,
     peak_live_bytes: ?u64 = null,
     final_live_bytes: ?u64 = null,
     peak_graph_arena_bytes: ?u64 = null,
@@ -169,6 +171,7 @@ pub fn buildReport(
             try comparisons.append(allocator, .{
                 .benchmark_id = baseline_record.benchmark_id,
                 .runner = baseline_record.runner,
+                .thread_count = baseline_record.backend.thread_count,
                 .classification = .missing_candidate,
                 .baseline_status = baseline_record.status,
                 .candidate_status = null,
@@ -188,6 +191,7 @@ pub fn buildReport(
         try comparisons.append(allocator, .{
             .benchmark_id = candidate_record.benchmark_id,
             .runner = candidate_record.runner,
+            .thread_count = candidate_record.backend.thread_count,
             .classification = .new_candidate,
             .baseline_status = null,
             .candidate_status = candidate_record.status,
@@ -232,11 +236,15 @@ pub fn writeTextReport(writer: anytype, report: Report) !void {
     }
 
     for (report.comparisons) |comparison| {
-        try writer.print("{s} {s} [{s}]\n", .{
+        try writer.print("{s} {s} [{s}", .{
             classificationLabel(comparison.classification),
             comparison.benchmark_id,
             comparison.runner,
         });
+        if (comparison.thread_count) |thread_count| {
+            try writer.print(", threads={d}", .{thread_count});
+        }
+        try writer.writeAll("]\n");
 
         try writer.print("  status: {s} -> {s}\n", .{
             statusLabel(comparison.baseline_status),
@@ -422,6 +430,7 @@ fn comparePair(
     var comparison = Comparison{
         .benchmark_id = baseline.benchmark_id,
         .runner = baseline.runner,
+        .thread_count = baseline.backend.thread_count,
         .classification = .pass,
         .baseline_status = baseline.status,
         .candidate_status = candidate.status,
@@ -588,7 +597,18 @@ fn summarize(
 }
 
 fn makeKey(allocator: std.mem.Allocator, record_entry: result.Record) ![]const u8 {
-    return std.fmt.allocPrint(allocator, "{s}\x1f{s}", .{ record_entry.benchmark_id, record_entry.runner });
+    return if (record_entry.backend.thread_count) |thread_count|
+        std.fmt.allocPrint(
+            allocator,
+            "{s}\x1f{s}\x1f{d}",
+            .{ record_entry.benchmark_id, record_entry.runner, thread_count },
+        )
+    else
+        std.fmt.allocPrint(
+            allocator,
+            "{s}\x1f{s}\x1fnone",
+            .{ record_entry.benchmark_id, record_entry.runner },
+        );
 }
 
 fn optionalStringsEqual(lhs: ?[]const u8, rhs: ?[]const u8) bool {
@@ -741,11 +761,12 @@ fn appendTestRecord(
         "null";
 
     try builder.writer(allocator).print(
-        "{{\"benchmark_id\":\"{s}\",\"suite\":\"primitive\",\"kind\":\"primitive_add\",\"runner\":\"{s}\",\"status\":\"{s}\",\"dtype\":\"f32\",\"warmup_iterations\":1,\"measured_iterations\":2,\"batch_size\":null,\"seed\":1,\"shapes\":[{{\"name\":\"lhs\",\"dims\":[1]}}],\"runtime\":{{\"timestamp_unix_ms\":0,\"git_commit\":\"deadbeef\",\"git_dirty\":false,\"zig_version\":\"0.15.2\",\"harness_version\":\"0.1.0\"}},\"system\":{{\"os\":\"linux\",\"kernel\":\"test\",\"arch\":\"x86_64\",\"cpu_model\":\"cpu\",\"cpu_logical_cores\":1,\"total_memory_bytes\":null}},\"backend\":{{\"device\":\"host\",\"host_provider\":\"blas\",\"thread_count\":1,\"accelerator\":null}},\"setup_latency_ns\":10,\"stats\":{s},\"memory\":{s},\"notes\":null}}\n",
+        "{{\"benchmark_id\":\"{s}\",\"suite\":\"primitive\",\"kind\":\"primitive_add\",\"runner\":\"{s}\",\"status\":\"{s}\",\"dtype\":\"f32\",\"warmup_iterations\":1,\"measured_iterations\":2,\"batch_size\":null,\"seed\":1,\"shapes\":[{{\"name\":\"lhs\",\"dims\":[1]}}],\"runtime\":{{\"timestamp_unix_ms\":0,\"git_commit\":\"deadbeef\",\"git_dirty\":false,\"zig_version\":\"0.15.2\",\"harness_version\":\"0.1.0\"}},\"system\":{{\"os\":\"linux\",\"kernel\":\"test\",\"arch\":\"x86_64\",\"cpu_model\":\"cpu\",\"cpu_logical_cores\":1,\"total_memory_bytes\":null}},\"backend\":{{\"device\":\"host\",\"host_provider\":\"blas\",\"thread_count\":{s},\"accelerator\":null}},\"setup_latency_ns\":10,\"stats\":{s},\"memory\":{s},\"notes\":null}}\n",
         .{
             spec.benchmark_id,
             spec.runner,
             @tagName(spec.status),
+            if (spec.thread_count) |thread_count| try std.fmt.allocPrint(allocator, "{d}", .{thread_count}) else "null",
             stats_json,
             memory_json,
         },
@@ -924,4 +945,36 @@ test "comparison can filter by runner" {
     try std.testing.expectEqualStrings("zig", report.comparisons[0].runner);
     try std.testing.expectEqual(@as(usize, 1), report.summary.baseline_records);
     try std.testing.expectEqual(@as(usize, 1), report.summary.candidate_records);
+}
+
+test "comparison distinguishes identical benchmark ids by thread count" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var baseline = try loadTestRecords(allocator, &.{
+        .{ .benchmark_id = "bench.matmul", .thread_count = 1, .mean_ns = 100.0 },
+        .{ .benchmark_id = "bench.matmul", .thread_count = 4, .mean_ns = 70.0 },
+    });
+    defer baseline.deinit();
+
+    var candidate = try loadTestRecords(allocator, &.{
+        .{ .benchmark_id = "bench.matmul", .thread_count = 1, .mean_ns = 99.0 },
+        .{ .benchmark_id = "bench.matmul", .thread_count = 4, .mean_ns = 68.0 },
+    });
+    defer candidate.deinit();
+
+    const report = try buildReport(
+        allocator,
+        "baseline.jsonl",
+        "candidate.jsonl",
+        baseline.records,
+        candidate.records,
+        "zig",
+        .{},
+    );
+
+    try std.testing.expectEqual(@as(usize, 2), report.comparisons.len);
+    try std.testing.expectEqual(@as(u32, 1), report.comparisons[0].thread_count.?);
+    try std.testing.expectEqual(@as(u32, 4), report.comparisons[1].thread_count.?);
 }

@@ -65,6 +65,7 @@ zig build test
 zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json
 zig build benchmark -- --spec benchmarks/specs/blas/dot-f32-262144.json
 zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json
+zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2
 ```
 
 For smoke-scope changes, rerun the standard entrypoints:
@@ -104,6 +105,10 @@ Added benchmark records are reported but do not fail the comparison. Missing
 baseline-covered records do fail the comparison because they break regression
 continuity for smoke suites.
 
+Thread-sweep outputs are first-class inputs to `benchmark-compare`. Records are
+matched by benchmark id, runner, and configured thread count, so repeated
+thread-count rows can be compared without collapsing into duplicate ids.
+
 ## Host Provider Reports
 
 RFC-0002 provider benchmarking now has a dedicated reporting step for
@@ -131,6 +136,36 @@ Guidelines:
   host records.
 - Treat the Markdown output as publishable artifact and the JSON output as
   machine-readable input for docs or CI post-processing.
+
+## Thread Scaling Reports
+
+Use repeated `--thread-count` overrides when you need to study scaling without
+duplicating checked-in specs:
+
+```sh
+zig build benchmark -- \
+  --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json \
+  --thread-count 1 \
+  --thread-count 2 \
+  --thread-count 4 \
+  --output benchmarks/results/thread-sweep.jsonl
+zig build benchmark-thread-report -- \
+  --input benchmarks/results/thread-sweep.jsonl \
+  --baseline-thread-count 1 \
+  --markdown-output benchmarks/results/thread-scaling.md \
+  --json-output benchmarks/results/thread-scaling.json
+```
+
+Guidelines:
+
+- Keep the benchmark id stable across the sweep; thread count lives in backend
+  metadata and is part of report/comparison grouping.
+- Use the same provider across the sweep when the goal is scaling efficiency.
+- Pick a baseline thread count that is present in every group if you need
+  uniform cross-benchmark comparisons; otherwise let the report choose the
+  smallest successful thread count per group.
+- Treat scaling efficiency as a diagnostic, not a claim. Publish the raw
+  latency and speedup columns alongside it.
 
 ## CI Expectations
 

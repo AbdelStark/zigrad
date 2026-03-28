@@ -123,6 +123,7 @@ regardless of provider:
 ### Workstream D: Performance Validation
 
 - [x] Provider comparison report generator for Markdown/JSON benchmark tables.
+- [x] Thread-sweep collection plus Markdown/JSON scaling reports for host runs.
 - Benchmark against PyTorch CPU.
 - Publish provider comparison tables for representative models.
 - Validate thread scaling behavior.
@@ -155,6 +156,43 @@ regardless of provider:
 
 ## Agentic Context
 
+### 2026-03-28 Thread Scaling Workflow
+
+- Completed:
+  - Added repeatable `--thread-count <n>` benchmark overrides in
+    [`benchmarks/src/cli.zig`](../../benchmarks/src/cli.zig) so RFC-0002
+    thread-scaling studies can run from a single provider/spec combination
+    without duplicating checked-in benchmark files.
+  - Added
+    [`benchmarks/src/thread_report.zig`](../../benchmarks/src/thread_report.zig)
+    plus
+    [`benchmarks/src/thread_report_main.zig`](../../benchmarks/src/thread_report_main.zig)
+    and the `zig build benchmark-thread-report` entrypoint in
+    [`build.zig`](../../build.zig), producing Markdown/JSON summaries with
+    baseline-relative speedup and scaling-efficiency columns for each provider.
+  - Updated the optional PyTorch runner and the benchmark comparison tool so
+    thread-swept JSONL files stay aligned across baseline records and
+    comparison reports.
+  - Documented the new thread-scaling workflow in
+    [`README.md`](../../README.md),
+    [`benchmarks/README.md`](../../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md).
+- Remains:
+  - Run the same benchmark groups on Linux/x86 OpenBLAS and oneMKL hosts and
+    publish the first provider-specific thread-scaling tables.
+  - Decide whether CI should archive generated scaling Markdown/JSON alongside
+    provider comparison reports once cross-provider runners are available.
+- Blockers:
+  - The current environment still only exposes the Accelerate backend, so the
+    new workflow validated functionally but did not yet produce OpenBLAS/oneMKL
+    scaling data.
+- Validation performed:
+  - `zig build test`
+  - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`
+  - `zig build benchmark-thread-report -- --help`
+  - `zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2 --output /tmp/zigrad-thread-sweep.jsonl`
+  - `zig build benchmark-thread-report -- --input /tmp/zigrad-thread-sweep.jsonl --baseline-thread-count 1 --markdown-output /tmp/zigrad-thread-scaling.md --json-output /tmp/zigrad-thread-scaling.json`
+
 ### 2026-03-28 Provider Report Generator
 
 - Completed:
@@ -179,7 +217,8 @@ regardless of provider:
     publish the first real provider tables from the report output.
   - Decide whether CI should persist Markdown/JSON provider reports as
     dedicated artifacts once cross-provider runners are available.
-  - Add thread-scaling result collection on top of the same report generator.
+  - Feed published provider runs through the separate thread-scaling report
+    workflow once OpenBLAS and oneMKL sweep data are available.
 - Blockers:
   - The current environment only provides Accelerate, so the new tool was
     validated against synthetic multi-provider fixtures plus a single-provider

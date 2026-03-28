@@ -17,6 +17,7 @@ zig build benchmark-memory
 zig build benchmark-models
 zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl
 zig build benchmark-provider-report -- --input benchmarks/results/accelerate.jsonl --input benchmarks/results/openblas.jsonl --baseline-provider accelerate
+zig build benchmark-thread-report -- --input benchmarks/results/thread-sweep.jsonl --baseline-thread-count 1
 ```
 
 Host BLAS selection follows the main build graph:
@@ -35,6 +36,7 @@ You can also pass runtime arguments through the benchmark executable:
 ```sh
 zig build benchmark -- --baseline pytorch
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic.json
+zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2 --thread-count 4
 ```
 
 The comparison utility reads two JSONL files and classifies regressions using
@@ -70,6 +72,32 @@ zig build benchmark-provider-report -- \
 The provider report only considers host-device records for the selected runner,
 groups them by benchmark id and configured thread count, and then emits
 Markdown/JSON tables with raw metrics plus delta-vs-baseline speedups.
+
+## Thread Scaling Reports
+
+RFC-0002 thread-scaling validation now has a dedicated workflow. Run one or
+more specs across repeated `--thread-count` overrides, then summarize the
+results with the scaling report:
+
+```sh
+zig build benchmark -- \
+  --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json \
+  --thread-count 1 \
+  --thread-count 2 \
+  --thread-count 4 \
+  --output benchmarks/results/thread-sweep.jsonl
+zig build benchmark-thread-report -- \
+  --input benchmarks/results/thread-sweep.jsonl \
+  --baseline-thread-count 1 \
+  --markdown-output benchmarks/results/thread-scaling.md \
+  --json-output benchmarks/results/thread-scaling.json
+```
+
+The scaling report groups host records by benchmark id and provider, orders the
+rows by thread count, and computes latency deltas, speedups, and scaling
+efficiency relative to the selected baseline thread count. If no
+`--baseline-thread-count` is provided, the smallest available successful thread
+count in each group becomes the baseline automatically.
 
 ## Current Coverage
 
@@ -127,6 +155,10 @@ Workload-specific fields:
 - `input_shape`, optional `label_shape`, and derived synthetic graph topology
   for GCN workloads
 - `pytorch_runner` for optional baseline execution
+
+The harness also accepts repeated `--thread-count <n>` CLI overrides. When
+present, it duplicates each selected spec across the requested thread counts
+without changing the checked-in JSON spec files.
 
 ## Output Schema
 

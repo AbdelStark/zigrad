@@ -68,8 +68,8 @@ documents we will implement against.
 
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, smoke CI, and synthetic BLAS/autograd/memory/MNIST/DQN/GCN plus conv-lowering and broadcast-fallback matmul coverage are landed; Zig JSONL output now carries host BLAS dispatch telemetry, while future CUDA/compiler/interop suites remain. |
-| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, a provider-sensitive numerical parity suite, opt-in runtime diagnostics hooks, and a Markdown/JSON provider-report generator are landed; oneMKL execution and published provider comparison runs remain. |
+| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, smoke CI, synthetic BLAS/autograd/memory/MNIST/DQN/GCN plus conv-lowering and broadcast-fallback matmul coverage, and host thread-sweep/scaling-report workflows are landed; Zig JSONL output now carries host BLAS dispatch telemetry, while future CUDA/compiler/interop suites remain. |
+| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, a provider-sensitive numerical parity suite, opt-in runtime diagnostics hooks, and Markdown/JSON provider plus thread-scaling report generators are landed; oneMKL execution and published provider comparison runs remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Turns experimental CUDA into a supported execution backend. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
 | RFC-0005 | ggml/GGUF Interop | `Planned` | P1 | RFC-0001, RFC-0012 | Critical for LLM examples and inference compatibility. |
@@ -121,6 +121,66 @@ Every RFC in this folder set must maintain:
 - a section describing what will not be done in the RFC.
 
 ## Agentic Context
+
+### RFC-0002 2026-03-28 Thread Scaling Workflow
+
+- Completed:
+  - Added repeatable `--thread-count <n>` benchmark overrides in
+    [`benchmarks/src/cli.zig`](../benchmarks/src/cli.zig) so host-provider
+    performance work can execute deterministic thread sweeps without cloning
+    spec files.
+  - Added
+    [`benchmarks/src/thread_report.zig`](../benchmarks/src/thread_report.zig)
+    plus
+    [`benchmarks/src/thread_report_main.zig`](../benchmarks/src/thread_report_main.zig)
+    and the `zig build benchmark-thread-report` entrypoint in
+    [`build.zig`](../build.zig), producing Markdown/JSON scaling summaries with
+    baseline-relative speedup and efficiency columns.
+  - Updated
+    [`benchmarks/src/compare.zig`](../benchmarks/src/compare.zig)
+    and
+    [`benchmarks/runners/pytorch/mnist_mlp.py`](../benchmarks/runners/pytorch/mnist_mlp.py)
+    so thread-swept JSONL files compare cleanly and baseline records preserve
+    the same thread metadata.
+  - Documented the workflow in
+    [`README.md`](../README.md),
+    [`benchmarks/README.md`](../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../benchmarks/AUTHORING.md).
+- Remains:
+  - Run the same thread-sweep benchmark groups on OpenBLAS and oneMKL hosts and
+    publish the first provider-specific scaling tables.
+  - Decide whether CI should archive scaling Markdown/JSON alongside provider
+    comparison artifacts once cross-provider runners are available.
+- Blockers:
+  - This machine still only exposes the Accelerate backend, so the new workflow
+    validated functionally but did not yet produce OpenBLAS/oneMKL scaling
+    data.
+- Validation:
+  - `zig build test`
+  - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`
+  - `zig build benchmark-thread-report -- --help`
+  - `zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2 --output /tmp/zigrad-thread-sweep.jsonl`
+  - `zig build benchmark-thread-report -- --input /tmp/zigrad-thread-sweep.jsonl --baseline-thread-count 1 --markdown-output /tmp/zigrad-thread-scaling.md --json-output /tmp/zigrad-thread-scaling.json`
+
+### RFC-0001 2026-03-28 Host Thread Scaling Workflow
+
+- Completed:
+  - Extended the benchmark harness so repeated `--thread-count` overrides
+    duplicate selected specs at runtime and keep the checked-in JSON manifest
+    surface stable.
+  - Added the dedicated host thread-scaling report workflow and updated the
+    comparison tool so thread count is part of the benchmark record identity.
+- Remains:
+  - Extend the same sweep/report workflow to future CUDA and compiler suites as
+    those RFCs become executable.
+  - Capture non-skipped PyTorch baseline data on a machine with `torch`
+    installed.
+- Blockers:
+  - Local validation still only exercised the macOS Accelerate backend, so
+    cross-provider scaling output remains pending.
+- Validation:
+  - `zig build test`
+  - `zig build benchmark-compare -- --baseline /tmp/zigrad-thread-sweep.jsonl --candidate /tmp/zigrad-thread-sweep.jsonl --runner zig`
 
 ### RFC-0001 2026-03-28 Conv Lowering Coverage
 

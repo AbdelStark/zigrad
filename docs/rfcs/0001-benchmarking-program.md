@@ -190,6 +190,7 @@ Regression gating should use broad thresholds first, for example:
 - [x] JSON result comparison utility.
 - [x] CI smoke suite.
 - [x] Published benchmark authoring guide.
+- [x] Thread-sweep execution plus Markdown/JSON scaling reports for host runs.
 
 ## Acceptance Criteria
 
@@ -213,6 +214,47 @@ Regression gating should use broad thresholds first, for example:
 - Should result archives live in the main repo or an external artifact store?
 
 ## Agentic Context
+
+### 2026-03-28 Host Thread Scaling Workflow
+
+- Completed:
+  - Added repeatable `--thread-count <n>` overrides to
+    [`benchmarks/src/cli.zig`](../../benchmarks/src/cli.zig) so a single
+    checked-in benchmark spec can execute as a deterministic thread sweep
+    without cloning JSON files.
+  - Updated the optional PyTorch baseline shim in
+    [`benchmarks/runners/pytorch/mnist_mlp.py`](../../benchmarks/runners/pytorch/mnist_mlp.py)
+    so baseline records honor the same overridden thread count metadata and
+    runtime thread setting as the Zig harness.
+  - Added a dedicated host thread-scaling report generator in
+    [`benchmarks/src/thread_report.zig`](../../benchmarks/src/thread_report.zig)
+    with the matching
+    [`benchmarks/src/thread_report_main.zig`](../../benchmarks/src/thread_report_main.zig)
+    entrypoint and `zig build benchmark-thread-report` build step.
+  - Updated
+    [`benchmarks/src/compare.zig`](../../benchmarks/src/compare.zig)
+    so regression comparisons key records by benchmark id, runner, and thread
+    count; sweep JSONL files now compare cleanly instead of colliding on
+    duplicate ids.
+  - Documented the workflow in
+    [`README.md`](../../README.md),
+    [`benchmarks/README.md`](../../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md).
+- Remains:
+  - Collect published OpenBLAS and oneMKL thread-scaling runs for the same
+    benchmark groups.
+  - Extend the same sweep/report surface to future CUDA and compiler benchmark
+    suites as those RFCs become executable.
+- Blockers:
+  - This run only exercised the local Accelerate backend, so cross-provider
+    scaling data still remains unpublished.
+- Validation performed:
+  - `zig build test`
+  - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`
+  - `zig build benchmark-thread-report -- --help`
+  - `zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2 --output /tmp/zigrad-thread-sweep.jsonl`
+  - `zig build benchmark-compare -- --baseline /tmp/zigrad-thread-sweep.jsonl --candidate /tmp/zigrad-thread-sweep.jsonl --runner zig`
+  - `zig build benchmark-thread-report -- --input /tmp/zigrad-thread-sweep.jsonl --baseline-thread-count 1 --markdown-output /tmp/zigrad-thread-scaling.md --json-output /tmp/zigrad-thread-scaling.json`
 
 ### 2026-03-28 Host Dispatch Telemetry Promotion
 

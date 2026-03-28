@@ -4,6 +4,7 @@ pub const manifest = @import("manifest.zig");
 pub const metadata = @import("metadata.zig");
 pub const provider_report = @import("provider_report.zig");
 pub const result = @import("result.zig");
+pub const thread_report = @import("thread_report.zig");
 pub const workload = @import("workload.zig");
 
 test {
@@ -16,5 +17,6 @@ test {
     _ = @import("provider_report.zig");
     _ = @import("result.zig");
     _ = @import("test_support.zig");
+    _ = @import("thread_report.zig");
     _ = @import("workload.zig");
 }

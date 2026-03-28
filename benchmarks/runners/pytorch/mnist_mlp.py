@@ -242,9 +242,12 @@ def throughput_shape(spec: dict):
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--spec", required=True)
+    parser.add_argument("--thread-count", type=int)
     args = parser.parse_args()
 
     spec = json.loads(Path(args.spec).read_text())
+    if args.thread_count is not None:
+        spec["thread_count"] = args.thread_count
     try:
         import torch
         import torch.nn.functional as F

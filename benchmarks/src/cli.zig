@@ -10,11 +10,13 @@ pub const Options = struct {
     group: []const u8 = "all",
     spec_path: ?[]const u8 = null,
     baseline: []const u8 = "none",
+    thread_counts: []const u32 = &.{},
 };
 
 pub fn run(allocator: std.mem.Allocator, harness_version: []const u8) !void {
     const options = try parseArgs(allocator);
-    const specs = try loadSpecs(allocator, options);
+    const base_specs = try loadSpecs(allocator, options);
+    const specs = try applyThreadCountOverrides(allocator, base_specs, options.thread_counts);
     if (options.output_path) |output_path| {
         if (std.fs.path.dirname(output_path)) |dir_name| {
             try std.fs.cwd().makePath(dir_name);
@@ -87,6 +89,8 @@ fn emitAll(
 
 fn parseArgs(allocator: std.mem.Allocator) !Options {
     const args = try std.process.argsAlloc(allocator);
+    var thread_counts = std.ArrayList(u32){};
+    errdefer thread_counts.deinit(allocator);
     var options = Options{};
 
     var index: usize = 1;
@@ -108,6 +112,11 @@ fn parseArgs(allocator: std.mem.Allocator) !Options {
         } else if (std.mem.eql(u8, arg, "--baseline")) {
             index += 1;
             options.baseline = args[index];
+        } else if (std.mem.eql(u8, arg, "--thread-count")) {
+            index += 1;
+            const thread_count = try std.fmt.parseInt(u32, args[index], 10);
+            if (thread_count == 0) return error.InvalidThreadCount;
+            try thread_counts.append(allocator, thread_count);
         } else if (std.mem.eql(u8, arg, "--help")) {
             printUsage();
             return error.HelpPrinted;
@@ -116,12 +125,13 @@ fn parseArgs(allocator: std.mem.Allocator) !Options {
         }
     }
 
+    options.thread_counts = try thread_counts.toOwnedSlice(allocator);
     return options;
 }
 
 fn printUsage() void {
     std.debug.print(
-        \\Usage: benchmark [--spec-root <path>] [--output <path>] [--group primitive|blas|autograd|memory|model-train|model-infer|models|all] [--spec <path>] [--baseline none|pytorch]
+        \\Usage: benchmark [--spec-root <path>] [--output <path>] [--group primitive|blas|autograd|memory|model-train|model-infer|models|all] [--spec <path>] [--baseline none|pytorch] [--thread-count <n> ...]
         \\
     , .{});
 }
@@ -155,6 +165,29 @@ fn loadSpecs(allocator: std.mem.Allocator, options: Options) ![]const manifest.S
 
     insertionSortSpecs(specs.items);
     return specs.toOwnedSlice(allocator);
+}
+
+fn applyThreadCountOverrides(
+    allocator: std.mem.Allocator,
+    specs: []const manifest.Spec,
+    thread_counts: []const u32,
+) ![]const manifest.Spec {
+    if (thread_counts.len == 0) return specs;
+
+    var expanded = std.ArrayList(manifest.Spec){};
+    errdefer expanded.deinit(allocator);
+
+    try expanded.ensureTotalCapacity(allocator, @as(u32, @intCast(specs.len * thread_counts.len)));
+    for (specs) |spec| {
+        for (thread_counts) |thread_count| {
+            var overridden = spec;
+            overridden.thread_count = thread_count;
+            try expanded.append(allocator, overridden);
+        }
+    }
+
+    insertionSortSpecs(expanded.items);
+    return expanded.toOwnedSlice(allocator);
 }
 
 fn matchesGroup(group: []const u8, suite_name: []const u8) bool {
@@ -193,11 +226,26 @@ fn insertionSortSpecs(specs: []manifest.Spec) void {
     while (i < specs.len) : (i += 1) {
         const current = specs[i];
         var j = i;
-        while (j > 0 and std.mem.order(u8, specs[j - 1].id, current.id) == .gt) : (j -= 1) {
+        while (j > 0 and compareSpecs(specs[j - 1], current) == .gt) : (j -= 1) {
             specs[j] = specs[j - 1];
         }
         specs[j] = current;
     }
+}
+
+fn compareSpecs(lhs: manifest.Spec, rhs: manifest.Spec) std.math.Order {
+    const id_order = std.mem.order(u8, lhs.id, rhs.id);
+    if (id_order != .eq) return id_order;
+    return compareThreadCounts(lhs.thread_count, rhs.thread_count);
+}
+
+fn compareThreadCounts(lhs: ?u32, rhs: ?u32) std.math.Order {
+    if (lhs) |lhs_count| {
+        if (rhs) |rhs_count| return std.math.order(lhs_count, rhs_count);
+        return .gt;
+    }
+    if (rhs != null) return .lt;
+    return .eq;
 }
 
 fn runPytorchBaseline(
@@ -206,9 +254,18 @@ fn runPytorchBaseline(
     spec: manifest.Spec,
 ) !void {
     const runner = spec.pytorch_runner orelse return;
+
+    var argv = std.ArrayList([]const u8){};
+    defer argv.deinit(allocator);
+    try argv.appendSlice(allocator, &.{ "python3", runner, "--spec", spec.path });
+    if (spec.thread_count) |thread_count| {
+        try argv.append(allocator, "--thread-count");
+        try argv.append(allocator, try std.fmt.allocPrint(allocator, "{d}", .{thread_count}));
+    }
+
     const child = std.process.Child.run(.{
         .allocator = allocator,
-        .argv = &.{ "python3", runner, "--spec", spec.path },
+        .argv = try argv.toOwnedSlice(allocator),
     }) catch return;
     defer allocator.free(child.stdout);
     defer allocator.free(child.stderr);
@@ -218,4 +275,38 @@ fn runPytorchBaseline(
         try writer.writeAll(stdout);
         try writer.writeByte('\n');
     }
+}
+
+test "thread count overrides expand and sort specs by id then thread count" {
+    const allocator = std.testing.allocator;
+
+    const specs = [_]manifest.Spec{
+        .{
+            .id = "bench.b",
+            .suite = .primitive,
+            .kind = .primitive_add,
+            .dtype = .f32,
+            .path = "inline",
+        },
+        .{
+            .id = "bench.a",
+            .suite = .primitive,
+            .kind = .primitive_add,
+            .dtype = .f32,
+            .path = "inline",
+        },
+    };
+
+    const expanded = try applyThreadCountOverrides(allocator, specs[0..], &.{ 4, 1 });
+    defer allocator.free(expanded);
+
+    try std.testing.expectEqual(@as(usize, 4), expanded.len);
+    try std.testing.expectEqualStrings("bench.a", expanded[0].id);
+    try std.testing.expectEqual(@as(u32, 1), expanded[0].thread_count.?);
+    try std.testing.expectEqualStrings("bench.a", expanded[1].id);
+    try std.testing.expectEqual(@as(u32, 4), expanded[1].thread_count.?);
+    try std.testing.expectEqualStrings("bench.b", expanded[2].id);
+    try std.testing.expectEqual(@as(u32, 1), expanded[2].thread_count.?);
+    try std.testing.expectEqualStrings("bench.b", expanded[3].id);
+    try std.testing.expectEqual(@as(u32, 4), expanded[3].thread_count.?);
 }

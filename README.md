@@ -72,12 +72,31 @@ zig build benchmark-memory
 zig build benchmark-models
 zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl
 zig build benchmark-provider-report -- --input benchmarks/results/accelerate.jsonl --input benchmarks/results/openblas.jsonl --baseline-provider accelerate
+zig build benchmark-thread-report -- --input benchmarks/results/thread-sweep.jsonl --baseline-thread-count 1
 ```
 
 Optional PyTorch baseline execution is available per spec:
 
 ```shell
 zig build benchmark -- --baseline pytorch
+```
+
+Thread sweeps do not require cloned spec files. The harness accepts repeated
+`--thread-count` overrides and the comparison tool treats thread count as part
+of the benchmark identity:
+
+```shell
+zig build benchmark -- \
+  --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json \
+  --thread-count 1 \
+  --thread-count 2 \
+  --thread-count 4 \
+  --output benchmarks/results/thread-sweep.jsonl
+zig build benchmark-thread-report -- \
+  --input benchmarks/results/thread-sweep.jsonl \
+  --baseline-thread-count 1 \
+  --markdown-output benchmarks/results/thread-scaling.md \
+  --json-output benchmarks/results/thread-scaling.json
 ```
 
 The smoke suite also reports allocator and graph high-water marks for dedicated
@@ -111,6 +130,11 @@ zig build benchmark-provider-report -- \
 The report groups benchmarks by id and thread count, then emits Markdown and
 JSON summaries with provider-vs-baseline latency deltas, speedups, memory
 high-water marks, and host BLAS dispatch telemetry.
+
+The thread-scaling report groups host records by benchmark id and provider,
+then emits per-thread rows with baseline-relative deltas, speedups, and
+scaling efficiency so RFC-0002 thread-behavior work can be validated from a
+single provider run before cross-provider publication.
 
 For runtime diagnostics outside the benchmark harness, set
 `ZG_HOST_DIAGNOSTICS=1` when running an example or call
