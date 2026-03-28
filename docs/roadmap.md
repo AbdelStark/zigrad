@@ -69,7 +69,7 @@ documents we will implement against.
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
 | RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, smoke CI, and synthetic BLAS/autograd/memory/MNIST/DQN/GCN plus conv-lowering and broadcast-fallback matmul coverage are landed; Zig JSONL output now carries host BLAS dispatch telemetry, while future CUDA/compiler/interop suites remain. |
-| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, and a provider-sensitive numerical parity suite are landed; oneMKL execution and provider comparison benchmarking remain. |
+| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, a provider-sensitive numerical parity suite, and opt-in runtime diagnostics hooks are landed; oneMKL execution and provider comparison benchmarking remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Turns experimental CUDA into a supported execution backend. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
 | RFC-0005 | ggml/GGUF Interop | `Planned` | P1 | RFC-0001, RFC-0012 | Critical for LLM examples and inference compatibility. |
@@ -334,6 +334,38 @@ Every RFC in this folder set must maintain:
   - `zig build test-provider-parity`
   - `zig build test`
   - `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/benchmark-smoke.yml"); puts "workflow ok"'`
+
+### RFC-0002 2026-03-28 Runtime Diagnostics Hooks
+
+- Completed:
+  - Added public host runtime diagnostics helpers in
+    [`src/device/host_device.zig`](../src/device/host_device.zig) covering the
+    configured provider, provider-specific thread environment hints, BLAS call
+    counters, and batched-matmul fallback-mode summaries.
+  - Re-exported the diagnostics API through [`src/device.zig`](../src/device.zig),
+    [`src/device/root.zig`](../src/device/root.zig), and
+    [`src/zigrad.zig`](../src/zigrad.zig) so examples and downstream code can
+    call `zg.device.hostDiagnosticsEnabled()`,
+    `zg.device.configuredRuntimeDiagnostics()`, and
+    `cpu.writeRuntimeDiagnostics(...)`.
+  - Wired opt-in diagnostics logging into the hello-world, MNIST, DQN, and GCN
+    example entrypoints behind `ZG_HOST_DIAGNOSTICS=1`, giving RFC-0002 a
+    user-facing runtime debug path outside the benchmark harness.
+- Remains:
+  - Execute the same diagnostics surface on Linux OpenBLAS and oneMKL hosts.
+  - Publish OpenBLAS vs oneMKL benchmark tables once both providers have
+    representative model results.
+  - Decide whether to add a structured JSON runtime diagnostics surface later.
+- Blockers:
+  - Local validation still only exercised the macOS Accelerate backend, so the
+    new diagnostics were not observed on Linux/x86 OpenBLAS or oneMKL in this
+    run.
+- Validation:
+  - `zig build test`
+  - `cd examples/hello-world && ZG_HOST_DIAGNOSTICS=1 zig build run`
+  - `cd examples/mnist && zig build -Dhost_blas=accelerate`
+  - `cd examples/dqn && zig build -Dhost_blas=accelerate`
+  - `cd examples/gcn && zig build -Dhost_blas=accelerate`
 
 ### RFC-0002 2026-03-28 Batched GEMM Broadcast Correctness
 

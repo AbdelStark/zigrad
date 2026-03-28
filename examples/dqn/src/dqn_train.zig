@@ -10,9 +10,18 @@ const DQNAgent = @import("dqn_agent.zig").DQNAgent;
 const tb = @import("tensorboard");
 const T = f32;
 
+fn maybeWriteHostDiagnostics(cpu: *const zg.device.HostDevice, label: []const u8, include_telemetry: bool) void {
+    _ = cpu.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
+        .label = label,
+        .include_telemetry = include_telemetry,
+    }) catch {};
+}
+
 pub fn trainDQN() !void {
     var cpu = zg.device.HostDevice.init();
     defer cpu.deinit();
+    maybeWriteHostDiagnostics(&cpu, "dqn:start", false);
+    defer maybeWriteHostDiagnostics(&cpu, "dqn:summary", true);
     const device = cpu.reference();
 
     // Zigrad has a global graph that can be overriden for user-provided graphs.

@@ -10,6 +10,13 @@ const log = std.log.scoped(.gnn);
 const T = f32;
 const Optimizer = zg.optim.Adam;
 
+fn maybeWriteHostDiagnostics(cpu: *const zg.device.HostDevice, label: []const u8, include_telemetry: bool) void {
+    _ = cpu.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
+        .label = label,
+        .include_telemetry = include_telemetry,
+    }) catch {};
+}
+
 pub fn run_cora(data_dir: []const u8) !void {
     var debug_allocator = std.heap.DebugAllocator(.{}).init;
     const allocator = debug_allocator.allocator();
@@ -27,6 +34,8 @@ pub fn run_cora(data_dir: []const u8) !void {
 
     var cpu = zg.device.HostDevice.init();
     defer cpu.deinit();
+    maybeWriteHostDiagnostics(&cpu, "gcn:start", false);
+    defer maybeWriteHostDiagnostics(&cpu, "gcn:summary", true);
 
     const device = cpu.reference();
 

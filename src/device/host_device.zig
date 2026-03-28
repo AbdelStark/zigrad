@@ -32,6 +32,15 @@ pub const Options = CachingAllocator.Options;
 pub const CacheMemoryTelemetry = CachingAllocator.MemoryTelemetry;
 const zg = @import("../zigrad.zig");
 pub const using_mkl_blas = using_mkl;
+const host_log = zg.logging.scoped(.zg_host_backend);
+
+pub const HostDiagnosticsFormatOptions = struct {
+    label: ?[]const u8 = null,
+    include_thread_env: bool = true,
+    include_telemetry: bool = true,
+    include_zero_telemetry: bool = false,
+    trailing_newline: bool = true,
+};
 
 pub const HostOpTelemetry = struct {
     dot_calls: u64 = 0,
@@ -53,6 +62,176 @@ pub const HostDispatchTelemetry = struct {
         return self.direct_bmm_dispatches + self.fallback_bmm_dispatches;
     }
 };
+
+pub const HostThreadEnv = struct {
+    veclib_maximum_threads: ?[]const u8 = null,
+    openblas_num_threads: ?[]const u8 = null,
+    omp_num_threads: ?[]const u8 = null,
+    mkl_num_threads: ?[]const u8 = null,
+    mkl_dynamic: ?[]const u8 = null,
+
+    pub fn capture() HostThreadEnv {
+        return .{
+            .veclib_maximum_threads = getenv("VECLIB_MAXIMUM_THREADS"),
+            .openblas_num_threads = getenv("OPENBLAS_NUM_THREADS"),
+            .omp_num_threads = getenv("OMP_NUM_THREADS"),
+            .mkl_num_threads = getenv("MKL_NUM_THREADS"),
+            .mkl_dynamic = getenv("MKL_DYNAMIC"),
+        };
+    }
+
+    fn writeEntry(writer: anytype, name: []const u8, value: ?[]const u8) !void {
+        try writer.print("{s}={s}", .{ name, value orelse "unset" });
+    }
+
+    pub fn writeForProvider(self: HostThreadEnv, writer: anytype, active_provider: HostBlasProvider) !void {
+        switch (active_provider) {
+            .accelerate => {
+                try writeEntry(writer, "VECLIB_MAXIMUM_THREADS", self.veclib_maximum_threads);
+            },
+            .openblas => {
+                try writeEntry(writer, "OPENBLAS_NUM_THREADS", self.openblas_num_threads);
+                try writer.writeAll(",");
+                try writeEntry(writer, "OMP_NUM_THREADS", self.omp_num_threads);
+            },
+            .mkl => {
+                try writeEntry(writer, "MKL_NUM_THREADS", self.mkl_num_threads);
+                try writer.writeAll(",");
+                try writeEntry(writer, "MKL_DYNAMIC", self.mkl_dynamic);
+                try writer.writeAll(",");
+                try writeEntry(writer, "OMP_NUM_THREADS", self.omp_num_threads);
+            },
+        }
+    }
+};
+
+pub const HostBmmDispatchMode = enum {
+    none,
+    direct_only,
+    fallback_only,
+    mixed,
+
+    pub fn label(self: HostBmmDispatchMode) []const u8 {
+        return switch (self) {
+            .none => "none",
+            .direct_only => "direct_only",
+            .fallback_only => "fallback_only",
+            .mixed => "mixed",
+        };
+    }
+};
+
+pub const HostRuntimeDiagnostics = struct {
+    provider: HostBlasProvider,
+    backend: HostBackendInfo,
+    logical_cpu_count: usize,
+    thread_env: HostThreadEnv,
+    op_telemetry: HostOpTelemetry,
+    dispatch_telemetry: HostDispatchTelemetry,
+
+    pub fn hasTelemetry(self: HostRuntimeDiagnostics) bool {
+        return self.op_telemetry.dot_calls > 0 or
+            self.op_telemetry.matvec_calls > 0 or
+            self.op_telemetry.matmul_calls > 0 or
+            self.op_telemetry.bmm_acc_calls > 0 or
+            self.dispatch_telemetry.totalBmmDispatches() > 0;
+    }
+
+    pub fn usedFallback(self: HostRuntimeDiagnostics) bool {
+        return self.dispatch_telemetry.fallback_bmm_dispatches > 0;
+    }
+
+    pub fn bmmDispatchMode(self: HostRuntimeDiagnostics) HostBmmDispatchMode {
+        const has_direct = self.dispatch_telemetry.direct_bmm_dispatches > 0;
+        const has_fallback = self.dispatch_telemetry.fallback_bmm_dispatches > 0;
+        if (has_direct and has_fallback) return .mixed;
+        if (has_direct) return .direct_only;
+        if (has_fallback) return .fallback_only;
+        return .none;
+    }
+
+    pub fn write(self: HostRuntimeDiagnostics, writer: anytype, options: HostDiagnosticsFormatOptions) !void {
+        try writer.writeAll("zigrad host backend");
+        if (options.label) |label| {
+            try writer.print(" [{s}]", .{label});
+        }
+        try writer.print(
+            " provider={s} supports_vml={} logical_cpu_count={d}",
+            .{ self.provider.name(), self.backend.supports_vml, self.logical_cpu_count },
+        );
+
+        if (options.include_thread_env) {
+            try writer.writeAll(" thread_env=");
+            try self.thread_env.writeForProvider(writer, self.provider);
+        }
+
+        if (options.include_telemetry and (options.include_zero_telemetry or self.hasTelemetry())) {
+            try writer.print(
+                " blas_calls(dot={d},matvec={d},matmul={d},bmm_acc={d})",
+                .{
+                    self.op_telemetry.dot_calls,
+                    self.op_telemetry.matvec_calls,
+                    self.op_telemetry.matmul_calls,
+                    self.op_telemetry.bmm_acc_calls,
+                },
+            );
+            try writer.print(
+                " bmm_dispatch={s} bmm_counts(direct={d},fallback={d},fallback_batches={d})",
+                .{
+                    self.bmmDispatchMode().label(),
+                    self.dispatch_telemetry.direct_bmm_dispatches,
+                    self.dispatch_telemetry.fallback_bmm_dispatches,
+                    self.dispatch_telemetry.fallback_bmm_batches,
+                },
+            );
+        }
+
+        if (options.trailing_newline) {
+            try writer.writeByte('\n');
+        }
+    }
+};
+
+fn getenv(name: []const u8) ?[]const u8 {
+    return if (std.posix.getenv(name)) |value| value else null;
+}
+
+fn envValueEnabled(value: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(value, "1") or
+        std.ascii.eqlIgnoreCase(value, "true") or
+        std.ascii.eqlIgnoreCase(value, "yes") or
+        std.ascii.eqlIgnoreCase(value, "on");
+}
+
+fn logicalCpuCount() usize {
+    return std.Thread.getCpuCount() catch 0;
+}
+
+pub fn hostDiagnosticsEnabled() bool {
+    const raw = std.posix.getenv("ZG_HOST_DIAGNOSTICS") orelse return false;
+    return envValueEnabled(raw);
+}
+
+pub fn configuredRuntimeDiagnostics() HostRuntimeDiagnostics {
+    return .{
+        .provider = configured_host_blas_provider,
+        .backend = configured_host_backend,
+        .logical_cpu_count = logicalCpuCount(),
+        .thread_env = HostThreadEnv.capture(),
+        .op_telemetry = .{},
+        .dispatch_telemetry = .{},
+    };
+}
+
+pub fn writeConfiguredRuntimeDiagnostics(writer: anytype, options: HostDiagnosticsFormatOptions) !void {
+    try configuredRuntimeDiagnostics().write(writer, options);
+}
+
+pub fn maybeWriteConfiguredRuntimeDiagnostics(writer: anytype, options: HostDiagnosticsFormatOptions) !bool {
+    if (!hostDiagnosticsEnabled()) return false;
+    try writeConfiguredRuntimeDiagnostics(writer, options);
+    return true;
+}
 
 const HostOpTelemetryState = struct {
     mutex: std.Thread.Mutex = .{},
@@ -300,6 +479,40 @@ pub fn dispatchTelemetry(self: *const Self) HostDispatchTelemetry {
 
 pub fn resetDispatchTelemetry(self: *Self) void {
     self.dispatch_telemetry.reset();
+}
+
+pub fn runtimeDiagnostics(self: *const Self) HostRuntimeDiagnostics {
+    return .{
+        .provider = self.provider(),
+        .backend = self.backendInfo(),
+        .logical_cpu_count = logicalCpuCount(),
+        .thread_env = HostThreadEnv.capture(),
+        .op_telemetry = self.opTelemetry(),
+        .dispatch_telemetry = self.dispatchTelemetry(),
+    };
+}
+
+pub fn writeRuntimeDiagnostics(self: *const Self, writer: anytype, options: HostDiagnosticsFormatOptions) !void {
+    try self.runtimeDiagnostics().write(writer, options);
+}
+
+pub fn maybeWriteRuntimeDiagnostics(self: *const Self, writer: anytype, options: HostDiagnosticsFormatOptions) !bool {
+    if (!hostDiagnosticsEnabled()) return false;
+    try self.writeRuntimeDiagnostics(writer, options);
+    return true;
+}
+
+pub fn logRuntimeDiagnostics(self: *const Self, options: HostDiagnosticsFormatOptions) void {
+    var buffer = std.ArrayList(u8).empty;
+    defer buffer.deinit(std.heap.page_allocator);
+    self.writeRuntimeDiagnostics(buffer.writer(std.heap.page_allocator), .{
+        .label = options.label,
+        .include_thread_env = options.include_thread_env,
+        .include_telemetry = options.include_telemetry,
+        .include_zero_telemetry = options.include_zero_telemetry,
+        .trailing_newline = false,
+    }) catch return;
+    host_log.info("{s}", .{buffer.items});
 }
 
 pub fn recordDirectBmmDispatch(self: *Self) void {
@@ -1537,4 +1750,72 @@ pub fn mse_bwd(_: *const Self, T: type, p: opspec.mse_bwd(T)) void {
     for (p.pred, p.target, p.pred_grad) |pred_val, target_val, *grad_val| {
         grad_val.* += _scale * (pred_val - target_val);
     }
+}
+
+test "host runtime diagnostics summarize fallback mode" {
+    const diagnostics = HostRuntimeDiagnostics{
+        .provider = .accelerate,
+        .backend = configured_host_backend,
+        .logical_cpu_count = 8,
+        .thread_env = .{},
+        .op_telemetry = .{
+            .matmul_calls = 3,
+            .bmm_acc_calls = 1,
+        },
+        .dispatch_telemetry = .{
+            .direct_bmm_dispatches = 1,
+            .fallback_bmm_dispatches = 2,
+            .fallback_bmm_batches = 5,
+        },
+    };
+
+    try std.testing.expectEqual(HostBmmDispatchMode.mixed, diagnostics.bmmDispatchMode());
+    try std.testing.expect(diagnostics.usedFallback());
+    try std.testing.expect(diagnostics.hasTelemetry());
+}
+
+test "host runtime diagnostics formatting includes provider and telemetry" {
+    const allocator = std.testing.allocator;
+    var buffer = std.ArrayList(u8).empty;
+    defer buffer.deinit(allocator);
+
+    const diagnostics = HostRuntimeDiagnostics{
+        .provider = .openblas,
+        .backend = host_blas.backendInfo(.openblas),
+        .logical_cpu_count = 16,
+        .thread_env = .{
+            .openblas_num_threads = "4",
+            .omp_num_threads = "8",
+        },
+        .op_telemetry = .{
+            .dot_calls = 1,
+            .matvec_calls = 2,
+            .matmul_calls = 3,
+            .bmm_acc_calls = 4,
+        },
+        .dispatch_telemetry = .{
+            .direct_bmm_dispatches = 2,
+            .fallback_bmm_dispatches = 1,
+            .fallback_bmm_batches = 6,
+        },
+    };
+
+    try diagnostics.write(buffer.writer(allocator), .{
+        .label = "summary",
+    });
+
+    try std.testing.expect(std.mem.indexOf(u8, buffer.items, "provider=openblas") != null);
+    try std.testing.expect(std.mem.indexOf(u8, buffer.items, "OPENBLAS_NUM_THREADS=4") != null);
+    try std.testing.expect(std.mem.indexOf(u8, buffer.items, "OMP_NUM_THREADS=8") != null);
+    try std.testing.expect(std.mem.indexOf(u8, buffer.items, "bmm_dispatch=mixed") != null);
+    try std.testing.expect(std.mem.indexOf(u8, buffer.items, "blas_calls(dot=1,matvec=2,matmul=3,bmm_acc=4)") != null);
+}
+
+test "host diagnostics env toggle accepts truthy values only" {
+    try std.testing.expect(envValueEnabled("1"));
+    try std.testing.expect(envValueEnabled("TRUE"));
+    try std.testing.expect(envValueEnabled("yes"));
+    try std.testing.expect(!envValueEnabled("0"));
+    try std.testing.expect(!envValueEnabled("false"));
+    try std.testing.expect(!envValueEnabled("maybe"));
 }

@@ -117,7 +117,7 @@ regardless of provider:
 ### Workstream C: Correctness and Debuggability
 
 - [x] Cross-provider test suite with numeric tolerances.
-- Logging hooks to record selected provider and fallback mode.
+- [x] Logging hooks to record selected provider and fallback mode.
 - Reference fallback path for unsupported cases.
 
 ### Workstream D: Performance Validation
@@ -153,6 +153,51 @@ regardless of provider:
 - provider-specific fused kernels where BLAS alone is insufficient.
 
 ## Agentic Context
+
+### 2026-03-28 Runtime Diagnostics Hooks
+
+- Completed:
+  - Added public host runtime diagnostics types and helpers in
+    [`src/device/host_device.zig`](../../src/device/host_device.zig),
+    including `HostRuntimeDiagnostics`, `HostThreadEnv`,
+    batched-matmul dispatch mode summaries, and writer/log helpers for
+    provider, thread-env, and fallback telemetry outside benchmark/test-only
+    surfaces.
+  - Re-exported the diagnostics surface through
+    [`src/device.zig`](../../src/device.zig),
+    [`src/device/root.zig`](../../src/device/root.zig), and
+    [`src/zigrad.zig`](../../src/zigrad.zig) so downstream code can call
+    `zg.device.hostDiagnosticsEnabled()`,
+    `zg.device.configuredRuntimeDiagnostics()`, and
+    `cpu.writeRuntimeDiagnostics(...)` without reaching into internal modules.
+  - Wired opt-in runtime diagnostics into the
+    [`examples/hello-world/src/main.zig`](../../examples/hello-world/src/main.zig),
+    [`examples/mnist/src/main.zig`](../../examples/mnist/src/main.zig),
+    [`examples/dqn/src/dqn_train.zig`](../../examples/dqn/src/dqn_train.zig),
+    and [`examples/gcn/src/main.zig`](../../examples/gcn/src/main.zig)
+    entrypoints behind `ZG_HOST_DIAGNOSTICS=1`, preserving the default quiet
+    output while giving RFC-0002 a real user-facing debug surface.
+  - Added unit coverage for fallback-mode summaries, environment toggle
+    parsing, and formatted diagnostics output in
+    [`src/device/host_device.zig`](../../src/device/host_device.zig).
+- Remains:
+  - Execute the same runtime diagnostics surface on Linux OpenBLAS and oneMKL
+    hosts so provider-specific thread-env snapshots and fallback reporting are
+    observed beyond the local Accelerate backend.
+  - Publish provider-comparison benchmark tables once OpenBLAS and oneMKL
+    result sets are available from the same representative workloads.
+  - Decide whether the runtime diagnostics should eventually emit structured
+    JSON alongside the current human-readable logging surface.
+- Blockers:
+  - This run still only had the macOS Accelerate backend locally, so the new
+    diagnostics hooks were validated functionally but not exercised on Linux/x86
+    OpenBLAS or oneMKL builds.
+- Validation performed:
+  - `zig build test`
+  - `cd examples/hello-world && ZG_HOST_DIAGNOSTICS=1 zig build run`
+  - `cd examples/mnist && zig build -Dhost_blas=accelerate`
+  - `cd examples/dqn && zig build -Dhost_blas=accelerate`
+  - `cd examples/gcn && zig build -Dhost_blas=accelerate`
 
 ### 2026-03-28 Host Provider Numerical Parity Suite
 

@@ -91,6 +91,12 @@ zig build test-provider-parity -Dhost_blas=openblas
 zig build test-provider-parity -Dhost_blas=mkl -Dmkl_include_dir=/opt/intel/oneapi/mkl/latest/include -Dmkl_library_dir=/opt/intel/oneapi/mkl/latest/lib
 ```
 
+For runtime diagnostics outside the benchmark harness, set
+`ZG_HOST_DIAGNOSTICS=1` when running an example or call
+`cpu.runtimeDiagnostics()` / `cpu.writeRuntimeDiagnostics(...)` from your own
+program. The snapshot reports the configured host provider, provider-specific
+threading environment hints, and any observed batched-matmul fallback usage.
+
 Benchmark authoring and smoke-policy guidance live in
 [`benchmarks/AUTHORING.md`](./benchmarks/AUTHORING.md).
 

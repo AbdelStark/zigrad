@@ -19,6 +19,13 @@ pub const zigrad_settings: zg.Settings = .{
     },
 };
 
+fn maybeWriteHostDiagnostics(cpu: *const zg.device.HostDevice, label: []const u8, include_telemetry: bool) void {
+    _ = cpu.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
+        .label = label,
+        .include_telemetry = include_telemetry,
+    }) catch {};
+}
+
 pub fn run_mnist(train_path: []const u8, test_path: []const u8) !void {
     const allocator = std.heap.smp_allocator;
 
@@ -30,6 +37,8 @@ pub fn run_mnist(train_path: []const u8, test_path: []const u8) !void {
 
     var cpu = zg.device.HostDevice.init();
     defer cpu.deinit();
+    maybeWriteHostDiagnostics(&cpu, "mnist:start", false);
+    defer maybeWriteHostDiagnostics(&cpu, "mnist:summary", true);
     const device = cpu.reference();
 
     // std.debug.print("initializing device...", .{});

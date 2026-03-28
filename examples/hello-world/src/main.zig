@@ -17,6 +17,13 @@ pub const zigrad_settings: zg.Settings = .{
     },
 };
 
+fn maybeWriteHostDiagnostics(cpu: *const zg.device.HostDevice, label: []const u8, include_telemetry: bool) void {
+    _ = cpu.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
+        .label = label,
+        .include_telemetry = include_telemetry,
+    }) catch {};
+}
+
 pub fn main() !void {
     const allocator = std.heap.smp_allocator;
 
@@ -31,6 +38,8 @@ pub fn main() !void {
     // tensor, and nn functionality.
     var cpu = zg.device.HostDevice.init();
     defer cpu.deinit();
+    maybeWriteHostDiagnostics(&cpu, "hello-world:start", false);
+    defer maybeWriteHostDiagnostics(&cpu, "hello-world:summary", true);
 
     // Generic device interface (union of pointers)
     const device = cpu.reference();
