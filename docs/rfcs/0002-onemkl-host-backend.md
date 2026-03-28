@@ -156,6 +156,39 @@ regardless of provider:
 
 ## Agentic Context
 
+### 2026-03-28 Provider And Thread Report Publication Smoke
+
+- Completed:
+  - Added
+    [`tests/src/benchmark_publication_smoke_main.zig`](../../tests/src/benchmark_publication_smoke_main.zig)
+    plus the `zig build test-benchmark-publication-smoke` build step in
+    [`build.zig`](../../build.zig),
+    giving RFC-0002 a dedicated smoke gate for provider and thread report
+    publication artifacts.
+  - The smoke path executes a real Accelerate thread sweep, validates the
+    emitted JSONL file, synthesizes a schema-faithful OpenBLAS variant from the
+    same records, and then generates plus re-parses Markdown/JSON provider and
+    thread reports so grouping, baseline selection, and artifact writing stay
+    wired end to end.
+  - Updated
+    [`README.md`](../../README.md),
+    [`benchmarks/README.md`](../../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md)
+    so the new smoke command sits next to the existing provider/thread report
+    workflows.
+- Remains:
+  - Replace the synthetic OpenBLAS smoke input with real OpenBLAS and oneMKL
+    runs on Linux/x86 hardware.
+  - Publish the first provider comparison and scaling tables from actual
+    cross-provider benchmark executions.
+- Blockers:
+  - No real OpenBLAS or oneMKL runtime is available in this environment, so the
+    smoke gate validates publication mechanics without producing publishable
+    cross-provider measurements.
+- Validation performed:
+  - `zig build test-benchmark-publication-smoke`
+  - `zig build test`
+
 ### 2026-03-28 Thread Scaling Workflow
 
 - Completed:

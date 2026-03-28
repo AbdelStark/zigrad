@@ -192,6 +192,7 @@ Regression gating should use broad thresholds first, for example:
 - [x] CI smoke suite.
 - [x] Published benchmark authoring guide.
 - [x] Thread-sweep execution plus Markdown/JSON scaling reports for host runs.
+- [x] Publication artifact smoke validation for comparison/provider/thread report outputs.
 
 ## Acceptance Criteria
 
@@ -215,6 +216,40 @@ Regression gating should use broad thresholds first, for example:
 - Should result archives live in the main repo or an external artifact store?
 
 ## Agentic Context
+
+### 2026-03-28 Benchmark Publication Artifact Smoke
+
+- Completed:
+  - Added
+    [`tests/src/benchmark_publication_smoke_main.zig`](../../tests/src/benchmark_publication_smoke_main.zig)
+    and the `zig build test-benchmark-publication-smoke` entrypoint in
+    [`build.zig`](../../build.zig)
+    so RFC-0001 now validates compare/provider/thread publication artifacts in
+    addition to raw benchmark JSONL contract checks.
+  - The smoke flow executes a real thread-swept primitive benchmark, validates
+    the emitted JSONL artifact, derives schema-faithful candidate and
+    alternate-provider variants, and then writes plus re-parses comparison,
+    provider-report, and thread-report outputs to catch publication regressions
+    before they reach CI or docs workflows.
+  - Updated
+    [`README.md`](../../README.md),
+    [`benchmarks/README.md`](../../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md)
+    so the new smoke gate is documented alongside the existing validator and
+    reporting steps.
+- Remains:
+  - Replace the synthetic alternate-provider smoke input with real OpenBLAS and
+    oneMKL runs when multi-provider runners become available.
+  - Mirror the same publication artifact smoke coverage for future CUDA,
+    compiler, and interop report surfaces.
+- Blockers:
+  - The current machine still only exposes the Accelerate host provider, so
+    the provider-report smoke slice validates report generation using a
+    schema-faithful synthetic OpenBLAS variant instead of a real second
+    provider run.
+- Validation performed:
+  - `zig build test-benchmark-publication-smoke`
+  - `zig build test`
 
 ### 2026-03-28 Benchmark Contract Validator
 

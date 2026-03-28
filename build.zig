@@ -451,6 +451,26 @@ pub fn build(b: *Build) !void {
     benchmark_smoke_step.dependOn(&run_benchmark_smoke.step);
     test_step.dependOn(&run_benchmark_smoke.step);
 
+    const benchmark_publication_smoke_exe = b.addExecutable(.{
+        .name = "benchmark_publication_smoke",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/src/benchmark_publication_smoke_main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "benchmarking", .module = benchmark_module },
+            },
+        }),
+    });
+    link(target, benchmark_publication_smoke_exe, host_blas);
+    const run_benchmark_publication_smoke = b.addRunArtifact(benchmark_publication_smoke_exe);
+    const benchmark_publication_smoke_step = b.step(
+        "test-benchmark-publication-smoke",
+        "Run benchmark publication artifact smoke validation",
+    );
+    benchmark_publication_smoke_step.dependOn(&run_benchmark_publication_smoke.step);
+    test_step.dependOn(&run_benchmark_publication_smoke.step);
+
     const safetensors_unit_tests = b.addTest(.{
         .name = "safetensors_zg",
         .root_module = safetensors_module,

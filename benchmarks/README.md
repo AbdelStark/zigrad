@@ -17,6 +17,7 @@ zig build benchmark-memory
 zig build benchmark-models
 zig build benchmark-validate
 zig build test-benchmark-smoke
+zig build test-benchmark-publication-smoke
 zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl
 zig build benchmark-provider-report -- --input benchmarks/results/accelerate.jsonl --input benchmarks/results/openblas.jsonl --baseline-provider accelerate
 zig build benchmark-thread-report -- --input benchmarks/results/thread-sweep.jsonl --baseline-thread-count 1
@@ -64,6 +65,7 @@ zig build benchmark-validate
 zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json --output .zig-cache/zigrad-benchmark-validate.jsonl
 zig build benchmark-validate -- --input .zig-cache/zigrad-benchmark-validate.jsonl
 zig build test-benchmark-smoke
+zig build test-benchmark-publication-smoke
 ```
 
 `benchmark-validate` checks the selected spec tree when no `--input` is
@@ -72,6 +74,9 @@ against the referenced checked-in spec, checks summary-stat invariants, and
 rejects duplicate result identities within a file. `test-benchmark-smoke`
 drives one representative checked-in spec per suite through the real benchmark
 harness and then runs the validator on the generated artifact.
+`test-benchmark-publication-smoke` builds on that by generating smoke-scale
+comparison, provider-report, and thread-report artifacts and failing if those
+publication outputs are missing, empty, or structurally invalid.
 
 For RFC-0002 host BLAS work, collect one JSONL file per provider and then
 generate a provider matrix report:

@@ -91,6 +91,7 @@ zig build benchmark-memory
 zig build benchmark-models
 zig build benchmark
 zig build test-benchmark-smoke
+zig build test-benchmark-publication-smoke
 ```
 
 If the benchmark exercises a specific host provider configuration, record that
@@ -100,7 +101,9 @@ or `zig build benchmark -Dhost_blas=mkl`.
 Treat `benchmark-validate` as the contract gate for both committed specs and
 generated artifacts. A benchmark change is not complete until either the
 updated spec set or the emitted JSONL artifact for the touched workflow has
-passed through the validator.
+passed through the validator. When the change affects report consumers or
+published artifact shape, also rerun `zig build test-benchmark-publication-smoke`
+so compare/provider/thread outputs stay validated end to end.
 
 ## Regression Comparison
 

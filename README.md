@@ -76,6 +76,7 @@ zig build benchmark-memory
 zig build benchmark-models
 zig build benchmark-validate
 zig build test-benchmark-smoke
+zig build test-benchmark-publication-smoke
 zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl
 zig build benchmark-provider-report -- --input benchmarks/results/accelerate.jsonl --input benchmarks/results/openblas.jsonl --baseline-provider accelerate
 zig build benchmark-thread-report -- --input benchmarks/results/thread-sweep.jsonl --baseline-thread-count 1
@@ -119,9 +120,12 @@ The smoke suite also reports allocator and graph high-water marks for dedicated
 memory benchmarks, including a tensor cache cycle and a synthetic MNIST
 training step.
 
-`zig build test-benchmark-smoke` now exercises one checked-in spec per suite
+`zig build test-benchmark-smoke` exercises one checked-in spec per suite
 through the real benchmark harness and fails if the validator detects contract
-drift in the emitted JSONL artifact.
+drift in the emitted JSONL artifact. `zig build
+test-benchmark-publication-smoke` extends that coverage to the publication
+surface by generating compare, provider-report, and thread-report artifacts
+from smoke-scale inputs and rejecting empty or structurally invalid outputs.
 
 Provider-sensitive host BLAS correctness can be exercised independently with:
 
