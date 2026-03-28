@@ -71,6 +71,7 @@ zig build benchmark-blas
 zig build benchmark-memory
 zig build benchmark-models
 zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl
+zig build benchmark-provider-report -- --input benchmarks/results/accelerate.jsonl --input benchmarks/results/openblas.jsonl --baseline-provider accelerate
 ```
 
 Optional PyTorch baseline execution is available per spec:
@@ -90,6 +91,26 @@ zig build test-provider-parity
 zig build test-provider-parity -Dhost_blas=openblas
 zig build test-provider-parity -Dhost_blas=mkl -Dmkl_include_dir=/opt/intel/oneapi/mkl/latest/include -Dmkl_library_dir=/opt/intel/oneapi/mkl/latest/lib
 ```
+
+To turn multiple provider runs into publishable tables, generate provider-tagged
+JSONL files and feed them into the host provider report step:
+
+```shell
+zig build benchmark -Dhost_blas=accelerate -- --output benchmarks/results/accelerate.jsonl
+zig build benchmark -Dhost_blas=openblas -- --output benchmarks/results/openblas.jsonl
+zig build benchmark -Dhost_blas=mkl -Dmkl_include_dir=/opt/intel/oneapi/mkl/latest/include -Dmkl_library_dir=/opt/intel/oneapi/mkl/latest/lib -- --output benchmarks/results/mkl.jsonl
+zig build benchmark-provider-report -- \
+  --input benchmarks/results/accelerate.jsonl \
+  --input benchmarks/results/openblas.jsonl \
+  --input benchmarks/results/mkl.jsonl \
+  --baseline-provider accelerate \
+  --markdown-output benchmarks/results/host-provider-report.md \
+  --json-output benchmarks/results/host-provider-report.json
+```
+
+The report groups benchmarks by id and thread count, then emits Markdown and
+JSON summaries with provider-vs-baseline latency deltas, speedups, memory
+high-water marks, and host BLAS dispatch telemetry.
 
 For runtime diagnostics outside the benchmark harness, set
 `ZG_HOST_DIAGNOSTICS=1` when running an example or call

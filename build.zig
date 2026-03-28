@@ -189,6 +189,22 @@ pub fn build(b: *Build) !void {
     link(target, benchmark_compare_exe, host_blas);
     b.installArtifact(benchmark_compare_exe);
 
+    const benchmark_provider_report_exe = b.addExecutable(.{
+        .name = "benchmark_provider_report",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("benchmarks/src/provider_report_main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .imports = &.{
+                .{ .name = "benchmarking", .module = benchmark_module },
+            },
+        }),
+    });
+
+    link(target, benchmark_provider_report_exe, host_blas);
+    b.installArtifact(benchmark_provider_report_exe);
+
     const run_benchmark = b.addRunArtifact(benchmark_exe);
     run_benchmark.addArgs(&.{ "--output", "benchmarks/results/latest.jsonl" });
     if (b.args) |args| {
@@ -243,6 +259,13 @@ pub fn build(b: *Build) !void {
     }
     const benchmark_compare_step = b.step("benchmark-compare", "Compare benchmark JSONL result files");
     benchmark_compare_step.dependOn(&run_benchmark_compare.step);
+
+    const run_benchmark_provider_report = b.addRunArtifact(benchmark_provider_report_exe);
+    if (b.args) |args| {
+        run_benchmark_provider_report.addArgs(args);
+    }
+    const benchmark_provider_report_step = b.step("benchmark-provider-report", "Generate a host BLAS provider benchmark report");
+    benchmark_provider_report_step.dependOn(&run_benchmark_provider_report.step);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());

@@ -16,6 +16,7 @@ zig build benchmark-autograd
 zig build benchmark-memory
 zig build benchmark-models
 zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl
+zig build benchmark-provider-report -- --input benchmarks/results/accelerate.jsonl --input benchmarks/results/openblas.jsonl --baseline-provider accelerate
 ```
 
 Host BLAS selection follows the main build graph:
@@ -48,6 +49,27 @@ zig build benchmark-compare -- \
   --json-output benchmarks/results/comparison.json \
   --report-output benchmarks/results/comparison.txt
 ```
+
+For RFC-0002 host BLAS work, collect one JSONL file per provider and then
+generate a provider matrix report:
+
+```sh
+zig build benchmark -Dhost_blas=accelerate -- --output benchmarks/results/accelerate.jsonl
+zig build benchmark -Dhost_blas=openblas -- --output benchmarks/results/openblas.jsonl
+zig build benchmark -Dhost_blas=mkl -Dmkl_include_dir=/opt/intel/oneapi/mkl/latest/include -Dmkl_library_dir=/opt/intel/oneapi/mkl/latest/lib -- --output benchmarks/results/mkl.jsonl
+zig build benchmark-provider-report -- \
+  --input benchmarks/results/accelerate.jsonl \
+  --input benchmarks/results/openblas.jsonl \
+  --input benchmarks/results/mkl.jsonl \
+  --runner zig \
+  --baseline-provider accelerate \
+  --markdown-output benchmarks/results/host-provider-report.md \
+  --json-output benchmarks/results/host-provider-report.json
+```
+
+The provider report only considers host-device records for the selected runner,
+groups them by benchmark id and configured thread count, and then emits
+Markdown/JSON tables with raw metrics plus delta-vs-baseline speedups.
 
 ## Current Coverage
 

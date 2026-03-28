@@ -104,6 +104,34 @@ Added benchmark records are reported but do not fail the comparison. Missing
 baseline-covered records do fail the comparison because they break regression
 continuity for smoke suites.
 
+## Host Provider Reports
+
+RFC-0002 provider benchmarking now has a dedicated reporting step for
+publishable host BLAS tables. After running the same benchmark group under each
+provider, generate a consolidated report:
+
+```sh
+zig build benchmark -Dhost_blas=accelerate -- --group blas --output benchmarks/results/accelerate-blas.jsonl
+zig build benchmark -Dhost_blas=openblas -- --group blas --output benchmarks/results/openblas-blas.jsonl
+zig build benchmark-provider-report -- \
+  --input benchmarks/results/accelerate-blas.jsonl \
+  --input benchmarks/results/openblas-blas.jsonl \
+  --baseline-provider accelerate \
+  --markdown-output benchmarks/results/host-provider-blas.md \
+  --json-output benchmarks/results/host-provider-blas.json
+```
+
+Guidelines:
+
+- Keep thread counts aligned across providers so the grouped rows stay directly
+  comparable.
+- Preserve benchmark ids across provider runs; the report groups on benchmark
+  id plus thread count.
+- Use `--runner zig` unless you intentionally want to inspect another runner's
+  host records.
+- Treat the Markdown output as publishable artifact and the JSON output as
+  machine-readable input for docs or CI post-processing.
+
 ## CI Expectations
 
 The smoke workflow benchmarks the current checkout and a baseline revision on

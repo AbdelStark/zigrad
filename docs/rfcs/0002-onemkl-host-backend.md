@@ -122,6 +122,7 @@ regardless of provider:
 
 ### Workstream D: Performance Validation
 
+- [x] Provider comparison report generator for Markdown/JSON benchmark tables.
 - Benchmark against PyTorch CPU.
 - Publish provider comparison tables for representative models.
 - Validate thread scaling behavior.
@@ -153,6 +154,39 @@ regardless of provider:
 - provider-specific fused kernels where BLAS alone is insufficient.
 
 ## Agentic Context
+
+### 2026-03-28 Provider Report Generator
+
+- Completed:
+  - Added a dedicated host-provider reporting tool in
+    [`benchmarks/src/provider_report.zig`](../../benchmarks/src/provider_report.zig)
+    with a matching
+    [`benchmarks/src/provider_report_main.zig`](../../benchmarks/src/provider_report_main.zig)
+    entrypoint and `zig build benchmark-provider-report` build step in
+    [`build.zig`](../../build.zig).
+  - The report ingests one or more benchmark JSONL files, filters to host
+    records for the selected runner, groups rows by benchmark id plus thread
+    count, and computes provider-vs-baseline latency deltas and speedups while
+    surfacing memory high-water marks and host BLAS dispatch telemetry.
+  - Added unit coverage for grouping, duplicate-provider rejection, and
+    Markdown output, and updated
+    [`README.md`](../../README.md),
+    [`benchmarks/README.md`](../../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md)
+    so the workflow for generating publishable provider tables is documented.
+- Remains:
+  - Run the same benchmark groups on Linux/x86 OpenBLAS and oneMKL hosts, then
+    publish the first real provider tables from the report output.
+  - Decide whether CI should persist Markdown/JSON provider reports as
+    dedicated artifacts once cross-provider runners are available.
+  - Add thread-scaling result collection on top of the same report generator.
+- Blockers:
+  - The current environment only provides Accelerate, so the new tool was
+    validated against synthetic multi-provider fixtures plus a single-provider
+    real run rather than actual OpenBLAS/oneMKL benchmark sets.
+- Validation performed:
+  - `zig build test`
+  - `zig build benchmark-provider-report -- --help`
 
 ### 2026-03-28 Runtime Diagnostics Hooks
 
