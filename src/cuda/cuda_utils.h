@@ -13,6 +13,9 @@ EXTERN_C void mem_sequence(dtype id, void* data, len_t n, const void* init, cons
 EXTERN_C void mem_random(dtype id, void* x, len_t n, randtype op, unsigned seed, StreamWrapper);
 EXTERN_C void mem_free(void* dptr, StreamWrapper);
 EXTERN_C void mem_take(dtype id, const void* src, len_t src_len, const len_t* idxs, len_t idxs_len, void* dst, StreamWrapper);
+EXTERN_C void scatter_add(dtype id, const void* src, const len_t* offsets, len_t n, void* dst, len_t dst_len, StreamWrapper);
+EXTERN_C void scatter_gcn_deg_scaled(dtype id, void* dst, const void* h, const void* deg, const len_t* src_indices, const len_t* tgt_indices, len_t stride, len_t n_edge, StreamWrapper);
+EXTERN_C void scatter_gcn_deg_scaled_bwd(dtype id, const void* grad_output, const void* h, const void* deg, const len_t* src_indices, const len_t* tgt_indices, void* grad_h, void* grad_deg, len_t stride, len_t n_edge, StreamWrapper);
 EXTERN_C len_t mem_page_size(unsigned device_id);
 
 

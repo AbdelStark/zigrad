@@ -151,8 +151,8 @@ pub fn Dataset(comptime T: type) type {
                 0, 1, 1, 2, 2, 3,
                 1, 0, 2, 1, 3, 2,
             };
-            const train_mask_values = [_]bool{ true, true, false, false };
-            const eval_mask_values = [_]bool{ false, false, true, false };
+            const train_mask_values = [_]bool{ true, false, true, false };
+            const eval_mask_values = [_]bool{ false, true, false, false };
             const test_mask_values = [_]bool{ false, false, false, true };
 
             const config: zg.TensorOpts = .{

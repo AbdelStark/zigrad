@@ -529,6 +529,40 @@ pub fn max_along(self: *Self, T: type, p: opspec.max_along(T)) void {
     });
 }
 
+pub fn scatter_add(self: *const Self, T: type, p: opspec.scatter_add(T)) void {
+    cuda.scatter_add(dtype(T), p.src.ptr, p.offsets.ptr, p.offsets.len, p.dst.ptr, p.dst.len, self.context.stream);
+}
+
+pub fn scatter_gcn_deg_scaled(self: *const Self, T: type, p: opspec.scatter_gcn_deg_scaled(T)) void {
+    cuda.scatter_gcn_deg_scaled(
+        dtype(T),
+        p.dst.ptr,
+        p.h.ptr,
+        p.deg.ptr,
+        p.src_indices.ptr,
+        p.tgt_indices.ptr,
+        p.stride,
+        p.n_edge,
+        self.context.stream,
+    );
+}
+
+pub fn scatter_gcn_deg_scaled_bwd(self: *const Self, T: type, p: opspec.scatter_gcn_deg_scaled_bwd(T)) void {
+    cuda.scatter_gcn_deg_scaled_bwd(
+        dtype(T),
+        p.grad_output.ptr,
+        p.h.ptr,
+        p.deg.ptr,
+        p.src_indices.ptr,
+        p.tgt_indices.ptr,
+        p.grad_h.ptr,
+        p.grad_deg.ptr,
+        p.stride,
+        p.n_edge,
+        self.context.stream,
+    );
+}
+
 pub fn reduce_one(self: *Self, T: type, p: struct {
     x: []const T,
     x_shape: []const usize,

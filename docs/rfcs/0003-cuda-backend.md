@@ -4,7 +4,7 @@ Status: `Ready`
 Priority: `P0`  
 Depends on: RFC-0001  
 Blocks: RFC-0006, RFC-0012  
-Last updated: `2026-03-27`
+Last updated: `2026-03-28`
 
 ## Summary
 
@@ -154,6 +154,44 @@ support:
 
 ## Agentic Context
 
+### 2026-03-28 CUDA Example Path Audits
+
+- Completed:
+  - Made [`src/ndarray.zig`](../../src/ndarray.zig) gather offset computation
+    device-safe by staging index offsets on the host before transferring them
+    into device memory, removing a direct host write into CUDA buffers.
+  - Added CUDA implementations for `scatter_add`,
+    `scatter_gcn_deg_scaled`, and `scatter_gcn_deg_scaled_bwd` in
+    [`src/cuda/cuda_utils.cu`](../../src/cuda/cuda_utils.cu),
+    declared through [`src/cuda/cuda_utils.h`](../../src/cuda/cuda_utils.h),
+    and wired them into
+    [`src/device/cuda_device.zig`](../../src/device/cuda_device.zig) so DQN
+    gather backprop and the GCN message-passing kernel surface no longer panic
+    on CUDA dispatch.
+  - Enabled CUDA runtime selection in
+    [`examples/dqn/src/dqn_train.zig`](../../examples/dqn/src/dqn_train.zig)
+    and [`examples/gcn/src/main.zig`](../../examples/gcn/src/main.zig).
+  - Removed the remaining GCN host-view assumptions by copying masks and eval
+    logits to host explicitly in
+    [`examples/gcn/src/model.zig`](../../examples/gcn/src/model.zig) and
+    [`examples/gcn/src/main.zig`](../../examples/gcn/src/main.zig), and made
+    the synthetic smoke dataset in
+    [`examples/gcn/src/dataset.zig`](../../examples/gcn/src/dataset.zig) use a
+    non-prefix training mask so the host smoke path validates the corrected
+    mask mapping.
+- Remains:
+  - Validate the CUDA runtime path on a real toolkit/device combination.
+  - Add dedicated CUDA smoke and benchmark runs once GPU-capable runners are
+    available.
+- Blockers:
+  - This macOS host still had no CUDA toolkit or CUDA device available, so the
+    new kernels and runtime selectors validated only through host builds/tests
+    and code-path audit rather than a real CUDA compile/run.
+- Validation performed:
+  - `zig build test`
+  - `cd examples/dqn && ZG_EXAMPLE_SMOKE=1 zig build run`
+  - `cd examples/gcn && ZG_EXAMPLE_SMOKE=1 zig build run`
+
 ### 2026-03-28 Runtime Device Selection + CUDA Diagnostics
 
 - Completed:
@@ -183,8 +221,6 @@ support:
   - Validate the CUDA runtime path on a real toolkit/device combination.
   - Add dedicated CUDA smoke and benchmark runs once GPU-capable runners are
     available.
-  - Finish the remaining device-safety work in DQN and GCN before those
-    examples opt into CUDA execution.
 - Blockers:
   - This macOS host had no CUDA toolkit or CUDA device available, so the run
     validated only the non-CUDA build path plus the new explicit error/reporting

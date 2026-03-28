@@ -122,6 +122,29 @@ Every RFC in this folder set must maintain:
 
 ## Agentic Context
 
+### RFC-0003 2026-03-28 CUDA Example Enablement Slice
+
+- Completed:
+  - Landed the CUDA backend support needed by the maintained DQN and GCN
+    example paths: device-safe gather offsets, CUDA `scatter_add`, and CUDA
+    `scatter_gcn_deg_scaled{,_bwd}` dispatch.
+  - Promoted the DQN and GCN entrypoints to the shared runtime-device selector
+    contract so all maintained examples now accept
+    `ZG_DEVICE=host|cpu|cuda[:index]` when built with `-Denable_cuda=true`.
+  - Corrected the remaining GCN host-view assumptions in masking and evaluation
+    and tightened the synthetic smoke dataset so the maintained smoke path now
+    covers non-prefix masks.
+- Remains:
+  - Validate the new CUDA kernels on real hardware and capture the first CUDA
+    smoke/benchmark outputs for RFC-0003/RFC-0012.
+- Blockers:
+  - This run had no CUDA toolkit or GPU available, so the milestone validated
+    through host execution and code-path review rather than CUDA execution.
+- Validation:
+  - `zig build test`
+  - `cd examples/dqn && ZG_EXAMPLE_SMOKE=1 zig build run`
+  - `cd examples/gcn && ZG_EXAMPLE_SMOKE=1 zig build run`
+
 ### RFC-0001 2026-03-28 Benchmark Provenance Contract
 
 - Completed:

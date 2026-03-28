@@ -597,8 +597,16 @@ pub fn NDArray(comptime T: type) type {
             }
             // to-owned-slice allows us to properly free regardless of exit, otherwise
             // we could try to free on error and because the user didn't ask for offsets
-            var offsets = try device.mem_alloc(usize, indices.size()); // TODO: cache?
+            const offsets = try device.mem_alloc(usize, indices.size()); // TODO: cache?
             defer if (!opts.return_offsets) device.mem_free(offsets); // TODO: cache?
+
+            const host_offsets = if (device.is_host())
+                null
+            else
+                try std.heap.smp_allocator.alloc(usize, indices.size());
+            defer if (host_offsets) |buf| std.heap.smp_allocator.free(buf);
+
+            const offset_dst = if (host_offsets) |buf| buf else offsets;
 
             const values = try Self.empty(indices.shape.slice(), device);
             const idx_strides = indices.shape.strides();
@@ -613,7 +621,11 @@ pub fn NDArray(comptime T: type) type {
                 if (src_coord.get(dim) >= self.shape.get(dim))
                     return error.IndexOutOfBounds;
 
-                offsets[i] = src_strides.pos_to_offset(src_coord);
+                offset_dst[i] = src_strides.pos_to_offset(src_coord);
+            }
+
+            if (host_offsets) |buf| {
+                device.mem_transfer(usize, buf, offsets, .HtoD);
             }
 
             device.mem_take(T, self.get_data(), offsets, values.get_data());

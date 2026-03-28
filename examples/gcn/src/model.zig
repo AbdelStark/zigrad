@@ -322,8 +322,11 @@ pub fn MaskLayer(comptime T: type) type {
             const num_feature = x.get_dim(1);
             const buf = try device.mem_alloc(T, x.get_size());
             defer device.mem_free(buf);
+            const host_mask = try self.mask.to_host_owned(std.heap.smp_allocator);
+            defer std.heap.smp_allocator.free(host_mask);
+
             var count: usize = 0;
-            for (self.mask.get_data(), 0..) |ok, i| {
+            for (host_mask, 0..) |ok, i| {
                 if (ok) {
                     const buf_start = count * num_feature;
                     const buf_end = count * num_feature + num_feature;
@@ -354,14 +357,21 @@ pub fn MaskLayer(comptime T: type) type {
             const x = children.get_bwd_upcast(Tensor, 0) orelse return;
             const num_feature = x.get_dim(1);
 
+            const host_mask = try self.mask.to_host_owned(std.heap.smp_allocator);
+            defer std.heap.smp_allocator.free(host_mask);
+
             var x_grad = try x.ensure_grad_data(0);
             const y_grad = y.assume_grad_data();
 
-            for (self.mask.get_data(), 0..) |ok, i| {
-                const start = i * num_feature;
-                const end = start + num_feature;
+            var count: usize = 0;
+            for (host_mask, 0..) |ok, i| {
+                const x_start = i * num_feature;
+                const x_end = x_start + num_feature;
                 if (ok) {
-                    device.mem_copy(T, y_grad[start..end], x_grad[start..end]);
+                    const y_start = count * num_feature;
+                    const y_end = y_start + num_feature;
+                    device.mem_copy(T, y_grad[y_start..y_end], x_grad[x_start..x_end]);
+                    count += 1;
                 }
             }
             return;

@@ -44,7 +44,7 @@ pub fn run_cora_with_config(data_dir: []const u8, config: RunConfig) !RunSummary
     });
     defer zg.global_graph_deinit();
 
-    var runtime_device = try zg.device.initRuntimeDevice(config.device_request, .{ .allow_cuda = false });
+    var runtime_device = try zg.device.initRuntimeDevice(config.device_request, .{ .allow_cuda = true });
     defer runtime_device.deinit();
     _ = runtime_device.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
         .label = "gcn:start",
@@ -84,7 +84,7 @@ pub fn runSyntheticSmoke() !RunSummary {
     });
     defer zg.global_graph_deinit();
 
-    var runtime_device = try zg.device.initRuntimeDevice(config.device_request, .{ .allow_cuda = false });
+    var runtime_device = try zg.device.initRuntimeDevice(config.device_request, .{ .allow_cuda = true });
     defer runtime_device.deinit();
     _ = runtime_device.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
         .label = "gcn:start",
@@ -178,13 +178,16 @@ fn run_dataset(dataset: Dataset(T), allocator: std.mem.Allocator, device: zg.Dev
                 defer label_.deinit();
 
                 const total = output_.get_dim(0);
+                const output_host = try output_.to_host_owned(allocator);
+                defer allocator.free(output_host);
+                const label_host = try label_.to_host_owned(allocator);
+                defer allocator.free(label_host);
 
                 for (0..total) |j| {
                     const start = j * dataset.num_classes;
                     const end = start + dataset.num_classes;
-                    // TODO: update for device compatablity
-                    const yh = std.mem.indexOfMax(T, output_.get_data()[start..end]);
-                    const y = std.mem.indexOfMax(T, label_.get_data()[start..end]);
+                    const yh = std.mem.indexOfMax(T, output_host[start..end]);
+                    const y = std.mem.indexOfMax(T, label_host[start..end]);
                     correct += if (yh == y) 1 else 0;
                 }
                 acc[i] = correct / @as(f32, @floatFromInt(total));

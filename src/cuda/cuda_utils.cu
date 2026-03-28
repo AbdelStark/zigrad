@@ -336,6 +336,242 @@ extern "C" void mem_take(
   }
 }
 
+template <typename T>
+__global__ void scatter_add_kernel(
+  const T *src, const len_t *offsets, len_t n, T *dst, len_t dst_len
+) {
+  const len_t idx = static_cast<len_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (idx >= n) {
+    return;
+  }
+
+  const len_t offset = offsets[idx];
+  if (offset >= dst_len) {
+    return;
+  }
+
+  atomicAdd(dst + offset, src[idx]);
+}
+
+template <typename T>
+void __scatter_add(
+  const void *src, const len_t *offsets, len_t n, void *dst, len_t dst_len, StreamWrapper stream
+) {
+  if (n == 0) {
+    return;
+  }
+
+  const auto _stream = __cast_stream(stream);
+  constexpr unsigned threads_per_block = 256;
+  const unsigned blocks = static_cast<unsigned>((n + threads_per_block - 1) / threads_per_block);
+  scatter_add_kernel<T><<<blocks, threads_per_block, 0, _stream>>>(
+    static_cast<const T *>(src), offsets, n, static_cast<T *>(dst), dst_len
+  );
+  CUDA_ASSERT(cudaPeekAtLastError());
+}
+
+extern "C" void scatter_add(
+  dtype id, const void *src, const len_t *offsets, len_t n, void *dst, len_t dst_len, StreamWrapper stream
+) {
+  switch (id) {
+  case SINGLE:
+    return __scatter_add<f32>(src, offsets, n, dst, dst_len, stream);
+  case DOUBLE:
+    return __scatter_add<f64>(src, offsets, n, dst, dst_len, stream);
+  default:
+    SYSTEM_EXIT("Unsupported data type");
+  }
+}
+
+template <typename T>
+__global__ void scatter_gcn_deg_scaled_kernel(
+  T *dst,
+  const T *h,
+  const T *deg,
+  const len_t *src_indices,
+  const len_t *tgt_indices,
+  len_t stride,
+  len_t n_edge
+) {
+  const len_t idx = static_cast<len_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const len_t total = n_edge * stride;
+  if (idx >= total) {
+    return;
+  }
+
+  const len_t edge = idx / stride;
+  const len_t feature = idx % stride;
+  const len_t src = src_indices[edge];
+  const len_t tgt = tgt_indices[edge];
+  const T weight = deg[src] * deg[tgt];
+
+  atomicAdd(dst + tgt * stride + feature, weight * h[src * stride + feature]);
+}
+
+template <typename T>
+void __scatter_gcn_deg_scaled(
+  void *dst,
+  const void *h,
+  const void *deg,
+  const len_t *src_indices,
+  const len_t *tgt_indices,
+  len_t stride,
+  len_t n_edge,
+  StreamWrapper stream
+) {
+  if (n_edge == 0 or stride == 0) {
+    return;
+  }
+
+  const auto _stream = __cast_stream(stream);
+  const len_t total = n_edge * stride;
+  constexpr unsigned threads_per_block = 256;
+  const unsigned blocks = static_cast<unsigned>((total + threads_per_block - 1) / threads_per_block);
+  scatter_gcn_deg_scaled_kernel<T><<<blocks, threads_per_block, 0, _stream>>>(
+    static_cast<T *>(dst),
+    static_cast<const T *>(h),
+    static_cast<const T *>(deg),
+    src_indices,
+    tgt_indices,
+    stride,
+    n_edge
+  );
+  CUDA_ASSERT(cudaPeekAtLastError());
+}
+
+extern "C" void scatter_gcn_deg_scaled(
+  dtype id,
+  void *dst,
+  const void *h,
+  const void *deg,
+  const len_t *src_indices,
+  const len_t *tgt_indices,
+  len_t stride,
+  len_t n_edge,
+  StreamWrapper stream
+) {
+  switch (id) {
+  case SINGLE:
+    return __scatter_gcn_deg_scaled<f32>(dst, h, deg, src_indices, tgt_indices, stride, n_edge, stream);
+  case DOUBLE:
+    return __scatter_gcn_deg_scaled<f64>(dst, h, deg, src_indices, tgt_indices, stride, n_edge, stream);
+  default:
+    SYSTEM_EXIT("Unsupported data type");
+  }
+}
+
+template <typename T>
+__global__ void scatter_gcn_deg_scaled_bwd_kernel(
+  const T *grad_output,
+  const T *h,
+  const T *deg,
+  const len_t *src_indices,
+  const len_t *tgt_indices,
+  T *grad_h,
+  T *grad_deg,
+  len_t stride,
+  len_t n_edge
+) {
+  const len_t idx = static_cast<len_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const len_t total = n_edge * stride;
+  if (idx >= total) {
+    return;
+  }
+
+  const len_t edge = idx / stride;
+  const len_t feature = idx % stride;
+  const len_t src = src_indices[edge];
+  const len_t tgt = tgt_indices[edge];
+  const T deg_src = deg[src];
+  const T deg_tgt = deg[tgt];
+  const T grad_out = grad_output[tgt * stride + feature];
+  const T h_val = h[src * stride + feature];
+
+  atomicAdd(grad_h + src * stride + feature, grad_out * deg_src * deg_tgt);
+  atomicAdd(grad_deg + src, grad_out * deg_tgt * h_val);
+  atomicAdd(grad_deg + tgt, grad_out * deg_src * h_val);
+}
+
+template <typename T>
+void __scatter_gcn_deg_scaled_bwd(
+  const void *grad_output,
+  const void *h,
+  const void *deg,
+  const len_t *src_indices,
+  const len_t *tgt_indices,
+  void *grad_h,
+  void *grad_deg,
+  len_t stride,
+  len_t n_edge,
+  StreamWrapper stream
+) {
+  if (n_edge == 0 or stride == 0) {
+    return;
+  }
+
+  const auto _stream = __cast_stream(stream);
+  const len_t total = n_edge * stride;
+  constexpr unsigned threads_per_block = 256;
+  const unsigned blocks = static_cast<unsigned>((total + threads_per_block - 1) / threads_per_block);
+  scatter_gcn_deg_scaled_bwd_kernel<T><<<blocks, threads_per_block, 0, _stream>>>(
+    static_cast<const T *>(grad_output),
+    static_cast<const T *>(h),
+    static_cast<const T *>(deg),
+    src_indices,
+    tgt_indices,
+    static_cast<T *>(grad_h),
+    static_cast<T *>(grad_deg),
+    stride,
+    n_edge
+  );
+  CUDA_ASSERT(cudaPeekAtLastError());
+}
+
+extern "C" void scatter_gcn_deg_scaled_bwd(
+  dtype id,
+  const void *grad_output,
+  const void *h,
+  const void *deg,
+  const len_t *src_indices,
+  const len_t *tgt_indices,
+  void *grad_h,
+  void *grad_deg,
+  len_t stride,
+  len_t n_edge,
+  StreamWrapper stream
+) {
+  switch (id) {
+  case SINGLE:
+    return __scatter_gcn_deg_scaled_bwd<f32>(
+      grad_output,
+      h,
+      deg,
+      src_indices,
+      tgt_indices,
+      grad_h,
+      grad_deg,
+      stride,
+      n_edge,
+      stream
+    );
+  case DOUBLE:
+    return __scatter_gcn_deg_scaled_bwd<f64>(
+      grad_output,
+      h,
+      deg,
+      src_indices,
+      tgt_indices,
+      grad_h,
+      grad_deg,
+      stride,
+      n_edge,
+      stream
+    );
+  default:
+    SYSTEM_EXIT("Unsupported data type");
+  }
+}
+
 // Helper to keep track of cuda mem-handles for mapping
 // physical regions to virtual device addresses. This
 // currently grows monotonically overtime. We can support

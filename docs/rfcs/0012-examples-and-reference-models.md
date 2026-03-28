@@ -4,7 +4,7 @@ Status: `Planned`
 Priority: `P1`  
 Depends on: RFC-0001, RFC-0002, RFC-0003  
 Blocks: RFC-0005  
-Last updated: `2026-03-27`
+Last updated: `2026-03-28`
 
 ## Summary
 
@@ -139,6 +139,33 @@ documented rather than hidden in bespoke scripts.
 
 ## Agentic Context
 
+### 2026-03-28 DQN + GCN CUDA Example Enablement
+
+- Completed:
+  - Promoted the DQN and GCN reference entrypoints to the shared runtime-device
+    contract: both now accept `ZG_DEVICE=host|cpu|cuda[:index]` when built with
+    `-Denable_cuda=true`.
+  - Removed the concrete device-safety blockers in the example code:
+    DQN’s gather path now stages offsets correctly for device memory, and GCN’s
+    masking plus evaluation code now performs explicit host copies instead of
+    reading CUDA-backed tensor storage directly.
+  - Updated the synthetic GCN smoke dataset to use a non-prefix train mask so
+    the maintained smoke path exercises the corrected masked forward/backward
+    mapping instead of only the contiguous-mask case.
+  - Updated the top-level and example README surfaces so the documented backend
+    expectations match the shipped runtime behavior.
+- Remains:
+  - Run dedicated CUDA smoke coverage for DQN and GCN on a GPU-capable runner.
+  - Expand the portfolio with new reference examples from later RFC-0012
+    workstreams once the current set has sustained backend validation.
+- Blockers:
+  - No CUDA hardware was available in this run, so example validation covered
+    host execution plus code-path audit rather than actual GPU execution.
+- Validation performed:
+  - `zig build test`
+  - `cd examples/dqn && ZG_EXAMPLE_SMOKE=1 zig build run`
+  - `cd examples/gcn && ZG_EXAMPLE_SMOKE=1 zig build run`
+
 ### 2026-03-28 Explicit Example Backend Expectations
 
 - Completed:
@@ -146,16 +173,13 @@ documented rather than hidden in bespoke scripts.
     selector from [`src/device/runtime_device.zig`](../../src/device/runtime_device.zig),
     so backend intent now lives in code instead of ad hoc commented-out device
     setup.
-  - Marked current backend expectations explicitly: hello-world and MNIST can
-    request CUDA when built with `-Denable_cuda=true`, while DQN and GCN remain
-    host-only until their device-safety audits are completed.
+  - Marked current backend expectations explicitly across the maintained
+    examples and documented the runtime selector in the README surfaces.
   - Updated the standalone example build scripts and README surfaces so the
     repo now documents the same backend contract that the code enforces.
   - Removed a host-storage assumption from MNIST evaluation by adding the
     `NDTensor.to_host_owned(...)` helper in [`src/ndtensor.zig`](../../src/ndtensor.zig).
 - Remains:
-  - Audit and migrate the DQN and GCN reference paths so they can participate
-    in RFC-0003 CUDA validation instead of rejecting CUDA requests.
   - Add dedicated README coverage for the MNIST and hello-world runtime device
     contract if those examples grow beyond the top-level README guidance.
 - Blockers:

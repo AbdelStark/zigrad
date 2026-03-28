@@ -256,10 +256,11 @@ ZG_DEVICE=cuda ZG_EXAMPLE_SMOKE=1 zig build run -Denable_cuda=true
 
 Runtime backend expectations are now explicit:
 
-- `examples/hello-world` and `examples/mnist` support
-  `ZG_DEVICE=host|cpu|cuda[:index]`.
-- `examples/dqn` and `examples/gcn` currently remain host-only and reject CUDA
-  requests until their remaining device-safety work lands.
+- `examples/hello-world`, `examples/mnist`, `examples/dqn`, and
+  `examples/gcn` support `ZG_DEVICE=host|cpu|cuda[:index]` when built with
+  `-Denable_cuda=true`.
+- DQN and GCN now avoid host-only tensor reads in their runtime paths, but
+  dedicated CUDA hardware validation is still pending on a GPU-capable runner.
 
 Fast smoke-mode entrypoints are also available for runtime validation without
 full datasets or long training loops:
@@ -271,8 +272,14 @@ ZG_EXAMPLE_SMOKE=1 zig build run
 cd zigrad/examples/dqn
 ZG_EXAMPLE_SMOKE=1 zig build run
 
+# Optional CUDA smoke run when built with CUDA enabled
+ZG_DEVICE=cuda ZG_EXAMPLE_SMOKE=1 zig build run -Denable_cuda=true
+
 cd zigrad/examples/gcn
 ZG_EXAMPLE_SMOKE=1 zig build run
+
+# Optional CUDA smoke run when built with CUDA enabled
+ZG_DEVICE=cuda ZG_EXAMPLE_SMOKE=1 zig build run -Denable_cuda=true
 ```
 
 ## Vendored Dependencies

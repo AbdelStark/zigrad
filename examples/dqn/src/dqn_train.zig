@@ -55,7 +55,7 @@ pub fn trainDQNWithConfig(config: TrainConfig) !TrainSummary {
     if (config.batch_size == 0) return error.InvalidBatchSize;
     if (config.train_every == 0) return error.InvalidTrainInterval;
 
-    var runtime_device = try zg.device.initRuntimeDevice(config.device_request, .{ .allow_cuda = false });
+    var runtime_device = try zg.device.initRuntimeDevice(config.device_request, .{ .allow_cuda = true });
     defer runtime_device.deinit();
     _ = runtime_device.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
         .label = "dqn:start",

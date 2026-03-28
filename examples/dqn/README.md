@@ -8,10 +8,13 @@ The above rendering is a sneak peek into a Zigrad + [Raylib](https://www.raylib.
 
 ## Backend expectation
 
-This example now uses the shared runtime-device selector, but it should still
-be treated as host-only for now. `ZG_DEVICE=host` is the default; requesting
-CUDA fails intentionally until the remaining replay-buffer and validation work
-for RFC-0003 lands.
+This example uses the shared runtime-device selector. `ZG_DEVICE=host` is the
+default, and `ZG_DEVICE=cuda[:index]` is supported when the example is built
+with `-Denable_cuda=true`.
+
+The replay buffer intentionally remains host-resident, but sampled batches,
+policy evaluation, and gather/backprop paths no longer require host-backed
+tensor storage.
 
 ## Tensorboard integration
 
