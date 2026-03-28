@@ -1,6 +1,6 @@
 # RFC-0012: Examples and Reference Models Program
 
-Status: `Planned`  
+Status: `Ready`  
 Priority: `P1`  
 Depends on: RFC-0001, RFC-0002, RFC-0003  
 Blocks: RFC-0005  
@@ -106,9 +106,10 @@ documented rather than hidden in bespoke scripts.
 
 ### Workstream D: New Roadmap Examples
 
-- LLM example,
-- physics/robotics example,
-- upgraded RL example.
+- [x] LLM example, initial char-level causal language model reference with
+  embedded corpus, smoke coverage, and benchmark hooks.
+- [ ] physics/robotics example.
+- [ ] upgraded RL example.
 
 ## Testing Plan
 
@@ -138,6 +139,41 @@ documented rather than hidden in bespoke scripts.
 - How much artifact caching should the repo standardize?
 
 ## Agentic Context
+
+### 2026-03-28 Char-Level Language Model Reference Example
+
+- Completed:
+  - Added
+    [`examples/char-lm/src/model.zig`](../../examples/char-lm/src/model.zig),
+    [`examples/char-lm/src/dataset.zig`](../../examples/char-lm/src/dataset.zig),
+    [`examples/char-lm/src/main.zig`](../../examples/char-lm/src/main.zig),
+    and the embedded corpus
+    [`examples/char-lm/src/corpus.txt`](../../examples/char-lm/src/corpus.txt),
+    giving RFC-0012 its first maintained `llm` reference example that trains,
+    evaluates, and greedily generates text from a clean checkout.
+  - Added standalone build/docs in
+    [`examples/char-lm/build.zig`](../../examples/char-lm/build.zig),
+    [`examples/char-lm/build.zig.zon`](../../examples/char-lm/build.zig.zon),
+    and
+    [`examples/char-lm/README.md`](../../examples/char-lm/README.md),
+    then wired the example into repo-level smoke coverage through
+    [`build.zig`](../../build.zig)
+    and
+    [`tests/src/example_smoke_main.zig`](../../tests/src/example_smoke_main.zig).
+  - Extended RFC-0001 benchmark coverage with char-LM model-train/model-infer
+    specs so the new reference family participates in the maintained benchmark
+    surface immediately instead of living only as a demo.
+- Remains:
+  - Add the first physics/control reference example and benchmark hooks.
+  - Revisit the `llm` portfolio with a transformer-style model once the
+    sequence-model primitive surface grows beyond one-hot MLP baselines.
+- Blockers:
+  - CUDA-capable validation remains pending, so the new language-model example
+    was verified on host plus shared runtime-device wiring rather than actual
+    accelerator execution.
+- Validation performed:
+  - `zig build test-example-smoke`
+  - `zig build test-benchmark-smoke`
 
 ### 2026-03-28 Device-Safe Losses For Maintained Training Examples
 

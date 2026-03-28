@@ -33,6 +33,8 @@ pub const Kind = enum {
     memory_mnist_train_step,
     mnist_mlp_train,
     mnist_mlp_infer,
+    char_lm_train,
+    char_lm_infer,
     dqn_cartpole_train,
     dqn_cartpole_infer,
     gcn_train,
@@ -51,6 +53,8 @@ pub const Kind = enum {
             .memory_mnist_train_step => "memory_mnist_train_step",
             .mnist_mlp_train => "mnist_mlp_train",
             .mnist_mlp_infer => "mnist_mlp_infer",
+            .char_lm_train => "char_lm_train",
+            .char_lm_infer => "char_lm_infer",
             .dqn_cartpole_train => "dqn_cartpole_train",
             .dqn_cartpole_infer => "dqn_cartpole_infer",
             .gcn_train => "gcn_train",
@@ -206,6 +210,12 @@ fn validate(path: []const u8, raw: RawSpec) !Spec {
         .mnist_mlp_infer => {
             try requireBatchedModelShapes(raw, false);
         },
+        .char_lm_train => {
+            try requireBatchedModelShapes(raw, true);
+        },
+        .char_lm_infer => {
+            try requireBatchedModelShapes(raw, false);
+        },
         .dqn_cartpole_train => {
             try requireBatchedModelShapes(raw, false);
         },
@@ -273,6 +283,8 @@ fn parseKind(value: []const u8) !Kind {
     if (std.mem.eql(u8, value, "memory_mnist_train_step")) return .memory_mnist_train_step;
     if (std.mem.eql(u8, value, "mnist_mlp_train")) return .mnist_mlp_train;
     if (std.mem.eql(u8, value, "mnist_mlp_infer")) return .mnist_mlp_infer;
+    if (std.mem.eql(u8, value, "char_lm_train")) return .char_lm_train;
+    if (std.mem.eql(u8, value, "char_lm_infer")) return .char_lm_infer;
     if (std.mem.eql(u8, value, "dqn_cartpole_train")) return .dqn_cartpole_train;
     if (std.mem.eql(u8, value, "dqn_cartpole_infer")) return .dqn_cartpole_infer;
     if (std.mem.eql(u8, value, "gcn_train")) return .gcn_train;
@@ -387,6 +399,36 @@ test "load dqn benchmark spec from json slice" {
 
     try std.testing.expectEqual(Kind.dqn_cartpole_train, spec.kind);
     try std.testing.expectEqual(@as(usize, 32), spec.batch_size.?);
+}
+
+test "load char lm benchmark spec from json slice" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const raw =
+        \\{
+        \\  "id": "model-train.char-lm.synthetic.f32.batch8.ctx12.vocab24",
+        \\  "suite": "model-train",
+        \\  "kind": "char_lm_train",
+        \\  "dtype": "f32",
+        \\  "warmup_iterations": 1,
+        \\  "measured_iterations": 2,
+        \\  "provenance": {
+        \\    "data_source": "synthetic.splitmix64",
+        \\    "preprocessing": ["derive token stream", "materialize one-hot windows", "materialize labels"]
+        \\  },
+        \\  "batch_size": 8,
+        \\  "input_shape": [8, 12, 24],
+        \\  "label_shape": [8, 24]
+        \\}
+    ;
+    const parsed = try std.json.parseFromSliceLeaky(RawSpec, allocator, raw, .{});
+    const spec = try validate("inline-char-lm.json", parsed);
+
+    try std.testing.expectEqual(Kind.char_lm_train, spec.kind);
+    try std.testing.expectEqual(@as(usize, 8), spec.batch_size.?);
+    try std.testing.expectEqual(@as(usize, 3), spec.input_shape.?.len);
+    try std.testing.expectEqual(@as(usize, 24), spec.label_shape.?[1]);
 }
 
 test "load autograd matvec benchmark spec from json slice" {

@@ -59,6 +59,12 @@ should reject incomplete specs with clear errors. Batched workloads should make
 their leading dimension explicit through `batch_size`; graph workloads may omit
 `batch_size` when node count is carried by `input_shape[0]`.
 
+Character-language-model workloads use:
+
+- `input_shape = [batch, context, vocab]` for one-hot causal windows
+- `label_shape = [batch, vocab]` for one-hot next-token targets on training
+  specs
+
 For conv-lowering benchmarks, encode the input tensor in `lhs_shape`, the
 weights in `rhs_shape`, and the lowering parameters in `stride`, `padding`, and
 `dilation`.
@@ -81,6 +87,7 @@ zig build benchmark-validate
 zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json
 zig build benchmark -- --spec benchmarks/specs/blas/dot-f32-262144.json
 zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json
+zig build benchmark -- --spec benchmarks/specs/model-infer/char-lm-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json
 zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2
 zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json --output .zig-cache/zigrad-benchmark-validate.jsonl

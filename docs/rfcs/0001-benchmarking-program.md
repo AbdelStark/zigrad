@@ -181,6 +181,7 @@ Regression gating should use broad thresholds first, for example:
 - [x] Autograd dot and matvec backward microbenchmarks.
 - [x] Memory suite for cache high-water mark and graph arena reuse coverage.
 - [x] MNIST train and inference benchmarks using deterministic synthetic data.
+- [x] Char-level language model train and inference benchmarks using deterministic synthetic causal windows.
 - [x] DQN benchmark skeleton.
 - [x] Synthetic GCN train and inference coverage.
 - [x] Optional PyTorch baseline runner hook for comparable suites.
@@ -218,6 +219,41 @@ Regression gating should use broad thresholds first, for example:
 - Should result archives live in the main repo or an external artifact store?
 
 ## Agentic Context
+
+### 2026-03-28 Char-LM Benchmark Coverage
+
+- Completed:
+  - Extended
+    [`benchmarks/src/manifest.zig`](../../benchmarks/src/manifest.zig),
+    [`benchmarks/src/workload.zig`](../../benchmarks/src/workload.zig), and
+    [`benchmarks/runners/pytorch/mnist_mlp.py`](../../benchmarks/runners/pytorch/mnist_mlp.py)
+    with `char_lm_train` and `char_lm_infer`, so RFC-0001 now benchmarks a
+    maintained language-model family alongside MNIST, DQN, and GCN.
+  - Added checked-in specs in
+    [`benchmarks/specs/model-train/char-lm-synthetic.json`](../../benchmarks/specs/model-train/char-lm-synthetic.json)
+    and
+    [`benchmarks/specs/model-infer/char-lm-synthetic.json`](../../benchmarks/specs/model-infer/char-lm-synthetic.json),
+    plus smoke coverage through
+    [`tests/src/benchmark_smoke_main.zig`](../../tests/src/benchmark_smoke_main.zig).
+  - Updated
+    [`README.md`](../../README.md),
+    [`benchmarks/README.md`](../../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md)
+    so the new language-model benchmark surface is documented next to the
+    existing reference-model workflows.
+- Remains:
+  - Publish first cross-framework char-LM benchmark artifacts on a host with a
+    working PyTorch baseline environment.
+  - Expand from MLP-style causal windows to a transformer-style workload once
+    RFC-0012 grows a stronger sequence-model operator surface.
+- Blockers:
+  - No verified local PyTorch baseline artifact was captured in this run, so
+    the new benchmark kinds were validated through Zig smoke execution and the
+    existing baseline-runner contract path rather than published cross-runner
+    measurements.
+- Validation performed:
+  - `zig build test-example-smoke`
+  - `zig build test-benchmark-smoke`
 
 ### 2026-03-28 Backend-Aware CUDA Benchmark Requests
 

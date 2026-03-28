@@ -68,7 +68,7 @@ documents we will implement against.
 
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, external baseline-runner smoke validation, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/MNIST/DQN/GCN plus conv-lowering and broadcast-fallback matmul coverage, host thread-sweep/scaling-report workflows, and backend-aware CUDA benchmark request specs with explicit skip/fail semantics plus dedicated smoke coverage are landed; future real-GPU/compiler/interop suites remain. |
+| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, external baseline-runner smoke validation, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/MNIST/char-LM/DQN/GCN plus conv-lowering and broadcast-fallback matmul coverage, host thread-sweep/scaling-report workflows, and backend-aware CUDA benchmark request specs with explicit skip/fail semantics plus dedicated smoke coverage are landed; future real-GPU/compiler/interop suites remain. |
 | RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, a provider-sensitive numerical parity suite, opt-in runtime diagnostics hooks, example runtime smoke coverage for hello-world/MNIST/DQN/GCN, and Markdown/JSON provider plus thread-scaling report generators are landed; publication-path smoke validation now covers provider/thread reports and CI emits thread-scaling bundle artifacts, while oneMKL execution and published provider comparison runs remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Runtime selection, diagnostics, CUDA-safe DQN/GCN kernels, backend-dispatched Adam optimizer updates, host-staged loss fallbacks for maintained training workloads, and benchmark-harness integration for checked-in CUDA-targeted specs are landed; real GPU compile/run validation and executed CUDA benchmark suites remain. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
@@ -79,7 +79,7 @@ documents we will implement against.
 | RFC-0009 | MLIR Lowering Pipeline | `Exploratory` | P2 | RFC-0007, RFC-0008 | Optional compiler interoperability layer. |
 | RFC-0010 | ZML Inference Bridge | `Draft` | P2 | RFC-0007 | Enables inference handoff to ZML for pure serving flows. |
 | RFC-0011 | Apache TVM Integration | `Exploratory` | P3 | RFC-0001, RFC-0007, RFC-0009 | External compiler/autotuning path. |
-| RFC-0012 | Examples and Reference Models | `Planned` | P1 | RFC-0001, RFC-0002, RFC-0003 | Maintained smoke coverage exists for hello-world, MNIST, DQN, and GCN; the shared loss surface no longer dereferences off-host tensors directly, DQN/GCN training no longer depend on host-only Adam updates, and new portfolio examples still remain. |
+| RFC-0012 | Examples and Reference Models | `Ready` | P1 | RFC-0001, RFC-0002, RFC-0003 | Maintained smoke coverage now exists for hello-world, MNIST, char-LM, DQN, and GCN; the first `llm` reference example and matching benchmark hooks are landed, while physics/control coverage and a deeper transformer-style portfolio still remain. |
 
 ## Recommended Implementation Order
 
@@ -121,6 +121,46 @@ Every RFC in this folder set must maintain:
 - a section describing what will not be done in the RFC.
 
 ## Agentic Context
+
+### RFC-0012 2026-03-28 Char-LM Reference Example And Benchmark Slice
+
+- Completed:
+  - Landed a new maintained `llm` reference example under
+    [`examples/char-lm/`](../examples/char-lm/)
+    with embedded-corpus training, greedy generation, standalone build files,
+    README guidance, and root smoke coverage.
+  - Extended RFC-0001’s maintained model benchmark surface with checked-in
+    char-LM train/infer specs, workload execution, and smoke coverage so the
+    new example participates in the same reproducible harness as MNIST, DQN,
+    and GCN.
+  - Promoted RFC-0012 from `Planned` to `Ready`, since the examples program is
+    now actively executing on top of the already-landed P0 measurement/backend
+    foundations.
+- Remains:
+  - Add the first physics/control reference example.
+  - Decide when to replace the MLP-style char-LM with a transformer-style
+    sequence model as RFC-0006/RFC-0007 mature.
+- Blockers:
+  - CUDA hardware validation remains unavailable in this environment, so the
+    new example slice was verified on host only.
+- Validation:
+  - `zig build test-example-smoke`
+  - `zig build test-benchmark-smoke`
+
+### RFC-0001 2026-03-28 Char-LM Benchmark Coverage
+
+- Completed:
+  - Added checked-in char-LM model-train/model-infer specs, workload
+    execution, and smoke coverage to the benchmark harness.
+  - Extended the optional PyTorch runner surface so the new workload kind has
+    an explicit baseline path instead of falling back to an unsupported-kind
+    skip.
+- Remains:
+  - Capture and publish the first real cross-framework char-LM result set.
+- Blockers:
+  - No published PyTorch baseline artifact was produced in this host-only run.
+- Validation:
+  - `zig build test-benchmark-smoke`
 
 ### RFC-0003/RFC-0012 2026-03-28 Device-Safe Loss Fallbacks For Maintained Examples
 

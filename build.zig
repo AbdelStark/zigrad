@@ -156,6 +156,14 @@ pub fn build(b: *Build) !void {
             .{ .name = "zigrad", .module = zigrad },
         },
     }));
+    benchmark_module.addImport("examples_char_lm_model", b.createModule(.{
+        .root_source_file = b.path("examples/char-lm/src/model.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zigrad", .module = zigrad },
+        },
+    }));
 
     const protobuf_module = b.addModule("protobuf", .{
         .root_source_file = b.path("tensorboard/src/third_party/protobuf/protobuf.zig"),
@@ -198,6 +206,14 @@ pub fn build(b: *Build) !void {
     });
     const example_gcn_main_module = b.createModule(.{
         .root_source_file = b.path("examples/gcn/src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zigrad", .module = zigrad },
+        },
+    });
+    const example_char_lm_main_module = b.createModule(.{
+        .root_source_file = b.path("examples/char-lm/src/main.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
@@ -442,6 +458,7 @@ pub fn build(b: *Build) !void {
                 .{ .name = "examples_mnist_main", .module = example_mnist_main_module },
                 .{ .name = "examples_dqn_train", .module = example_dqn_train_module },
                 .{ .name = "examples_gcn_main", .module = example_gcn_main_module },
+                .{ .name = "examples_char_lm_main", .module = example_char_lm_main_module },
             },
         }),
     });

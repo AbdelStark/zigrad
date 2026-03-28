@@ -3,6 +3,7 @@ const zg = @import("zigrad");
 const manifest = @import("manifest.zig");
 const metadata = @import("metadata.zig");
 const result = @import("result.zig");
+const CharLmModel = @import("examples_char_lm_model").CharLmModel;
 const DqnBenchmarkModel = @import("dqn_bench_model.zig").DqnBenchmarkModel;
 const GcnBenchmarkModel = @import("gcn_bench_model.zig").GcnBenchmarkModel;
 const MnistBenchmarkModel = @import("mnist_bench_model.zig").MnistBenchmarkModel;
@@ -86,6 +87,8 @@ pub fn expectedBatchSize(spec: manifest.Spec) ?usize {
         .memory_mnist_train_step,
         .mnist_mlp_train,
         .mnist_mlp_infer,
+        .char_lm_train,
+        .char_lm_infer,
         .dqn_cartpole_train,
         .dqn_cartpole_infer,
         => spec.batch_size,
@@ -120,6 +123,9 @@ pub fn expectedShapeMetadata(
         .mnist_mlp_train,
         .mnist_mlp_infer,
         => shapeMetadataFromMnist(allocator, spec),
+        .char_lm_train,
+        .char_lm_infer,
+        => shapeMetadataFromCharLm(allocator, spec),
         .dqn_cartpole_train => shapeMetadataFromDqnTrain(allocator, spec),
         .dqn_cartpole_infer => shapeMetadataFromDqnInfer(allocator, spec),
         .gcn_train => shapeMetadataFromGcn(allocator, spec, spec.input_shape.?[0] * 4, true),
@@ -210,6 +216,8 @@ pub fn run(allocator: std.mem.Allocator, spec: manifest.Spec) !RunResult {
         .memory_mnist_train_step => runMemoryMnistTrainStep(allocator, spec, &context),
         .mnist_mlp_train => runMnistTrain(allocator, spec, &context),
         .mnist_mlp_infer => runMnistInfer(allocator, spec, &context),
+        .char_lm_train => runCharLmTrain(allocator, spec, &context),
+        .char_lm_infer => runCharLmInfer(allocator, spec, &context),
         .dqn_cartpole_train => runDqnTrain(allocator, spec, &context),
         .dqn_cartpole_infer => runDqnInfer(allocator, spec, &context),
         .gcn_train => runGcnTrain(allocator, spec, &context),
@@ -815,6 +823,153 @@ fn runMnistInfer(allocator: std.mem.Allocator, spec: manifest.Spec, context: *Ru
     };
 }
 
+fn runCharLmTrain(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
+    const batch_size = spec.batch_size.?;
+    const input_shape = spec.input_shape.?;
+    const label_shape = spec.label_shape.?;
+    const context_len = input_shape[1];
+    const vocab_size = input_shape[2];
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    const host = context.host();
+    const device = context.device();
+
+    var timer = try std.time.Timer.start();
+    var model = try CharLmModel(f32).initWithGraphAndSeed(
+        device,
+        context_len,
+        vocab_size,
+        charLmHiddenSize(vocab_size),
+        &graph,
+        spec.seed,
+    );
+    defer model.deinit();
+
+    var adam = zg.optim.Adam.init(allocator, .{
+        .lr = 0.01,
+        .beta1 = 0.9,
+        .beta2 = 0.999,
+        .epsilon = 1e-8,
+    });
+    defer adam.deinit();
+    const optimizer = adam.optimizer();
+    try model.attach_optimizer(optimizer);
+
+    const token_stream = try makeCharLmTokenStream(allocator, batch_size, context_len, vocab_size, spec.seed +% 71);
+    defer allocator.free(token_stream);
+    const input_values = try makeCharLmInputBatch(allocator, token_stream, batch_size, context_len, vocab_size);
+    defer allocator.free(input_values);
+    const label_values = try makeCharLmLabelBatch(allocator, token_stream, batch_size, context_len, vocab_size);
+    defer allocator.free(label_values);
+
+    const setup_latency_ns = timer.read();
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+
+    for (0..spec.warmup_iterations) |_| {
+        try oneCharLmTrainingStep(
+            &graph,
+            device,
+            &model,
+            input_values,
+            input_shape,
+            label_values,
+            label_shape,
+            optimizer,
+        );
+    }
+    maybeResetHostBenchmarkTelemetry(host);
+    for (timings) |*timing| {
+        timer.reset();
+        try oneCharLmTrainingStep(
+            &graph,
+            device,
+            &model,
+            input_values,
+            input_shape,
+            label_values,
+            label_shape,
+            optimizer,
+        );
+        timing.* = timer.read();
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromCharLm(allocator, spec),
+        .batch_size = batch_size,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = batch_size,
+        .throughput_unit = "samples",
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runCharLmInfer(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
+    const Tensor = zg.NDTensor(f32);
+    const batch_size = spec.batch_size.?;
+    const input_shape = spec.input_shape.?;
+    const context_len = input_shape[1];
+    const vocab_size = input_shape[2];
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    const host = context.host();
+    const device = context.device();
+
+    var timer = try std.time.Timer.start();
+    var model = try CharLmModel(f32).initWithGraphAndSeed(
+        device,
+        context_len,
+        vocab_size,
+        charLmHiddenSize(vocab_size),
+        &graph,
+        spec.seed,
+    );
+    defer model.deinit();
+    model.set_requires_grad(false);
+
+    const token_stream = try makeCharLmTokenStream(allocator, batch_size, context_len, vocab_size, spec.seed +% 83);
+    defer allocator.free(token_stream);
+    const input_values = try makeCharLmInputBatch(allocator, token_stream, batch_size, context_len, vocab_size);
+    defer allocator.free(input_values);
+
+    const input = try Tensor.from_slice(device, input_values, input_shape, .{ .graph = &graph });
+    defer input.deinit();
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    const previous_grad_state = zg.runtime.grad_enabled;
+    zg.runtime.grad_enabled = false;
+    defer zg.runtime.grad_enabled = previous_grad_state;
+
+    for (0..spec.warmup_iterations) |_| {
+        const output = try model.forward(input);
+        output.deinit();
+    }
+    maybeResetHostBenchmarkTelemetry(host);
+    for (timings) |*timing| {
+        timer.reset();
+        const output = try model.forward(input);
+        timing.* = timer.read();
+        output.deinit();
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromCharLm(allocator, spec),
+        .batch_size = batch_size,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = batch_size,
+        .throughput_unit = "samples",
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
 fn runDqnTrain(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const batch_size = spec.batch_size.?;
 
@@ -1137,6 +1292,34 @@ fn oneMnistTrainingStep(
     model.zeroGrad();
 }
 
+fn oneCharLmTrainingStep(
+    graph: *zg.Graph,
+    device: zg.DeviceReference,
+    model: *CharLmModel(f32),
+    input_values: []const f32,
+    input_shape: []const usize,
+    label_values: []const f32,
+    label_shape: []const usize,
+    optimizer: zg.Optimizer,
+) !void {
+    const Tensor = zg.NDTensor(f32);
+
+    const input = try Tensor.from_slice(device, input_values, input_shape, .{ .graph = graph });
+    defer input.deinit();
+    const labels = try Tensor.from_slice(device, label_values, label_shape, .{ .graph = graph });
+    defer labels.deinit();
+
+    const output = try model.forward(input);
+    defer output.deinit();
+
+    const loss = try zg.loss.softmax_cross_entropy_loss(f32, output, labels);
+    defer loss.deinit();
+
+    try loss.backward();
+    try optimizer.step();
+    model.zero_grad();
+}
+
 fn oneMemoryTensorCacheCycle(
     allocator: std.mem.Allocator,
     device: zg.DeviceReference,
@@ -1448,6 +1631,58 @@ fn makeDoneSlice(
     return values;
 }
 
+fn makeCharLmTokenStream(
+    allocator: std.mem.Allocator,
+    batch_size: usize,
+    context_len: usize,
+    vocab_size: usize,
+    seed: u64,
+) ![]usize {
+    const values = try allocator.alloc(usize, batch_size + context_len);
+    for (values, 0..) |*value, index| {
+        value.* = @as(usize, @intCast(splitmix64(seed +% @as(u64, index)) % vocab_size));
+    }
+    return values;
+}
+
+fn makeCharLmInputBatch(
+    allocator: std.mem.Allocator,
+    token_stream: []const usize,
+    batch_size: usize,
+    context_len: usize,
+    vocab_size: usize,
+) ![]f32 {
+    const values = try allocator.alloc(f32, batch_size * context_len * vocab_size);
+    @memset(values, 0);
+
+    for (0..batch_size) |row| {
+        for (0..context_len) |column| {
+            const token = token_stream[row + column];
+            values[((row * context_len + column) * vocab_size) + token] = 1;
+        }
+    }
+
+    return values;
+}
+
+fn makeCharLmLabelBatch(
+    allocator: std.mem.Allocator,
+    token_stream: []const usize,
+    batch_size: usize,
+    context_len: usize,
+    vocab_size: usize,
+) ![]f32 {
+    const values = try allocator.alloc(f32, batch_size * vocab_size);
+    @memset(values, 0);
+
+    for (0..batch_size) |row| {
+        const token = token_stream[row + context_len];
+        values[(row * vocab_size) + token] = 1;
+    }
+
+    return values;
+}
+
 fn makeGraphEdgeIndex(
     allocator: std.mem.Allocator,
     node_count: usize,
@@ -1521,6 +1756,16 @@ fn shapeMetadataFromMnist(allocator: std.mem.Allocator, spec: manifest.Spec) ![]
     return shapes;
 }
 
+fn shapeMetadataFromCharLm(allocator: std.mem.Allocator, spec: manifest.Spec) ![]const result.ShapeMetadata {
+    const label_shape_count: usize = if (spec.label_shape == null) 0 else 1;
+    const shapes = try allocator.alloc(result.ShapeMetadata, 1 + label_shape_count);
+    shapes[0] = .{ .name = "input", .dims = spec.input_shape.? };
+    if (spec.label_shape) |label_shape| {
+        shapes[1] = .{ .name = "labels", .dims = label_shape };
+    }
+    return shapes;
+}
+
 fn shapeMetadataFromDqnTrain(allocator: std.mem.Allocator, spec: manifest.Spec) ![]const result.ShapeMetadata {
     const batch_size = spec.batch_size.?;
     const shapes = try allocator.alloc(result.ShapeMetadata, 5);
@@ -1555,6 +1800,10 @@ fn shapeMetadataFromGcn(
 
 fn allocDims(allocator: std.mem.Allocator, dims: []const usize) ![]const usize {
     return try allocator.dupe(usize, dims);
+}
+
+fn charLmHiddenSize(vocab_size: usize) usize {
+    return @max(vocab_size * 2, 64);
 }
 
 fn splitmix64(state: u64) u64 {
@@ -1765,6 +2014,38 @@ test "run memory mnist training benchmark" {
     try std.testing.expect(output.memory != null);
     try std.testing.expect(output.memory.?.peak_live_bytes.? >= output.memory.?.final_live_bytes.?);
     try std.testing.expect(output.memory.?.peak_graph_arena_bytes.? > 0);
+}
+
+test "run char lm infer benchmark" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const input_shape = [_]usize{ 8, 12, 24 };
+    const spec: manifest.Spec = .{
+        .id = "test.char-lm.infer",
+        .suite = .model_infer,
+        .kind = .char_lm_infer,
+        .dtype = .f32,
+        .warmup_iterations = 0,
+        .measured_iterations = 1,
+        .batch_size = 8,
+        .thread_count = 1,
+        .seed = 1,
+        .input_shape = input_shape[0..],
+        .provenance = inlineProvenance(&.{
+            "derive a deterministic token stream",
+            "materialize one-hot causal context windows",
+        }),
+        .path = "inline",
+    };
+
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.ok, run_result.status);
+    const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
+    try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
+    try std.testing.expectEqual(@as(usize, 1), output.shapes.len);
+    try std.testing.expectEqualStrings("input", output.shapes[0].name);
+    try std.testing.expectEqual(@as(usize, 8), output.batch_size.?);
 }
 
 test "run gcn train benchmark" {

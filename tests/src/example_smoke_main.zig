@@ -4,6 +4,7 @@ const hello_world = @import("examples_hello_world_main");
 const mnist_main = @import("examples_mnist_main");
 const dqn_train = @import("examples_dqn_train");
 const gcn_main = @import("examples_gcn_main");
+const char_lm_main = @import("examples_char_lm_main");
 
 const std_options = .{ .log_level = .info };
 
@@ -36,5 +37,14 @@ pub fn main() !void {
     const gcn_summary = try gcn_main.runSyntheticSmoke();
     if (gcn_summary.epochs_completed != 2 or !std.math.isFinite(gcn_summary.final_loss)) {
         return error.GcnSmokeFailed;
+    }
+
+    const char_lm_summary = try char_lm_main.trainCharLmSmoke();
+    if (char_lm_summary.train_batches == 0 or
+        !std.math.isFinite(char_lm_summary.initial_loss) or
+        !std.math.isFinite(char_lm_summary.final_loss) or
+        char_lm_summary.final_loss >= char_lm_summary.initial_loss)
+    {
+        return error.CharLmSmokeFailed;
     }
 }

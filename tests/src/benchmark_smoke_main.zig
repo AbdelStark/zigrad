@@ -8,6 +8,8 @@ const smoke_specs = [_][]const u8{
     "benchmarks/specs/memory/tensor-cache-cycle-f32-batch8-256x256.json",
     "benchmarks/specs/model-train/mnist-mlp-synthetic.json",
     "benchmarks/specs/model-infer/mnist-mlp-synthetic.json",
+    "benchmarks/specs/model-train/char-lm-synthetic.json",
+    "benchmarks/specs/model-infer/char-lm-synthetic.json",
 };
 
 pub fn main() !void {

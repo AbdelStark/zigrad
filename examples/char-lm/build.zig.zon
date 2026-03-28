@@ -1,0 +1,16 @@
+.{
+    .name = .char_lm,
+    .fingerprint = 0x5b4c6d4e7102a991,
+    .version = "0.0.0",
+    .minimum_zig_version = "0.15.0",
+
+    .dependencies = .{
+        .zigrad = .{ .path = "../../" },
+    },
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

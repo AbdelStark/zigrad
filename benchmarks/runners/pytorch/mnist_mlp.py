@@ -53,6 +53,18 @@ def done_values(batch_size: int, seed: int):
     return values
 
 
+def causal_one_hot_batch(batch_size: int, context_len: int, vocab_size: int, seed: int):
+    token_stream = deterministic_indices(batch_size + context_len, vocab_size, seed)
+    inputs = [0.0] * (batch_size * context_len * vocab_size)
+    labels = [0.0] * (batch_size * vocab_size)
+    for row in range(batch_size):
+        for column in range(context_len):
+            token = token_stream[row + column]
+            inputs[((row * context_len + column) * vocab_size) + token] = 1.0
+        labels[row * vocab_size + token_stream[row + context_len]] = 1.0
+    return inputs, labels
+
+
 def ring_skip_edges(node_count: int, fanout: int = 4):
     src = []
     tgt = []
@@ -167,6 +179,12 @@ def shape_metadata(spec: dict):
             shapes.append({"name": "labels", "dims": spec["label_shape"]})
         return shapes
 
+    if kind in {"char_lm_train", "char_lm_infer"}:
+        shapes = [{"name": "input", "dims": input_shape}]
+        if spec.get("label_shape"):
+            shapes.append({"name": "labels", "dims": spec["label_shape"]})
+        return shapes
+
     if kind == "dqn_cartpole_train":
         return [
             {"name": "state", "dims": input_shape},
@@ -260,7 +278,7 @@ def throughput_shape(spec: dict):
         return math.prod(spec["lhs_shape"]), "matrix-elements"
     if kind == "blas_conv2d_im2col":
         return spec["lhs_shape"][0], "samples"
-    if kind in {"mnist_mlp_train", "mnist_mlp_infer", "dqn_cartpole_train", "dqn_cartpole_infer"}:
+    if kind in {"mnist_mlp_train", "mnist_mlp_infer", "char_lm_train", "char_lm_infer", "dqn_cartpole_train", "dqn_cartpole_infer"}:
         return spec["batch_size"], "samples"
     if kind in {"gcn_train", "gcn_infer"}:
         return spec["input_shape"][0], "nodes"
@@ -293,6 +311,8 @@ def main() -> int:
         "autograd_matvec_backward",
         "mnist_mlp_train",
         "mnist_mlp_infer",
+        "char_lm_train",
+        "char_lm_infer",
         "dqn_cartpole_train",
         "dqn_cartpole_infer",
         "gcn_train",
@@ -343,6 +363,20 @@ def main() -> int:
             x = F.relu(F.linear(x, self.w0, self.b0))
             x = F.relu(F.linear(x, self.w1, self.b1))
             return F.linear(x, self.w2, self.b2)
+
+    class CharLM(torch.nn.Module):
+        def __init__(self, context_len: int, vocab_size: int):
+            super().__init__()
+            hidden_size = max(vocab_size * 2, 64)
+            self.w0 = torch.nn.Parameter(linear_weight(hidden_size, context_len * vocab_size, seed + 1))
+            self.b0 = torch.nn.Parameter(torch.zeros(hidden_size, dtype=torch.float32))
+            self.w1 = torch.nn.Parameter(linear_weight(vocab_size, hidden_size, seed + 2))
+            self.b1 = torch.nn.Parameter(torch.zeros(vocab_size, dtype=torch.float32))
+
+        def forward(self, x):
+            x = x.reshape(x.shape[0], -1)
+            x = F.relu(F.linear(x, self.w0, self.b0))
+            return F.linear(x, self.w1, self.b1)
 
     class GCNModel(torch.nn.Module):
         def __init__(self, in_features: int, out_features: int):
@@ -475,6 +509,32 @@ def main() -> int:
                 _ = model(inputs)
 
         step = train_step if kind == "mnist_mlp_train" else infer_step
+
+    elif kind in {"char_lm_train", "char_lm_infer"}:
+        batch_size = spec["batch_size"]
+        input_shape = spec["input_shape"]
+        context_len = input_shape[1]
+        vocab_size = input_shape[2]
+        model = CharLM(context_len, vocab_size)
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-2, betas=(0.9, 0.999), eps=1e-8)
+        input_values, label_values = causal_one_hot_batch(batch_size, context_len, vocab_size, seed + 29)
+        inputs = torch.tensor(input_values, dtype=torch.float32).reshape(*input_shape)
+        labels = None
+        if kind == "char_lm_train":
+            labels = torch.tensor(label_values, dtype=torch.float32).reshape(batch_size, vocab_size)
+
+        def train_step():
+            logits = model(inputs)
+            loss = -(labels * torch.log_softmax(logits, dim=-1)).sum(dim=-1).mean()
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad(set_to_none=False)
+
+        def infer_step():
+            with torch.no_grad():
+                _ = model(inputs)
+
+        step = train_step if kind == "char_lm_train" else infer_step
 
     elif kind in {"dqn_cartpole_train", "dqn_cartpole_infer"}:
         batch_size = spec["batch_size"]

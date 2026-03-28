@@ -1,0 +1,16 @@
+zigrad keeps eager research loops fast.
+benchmarks make performance claims reproducible.
+graphs carry gradients through every training step.
+examples should stay small, inspectable, and real.
+language models learn one token from the tokens before it.
+host and cuda backends should share the same user workflow.
+the roadmap values correctness before hype.
+small reference models keep the stack honest.
+zigrad keeps eager research loops fast.
+benchmarks make performance claims reproducible.
+graphs carry gradients through every training step.
+examples should stay small, inspectable, and real.
+language models learn one token from the tokens before it.
+host and cuda backends should share the same user workflow.
+the roadmap values correctness before hype.
+small reference models keep the stack honest.
