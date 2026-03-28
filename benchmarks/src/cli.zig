@@ -39,7 +39,7 @@ pub fn run(allocator: std.mem.Allocator, harness_version: []const u8) !void {
     }
 }
 
-fn emitAll(
+pub fn emitAll(
     allocator: std.mem.Allocator,
     writer: anytype,
     specs: []const manifest.Spec,
@@ -138,7 +138,7 @@ fn printUsage() void {
     , .{});
 }
 
-fn loadSpecs(allocator: std.mem.Allocator, options: Options) ![]const manifest.Spec {
+pub fn loadSpecs(allocator: std.mem.Allocator, options: Options) ![]const manifest.Spec {
     var specs = std.ArrayList(manifest.Spec){};
     errdefer specs.deinit(allocator);
 

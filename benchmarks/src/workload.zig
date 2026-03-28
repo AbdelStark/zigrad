@@ -20,6 +20,54 @@ pub const RunOutput = struct {
     notes: ?[]const u8 = null,
 };
 
+pub fn expectedBatchSize(spec: manifest.Spec) ?usize {
+    return switch (spec.kind) {
+        .blas_conv2d_im2col => spec.lhs_shape.?[0],
+        .memory_tensor_cache_cycle,
+        .memory_mnist_train_step,
+        .mnist_mlp_train,
+        .mnist_mlp_infer,
+        .dqn_cartpole_train,
+        .dqn_cartpole_infer,
+        => spec.batch_size,
+        else => null,
+    };
+}
+
+pub fn expectedShapeMetadata(
+    allocator: std.mem.Allocator,
+    spec: manifest.Spec,
+) ![]const result.ShapeMetadata {
+    return switch (spec.kind) {
+        .primitive_add,
+        .primitive_matmul,
+        => shapeMetadataFromPrimitive(allocator, spec),
+        .blas_dot,
+        .autograd_dot_backward,
+        => shapeMetadataFromVectorPair(allocator, spec),
+        .blas_matvec,
+        .autograd_matvec_backward,
+        => shapeMetadataFromMatrixVector(allocator, spec),
+        .blas_conv2d_im2col => blk: {
+            const output_shape = try zg.conv_utils.conv2dOutputShape(spec.lhs_shape.?, spec.rhs_shape.?, .{
+                .stride = spec.stride,
+                .padding = spec.padding,
+                .dilation = spec.dilation,
+            });
+            break :blk try shapeMetadataFromConv2d(allocator, spec, output_shape[0..]);
+        },
+        .memory_tensor_cache_cycle => shapeMetadataFromMemoryBuffer(allocator, spec),
+        .memory_mnist_train_step,
+        .mnist_mlp_train,
+        .mnist_mlp_infer,
+        => shapeMetadataFromMnist(allocator, spec),
+        .dqn_cartpole_train => shapeMetadataFromDqnTrain(allocator, spec),
+        .dqn_cartpole_infer => shapeMetadataFromDqnInfer(allocator, spec),
+        .gcn_train => shapeMetadataFromGcn(allocator, spec, spec.input_shape.?[0] * 4, true),
+        .gcn_infer => shapeMetadataFromGcn(allocator, spec, spec.input_shape.?[0] * 4, false),
+    };
+}
+
 pub fn applyThreadCount(thread_count: ?u32) void {
     const count = thread_count orelse return;
     var value_buf: [32:0]u8 = undefined;

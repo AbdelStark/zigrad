@@ -188,6 +188,7 @@ Regression gating should use broad thresholds first, for example:
 ### Milestone C: Regression Policy
 
 - [x] JSON result comparison utility.
+- [x] Benchmark contract validator for committed specs and emitted JSONL artifacts.
 - [x] CI smoke suite.
 - [x] Published benchmark authoring guide.
 - [x] Thread-sweep execution plus Markdown/JSON scaling reports for host runs.
@@ -214,6 +215,44 @@ Regression gating should use broad thresholds first, for example:
 - Should result archives live in the main repo or an external artifact store?
 
 ## Agentic Context
+
+### 2026-03-28 Benchmark Contract Validator
+
+- Completed:
+  - Added
+    [`benchmarks/src/validate.zig`](../../benchmarks/src/validate.zig),
+    [`benchmarks/src/validate_main.zig`](../../benchmarks/src/validate_main.zig),
+    and the `zig build benchmark-validate` entrypoint in
+    [`build.zig`](../../build.zig)
+    so committed benchmark specs and emitted JSONL artifacts can be validated
+    directly against the RFC-0001 contract.
+  - The validator cross-checks JSONL records against the referenced checked-in
+    spec, enforces summary-stat and metadata invariants, and rejects duplicate
+    result identities within a single artifact before downstream comparison or
+    publication steps consume the output.
+  - Added
+    [`tests/src/benchmark_smoke_main.zig`](../../tests/src/benchmark_smoke_main.zig)
+    and `zig build test-benchmark-smoke`, which executes one representative
+    checked-in spec per suite through the real benchmark harness and then runs
+    the validator on the emitted artifact.
+  - Updated benchmark documentation in
+    [`README.md`](../../README.md),
+    [`benchmarks/README.md`](../../benchmarks/README.md),
+    and [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md).
+- Remains:
+  - Extend the validator as CUDA, compiler, and interop suites add new
+    accelerator-specific fields and benchmark identities.
+  - Decide whether CI should archive validator JSON/text reports alongside the
+    existing comparison outputs once publication workflows mature.
+- Blockers:
+  - None for the host benchmark contract slice; this run validated completely
+    on the local Accelerate host.
+- Validation performed:
+  - `zig build test`
+  - `zig build benchmark-validate`
+  - `zig build test-benchmark-smoke`
+  - `zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json --output .zig-cache/zigrad-benchmark-validate.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/zigrad-benchmark-validate.jsonl`
 
 ### 2026-03-28 Benchmark Provenance Contract
 

@@ -74,6 +74,8 @@ zig build benchmark-primitive
 zig build benchmark-blas
 zig build benchmark-memory
 zig build benchmark-models
+zig build benchmark-validate
+zig build test-benchmark-smoke
 zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl
 zig build benchmark-provider-report -- --input benchmarks/results/accelerate.jsonl --input benchmarks/results/openblas.jsonl --baseline-provider accelerate
 zig build benchmark-thread-report -- --input benchmarks/results/thread-sweep.jsonl --baseline-thread-count 1
@@ -83,6 +85,16 @@ Optional PyTorch baseline execution is available per spec:
 
 ```shell
 zig build benchmark -- --baseline pytorch
+```
+
+The harness now includes a dedicated contract validator. With no extra flags it
+validates the committed spec tree; with `--input` it validates emitted JSONL
+records against the referenced checked-in specs:
+
+```shell
+zig build benchmark-validate
+zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json --output .zig-cache/zigrad-benchmark-validate.jsonl
+zig build benchmark-validate -- --input .zig-cache/zigrad-benchmark-validate.jsonl
 ```
 
 Thread sweeps do not require cloned spec files. The harness accepts repeated
@@ -106,6 +118,10 @@ zig build benchmark-thread-report -- \
 The smoke suite also reports allocator and graph high-water marks for dedicated
 memory benchmarks, including a tensor cache cycle and a synthetic MNIST
 training step.
+
+`zig build test-benchmark-smoke` now exercises one checked-in spec per suite
+through the real benchmark harness and fails if the validator detects contract
+drift in the emitted JSONL artifact.
 
 Provider-sensitive host BLAS correctness can be exercised independently with:
 

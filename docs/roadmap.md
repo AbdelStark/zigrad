@@ -68,7 +68,7 @@ documents we will implement against.
 
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, smoke CI, synthetic BLAS/autograd/memory/MNIST/DQN/GCN plus conv-lowering and broadcast-fallback matmul coverage, and host thread-sweep/scaling-report workflows are landed; Zig JSONL output now carries host BLAS dispatch telemetry, while future CUDA/compiler/interop suites remain. |
+| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/MNIST/DQN/GCN plus conv-lowering and broadcast-fallback matmul coverage, and host thread-sweep/scaling-report workflows are landed; Zig JSONL output now carries host BLAS dispatch telemetry, while future CUDA/compiler/interop suites remain. |
 | RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, a provider-sensitive numerical parity suite, opt-in runtime diagnostics hooks, example runtime smoke coverage for hello-world/MNIST/DQN/GCN, and Markdown/JSON provider plus thread-scaling report generators are landed; oneMKL execution and published provider comparison runs remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Turns experimental CUDA into a supported execution backend. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
@@ -121,6 +121,47 @@ Every RFC in this folder set must maintain:
 - a section describing what will not be done in the RFC.
 
 ## Agentic Context
+
+### RFC-0001 2026-03-28 Benchmark Contract Validator
+
+- Completed:
+  - Added
+    [`benchmarks/src/validate.zig`](../benchmarks/src/validate.zig),
+    [`benchmarks/src/validate_main.zig`](../benchmarks/src/validate_main.zig),
+    and the `zig build benchmark-validate` entrypoint in
+    [`build.zig`](../build.zig),
+    giving RFC-0001 a first-class validator for committed specs and emitted
+    JSONL benchmark artifacts.
+  - The validator cross-checks JSONL records against their referenced
+    checked-in spec, enforces summary-stat and metadata invariants, and rejects
+    duplicate result identities within a file before reports or publication
+    steps consume the output.
+  - Added
+    [`tests/src/benchmark_smoke_main.zig`](../tests/src/benchmark_smoke_main.zig)
+    and `zig build test-benchmark-smoke`, which runs one checked-in spec per
+    suite through the real harness and then validates the generated artifact
+    end-to-end.
+  - Updated
+    [`README.md`](../README.md),
+    [`benchmarks/README.md`](../benchmarks/README.md),
+    and [`benchmarks/AUTHORING.md`](../benchmarks/AUTHORING.md)
+    so the contract-validation workflow is documented alongside the existing
+    comparison and reporting tools.
+- Remains:
+  - Extend the validator as future CUDA, compiler, and interop suites add
+    accelerator-specific result fields and contract checks.
+  - Decide whether CI should persist validator JSON/text reports as artifacts
+    next to comparison output once multi-runner publication flows are wired in.
+- Blockers:
+  - None for the host benchmark contract slice; the validator and smoke path
+    validated locally on the Accelerate host without needing additional
+    providers.
+- Validation:
+  - `zig build test`
+  - `zig build benchmark-validate`
+  - `zig build test-benchmark-smoke`
+  - `zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json --output .zig-cache/zigrad-benchmark-validate.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/zigrad-benchmark-validate.jsonl`
 
 ### RFC-0003 2026-03-28 CUDA Example Enablement Slice
 

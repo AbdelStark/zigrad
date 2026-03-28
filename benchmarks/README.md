@@ -15,6 +15,8 @@ zig build benchmark-blas
 zig build benchmark-autograd
 zig build benchmark-memory
 zig build benchmark-models
+zig build benchmark-validate
+zig build test-benchmark-smoke
 zig build benchmark-compare -- --baseline benchmarks/results/baseline.jsonl --candidate benchmarks/results/latest.jsonl
 zig build benchmark-provider-report -- --input benchmarks/results/accelerate.jsonl --input benchmarks/results/openblas.jsonl --baseline-provider accelerate
 zig build benchmark-thread-report -- --input benchmarks/results/thread-sweep.jsonl --baseline-thread-count 1
@@ -51,6 +53,25 @@ zig build benchmark-compare -- \
   --json-output benchmarks/results/comparison.json \
   --report-output benchmarks/results/comparison.txt
 ```
+
+## Contract Validation
+
+Use the benchmark validator when you need to prove that committed specs and/or
+emitted JSONL artifacts still satisfy the RFC-0001 contract:
+
+```sh
+zig build benchmark-validate
+zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json --output .zig-cache/zigrad-benchmark-validate.jsonl
+zig build benchmark-validate -- --input .zig-cache/zigrad-benchmark-validate.jsonl
+zig build test-benchmark-smoke
+```
+
+`benchmark-validate` checks the selected spec tree when no `--input` is
+provided. When `--input` paths are supplied, it validates each JSONL record
+against the referenced checked-in spec, checks summary-stat invariants, and
+rejects duplicate result identities within a file. `test-benchmark-smoke`
+drives one representative checked-in spec per suite through the real benchmark
+harness and then runs the validator on the generated artifact.
 
 For RFC-0002 host BLAS work, collect one JSONL file per provider and then
 generate a provider matrix report:

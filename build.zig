@@ -269,6 +269,22 @@ pub fn build(b: *Build) !void {
     link(target, benchmark_thread_report_exe, host_blas);
     b.installArtifact(benchmark_thread_report_exe);
 
+    const benchmark_validate_exe = b.addExecutable(.{
+        .name = "benchmark_validate",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("benchmarks/src/validate_main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .imports = &.{
+                .{ .name = "benchmarking", .module = benchmark_module },
+            },
+        }),
+    });
+
+    link(target, benchmark_validate_exe, host_blas);
+    b.installArtifact(benchmark_validate_exe);
+
     const run_benchmark = b.addRunArtifact(benchmark_exe);
     run_benchmark.addArgs(&.{ "--output", "benchmarks/results/latest.jsonl" });
     if (b.args) |args| {
@@ -337,6 +353,13 @@ pub fn build(b: *Build) !void {
     }
     const benchmark_thread_report_step = b.step("benchmark-thread-report", "Generate a host thread-scaling benchmark report");
     benchmark_thread_report_step.dependOn(&run_benchmark_thread_report.step);
+
+    const run_benchmark_validate = b.addRunArtifact(benchmark_validate_exe);
+    if (b.args) |args| {
+        run_benchmark_validate.addArgs(args);
+    }
+    const benchmark_validate_step = b.step("benchmark-validate", "Validate benchmark specs and JSONL artifacts");
+    benchmark_validate_step.dependOn(&run_benchmark_validate.step);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -407,6 +430,26 @@ pub fn build(b: *Build) !void {
     );
     example_smoke_step.dependOn(&run_example_smoke.step);
     test_step.dependOn(&run_example_smoke.step);
+
+    const benchmark_smoke_exe = b.addExecutable(.{
+        .name = "benchmark_smoke",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/src/benchmark_smoke_main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "benchmarking", .module = benchmark_module },
+            },
+        }),
+    });
+    link(target, benchmark_smoke_exe, host_blas);
+    const run_benchmark_smoke = b.addRunArtifact(benchmark_smoke_exe);
+    const benchmark_smoke_step = b.step(
+        "test-benchmark-smoke",
+        "Run benchmark harness smoke validation across representative suites",
+    );
+    benchmark_smoke_step.dependOn(&run_benchmark_smoke.step);
+    test_step.dependOn(&run_benchmark_smoke.step);
 
     const safetensors_unit_tests = b.addTest(.{
         .name = "safetensors_zg",

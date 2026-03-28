@@ -72,10 +72,13 @@ Run the narrowest meaningful validation first:
 
 ```sh
 zig build test
+zig build benchmark-validate
 zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json
 zig build benchmark -- --spec benchmarks/specs/blas/dot-f32-262144.json
 zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json
 zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2
+zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json --output .zig-cache/zigrad-benchmark-validate.jsonl
+zig build benchmark-validate -- --input .zig-cache/zigrad-benchmark-validate.jsonl
 ```
 
 For smoke-scope changes, rerun the standard entrypoints:
@@ -87,11 +90,17 @@ zig build benchmark-autograd
 zig build benchmark-memory
 zig build benchmark-models
 zig build benchmark
+zig build test-benchmark-smoke
 ```
 
 If the benchmark exercises a specific host provider configuration, record that
 explicitly in the command, for example `zig build benchmark -Dhost_blas=openblas`
 or `zig build benchmark -Dhost_blas=mkl`.
+
+Treat `benchmark-validate` as the contract gate for both committed specs and
+generated artifacts. A benchmark change is not complete until either the
+updated spec set or the emitted JSONL artifact for the touched workflow has
+passed through the validator.
 
 ## Regression Comparison
 
