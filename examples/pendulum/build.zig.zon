@@ -1,0 +1,16 @@
+.{
+    .name = .pendulum,
+    .fingerprint = 0x32d760a00f6b1d81,
+    .version = "0.0.0",
+    .minimum_zig_version = "0.15.0",
+
+    .dependencies = .{
+        .zigrad = .{ .path = "../../" },
+    },
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

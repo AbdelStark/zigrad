@@ -34,6 +34,10 @@ def deterministic_indices(count: int, modulus: int, seed: int):
     return values
 
 
+def signed_unit(seed: int):
+    return (splitmix64(seed) % 20_000) / 10_000.0 - 1.0
+
+
 def one_hot(batch_size: int, classes: int, seed: int):
     values = [0.0] * (batch_size * classes)
     for row in range(batch_size):
@@ -62,6 +66,52 @@ def causal_one_hot_batch(batch_size: int, context_len: int, vocab_size: int, see
             token = token_stream[row + column]
             inputs[((row * context_len + column) * vocab_size) + token] = 1.0
         labels[row * vocab_size + token_stream[row + context_len]] = 1.0
+    return inputs, labels
+
+
+def wrap_angle(angle: float):
+    two_pi = math.pi * 2.0
+    while angle > math.pi:
+        angle -= two_pi
+    while angle < -math.pi:
+        angle += two_pi
+    return angle
+
+
+def pendulum_step(theta: float, omega: float, torque: float):
+    gravity = 9.81
+    mass = 1.0
+    length = 1.0
+    damping = 0.08
+    dt = 0.05
+    max_speed = 8.0
+    max_torque = 2.0
+    clipped_torque = max(-max_torque, min(max_torque, torque))
+    inertia = mass * length * length
+    angular_acc = -(gravity / length) * math.sin(theta) - (damping * omega) + (clipped_torque / inertia)
+    next_omega = max(-max_speed, min(max_speed, omega + dt * angular_acc))
+    next_theta = wrap_angle(theta + dt * next_omega)
+    return next_theta, next_omega
+
+
+def pendulum_transition_batch(batch_size: int, seed: int):
+    max_speed = 8.0
+    max_torque = 2.0
+    inputs = [0.0] * (batch_size * 4)
+    labels = [0.0] * (batch_size * 3)
+    for row in range(batch_size):
+        sample_seed = seed + row * 17
+        theta = signed_unit(sample_seed + 1) * math.pi
+        omega = signed_unit(sample_seed + 2) * (max_speed * 0.8)
+        torque = signed_unit(sample_seed + 5) * (max_torque * 0.95)
+        next_theta, next_omega = pendulum_step(theta, omega, torque)
+        inputs[row * 4 + 0] = math.sin(theta)
+        inputs[row * 4 + 1] = math.cos(theta)
+        inputs[row * 4 + 2] = max(-1.0, min(1.0, omega / max_speed))
+        inputs[row * 4 + 3] = max(-1.0, min(1.0, torque / max_torque))
+        labels[row * 3 + 0] = math.sin(next_theta)
+        labels[row * 3 + 1] = math.cos(next_theta)
+        labels[row * 3 + 2] = max(-1.0, min(1.0, next_omega / max_speed))
     return inputs, labels
 
 
@@ -185,6 +235,12 @@ def shape_metadata(spec: dict):
             shapes.append({"name": "labels", "dims": spec["label_shape"]})
         return shapes
 
+    if kind in {"pendulum_dynamics_train", "pendulum_dynamics_infer"}:
+        shapes = [{"name": "input", "dims": input_shape}]
+        if spec.get("label_shape"):
+            shapes.append({"name": "labels", "dims": spec["label_shape"]})
+        return shapes
+
     if kind in {"dqn_cartpole_train", "compiler_dqn_cartpole_capture"}:
         return [
             {"name": "state", "dims": input_shape},
@@ -285,6 +341,8 @@ def throughput_shape(spec: dict):
         "char_lm_train",
         "char_lm_infer",
         "compiler_char_lm_capture",
+        "pendulum_dynamics_train",
+        "pendulum_dynamics_infer",
         "dqn_cartpole_train",
         "dqn_cartpole_infer",
         "compiler_dqn_cartpole_capture",
@@ -325,6 +383,8 @@ def main() -> int:
         "char_lm_train",
         "char_lm_infer",
         "compiler_char_lm_capture",
+        "pendulum_dynamics_train",
+        "pendulum_dynamics_infer",
         "dqn_cartpole_train",
         "dqn_cartpole_infer",
         "compiler_dqn_cartpole_capture",
@@ -424,6 +484,22 @@ def main() -> int:
         def forward(self, x, edge_index):
             x = F.relu(self.layer(x, edge_index, self.w0, self.b0))
             return self.layer(x, edge_index, self.w1, self.b1)
+
+    class PendulumDynamicsModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.w0 = torch.nn.Parameter(linear_weight(48, 4, seed + 1))
+            self.b0 = torch.nn.Parameter(torch.zeros(48, dtype=torch.float32))
+            self.w1 = torch.nn.Parameter(linear_weight(48, 48, seed + 2))
+            self.b1 = torch.nn.Parameter(torch.zeros(48, dtype=torch.float32))
+            self.w2 = torch.nn.Parameter(linear_weight(3, 48, seed + 3))
+            self.b2 = torch.nn.Parameter(torch.zeros(3, dtype=torch.float32))
+
+        def forward(self, x):
+            x = x.reshape(x.shape[0], -1)
+            x = F.relu(F.linear(x, self.w0, self.b0))
+            x = F.relu(F.linear(x, self.w1, self.b1))
+            return F.linear(x, self.w2, self.b2)
 
     def make_leaf_tensor(values, shape):
         return torch.tensor(values, dtype=torch.float32).reshape(*shape).clone().detach().requires_grad_(True)
@@ -571,6 +647,30 @@ def main() -> int:
             step = capture_step
         else:
             step = infer_step
+
+    elif kind in {"pendulum_dynamics_train", "pendulum_dynamics_infer"}:
+        batch_size = spec["batch_size"]
+        input_shape = spec["input_shape"]
+        model = PendulumDynamicsModel()
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-2, betas=(0.9, 0.999), eps=1e-8) if kind == "pendulum_dynamics_train" else None
+        input_values, label_values = pendulum_transition_batch(batch_size, seed + 89)
+        inputs = torch.tensor(input_values, dtype=torch.float32).reshape(*input_shape)
+        labels = None
+        if kind == "pendulum_dynamics_train":
+            labels = torch.tensor(label_values, dtype=torch.float32).reshape(batch_size, 3)
+
+        def train_step():
+            outputs = model(inputs)
+            loss = F.mse_loss(outputs, labels, reduction="mean")
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad(set_to_none=False)
+
+        def infer_step():
+            with torch.no_grad():
+                _ = model(inputs)
+
+        step = train_step if kind == "pendulum_dynamics_train" else infer_step
 
     elif kind in {"dqn_cartpole_train", "dqn_cartpole_infer", "compiler_dqn_cartpole_capture"}:
         batch_size = spec["batch_size"]

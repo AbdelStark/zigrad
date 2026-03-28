@@ -99,6 +99,7 @@ zig build benchmark -- --spec benchmarks/specs/blas/dot-f32-262144.json
 zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json
 zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/char-lm-synthetic.json
+zig build benchmark -- --spec benchmarks/specs/model-infer/pendulum-dynamics-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json
 zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2
 zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json --output .zig-cache/zigrad-benchmark-validate.jsonl

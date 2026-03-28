@@ -41,6 +41,8 @@ pub const Kind = enum {
     mnist_mlp_infer,
     char_lm_train,
     char_lm_infer,
+    pendulum_dynamics_train,
+    pendulum_dynamics_infer,
     dqn_cartpole_train,
     dqn_cartpole_infer,
     gcn_train,
@@ -65,6 +67,8 @@ pub const Kind = enum {
             .mnist_mlp_infer => "mnist_mlp_infer",
             .char_lm_train => "char_lm_train",
             .char_lm_infer => "char_lm_infer",
+            .pendulum_dynamics_train => "pendulum_dynamics_train",
+            .pendulum_dynamics_infer => "pendulum_dynamics_infer",
             .dqn_cartpole_train => "dqn_cartpole_train",
             .dqn_cartpole_infer => "dqn_cartpole_infer",
             .gcn_train => "gcn_train",
@@ -243,6 +247,12 @@ fn validate(path: []const u8, raw: RawSpec) !Spec {
         .char_lm_infer => {
             try requireBatchedModelShapes(raw, false);
         },
+        .pendulum_dynamics_train => {
+            try requireBatchedModelShapes(raw, true);
+        },
+        .pendulum_dynamics_infer => {
+            try requireBatchedModelShapes(raw, false);
+        },
         .dqn_cartpole_train => {
             try requireBatchedModelShapes(raw, false);
         },
@@ -317,6 +327,8 @@ fn parseKind(value: []const u8) !Kind {
     if (std.mem.eql(u8, value, "mnist_mlp_infer")) return .mnist_mlp_infer;
     if (std.mem.eql(u8, value, "char_lm_train")) return .char_lm_train;
     if (std.mem.eql(u8, value, "char_lm_infer")) return .char_lm_infer;
+    if (std.mem.eql(u8, value, "pendulum_dynamics_train")) return .pendulum_dynamics_train;
+    if (std.mem.eql(u8, value, "pendulum_dynamics_infer")) return .pendulum_dynamics_infer;
     if (std.mem.eql(u8, value, "dqn_cartpole_train")) return .dqn_cartpole_train;
     if (std.mem.eql(u8, value, "dqn_cartpole_infer")) return .dqn_cartpole_infer;
     if (std.mem.eql(u8, value, "gcn_train")) return .gcn_train;
@@ -461,6 +473,36 @@ test "load char lm benchmark spec from json slice" {
     try std.testing.expectEqual(@as(usize, 8), spec.batch_size.?);
     try std.testing.expectEqual(@as(usize, 3), spec.input_shape.?.len);
     try std.testing.expectEqual(@as(usize, 24), spec.label_shape.?[1]);
+}
+
+test "load pendulum benchmark spec from json slice" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const raw =
+        \\{
+        \\  "id": "model-train.pendulum-dynamics.synthetic.f32.batch16",
+        \\  "suite": "model-train",
+        \\  "kind": "pendulum_dynamics_train",
+        \\  "dtype": "f32",
+        \\  "warmup_iterations": 1,
+        \\  "measured_iterations": 2,
+        \\  "provenance": {
+        \\    "data_source": "synthetic.splitmix64",
+        \\    "preprocessing": ["generate deterministic pendulum states", "encode theta as sine/cosine features", "simulate next-state targets"]
+        \\  },
+        \\  "batch_size": 16,
+        \\  "input_shape": [16, 4],
+        \\  "label_shape": [16, 3]
+        \\}
+    ;
+    const parsed = try std.json.parseFromSliceLeaky(RawSpec, allocator, raw, .{});
+    const spec = try validate("inline-pendulum.json", parsed);
+
+    try std.testing.expectEqual(Kind.pendulum_dynamics_train, spec.kind);
+    try std.testing.expectEqual(@as(usize, 16), spec.batch_size.?);
+    try std.testing.expectEqual(@as(usize, 4), spec.input_shape.?[1]);
+    try std.testing.expectEqual(@as(usize, 3), spec.label_shape.?[1]);
 }
 
 test "load autograd matvec benchmark spec from json slice" {

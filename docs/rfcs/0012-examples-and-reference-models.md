@@ -108,7 +108,7 @@ documented rather than hidden in bespoke scripts.
 
 - [x] LLM example, initial char-level causal language model reference with
   embedded corpus, smoke coverage, and benchmark hooks.
-- [ ] physics/robotics example.
+- [x] physics/robotics example.
 - [ ] upgraded RL example.
 
 ## Testing Plan
@@ -164,7 +164,6 @@ documented rather than hidden in bespoke scripts.
     specs so the new reference family participates in the maintained benchmark
     surface immediately instead of living only as a demo.
 - Remains:
-  - Add the first physics/control reference example and benchmark hooks.
   - Revisit the `llm` portfolio with a transformer-style model once the
     sequence-model primitive surface grows beyond one-hot MLP baselines.
 - Blockers:
@@ -174,6 +173,49 @@ documented rather than hidden in bespoke scripts.
 - Validation performed:
   - `zig build test-example-smoke`
   - `zig build test-benchmark-smoke`
+
+### 2026-03-28 Pendulum Dynamics Reference Example
+
+- Completed:
+  - Added
+    [`examples/pendulum/src/dataset.zig`](../../examples/pendulum/src/dataset.zig),
+    [`examples/pendulum/src/model.zig`](../../examples/pendulum/src/model.zig),
+    [`examples/pendulum/src/main.zig`](../../examples/pendulum/src/main.zig),
+    [`examples/pendulum/build.zig`](../../examples/pendulum/build.zig),
+    [`examples/pendulum/build.zig.zon`](../../examples/pendulum/build.zig.zon),
+    and
+    [`examples/pendulum/README.md`](../../examples/pendulum/README.md),
+    giving RFC-0012 its first maintained physics/control reference example
+    with deterministic transition generation, regression training, and rollout
+    evaluation from a clean checkout.
+  - Wired the example into repo-level smoke coverage through
+    [`build.zig`](../../build.zig)
+    and
+    [`tests/src/example_smoke_main.zig`](../../tests/src/example_smoke_main.zig),
+    including a rollout-RMSE regression threshold so the new example has a
+    concrete maintained quality bar instead of a compile-only check.
+  - Extended RFC-0001 benchmark coverage with pendulum
+    model-train/model-infer specs, so the maintained physics/control family is
+    exercised through the same benchmark harness as the rest of the reference
+    portfolio.
+  - RFC-0012 now satisfies its acceptance criterion requiring at least one
+    maintained `llm`, one RL/control example, and one physics/robotics-style
+    example.
+- Remains:
+  - Add the upgraded RL/reference-control slice that is still called out in
+    Workstream D.
+  - Revisit the pendulum family with richer control or model-based-planning
+    workflows once the examples program grows beyond single-step dynamics
+    regression.
+- Blockers:
+  - CUDA-capable validation remains unavailable in this environment, so the
+    new example was validated on host only even though it uses the shared
+    runtime-device selector.
+- Validation performed:
+  - `zig build test-example-smoke`
+  - `cd examples/pendulum && ZG_EXAMPLE_SMOKE=1 zig build run`
+  - `zig build test-benchmark-smoke`
+  - `zig build test`
 
 ### 2026-03-28 Device-Safe Losses For Maintained Training Examples
 

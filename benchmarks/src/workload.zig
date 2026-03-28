@@ -2,11 +2,13 @@ const std = @import("std");
 const zg = @import("zigrad");
 const manifest = @import("manifest.zig");
 const metadata = @import("metadata.zig");
+const pendulum_data = @import("examples_pendulum_dataset");
 const result = @import("result.zig");
 const CharLmModel = @import("examples_char_lm_model").CharLmModel;
 const DqnBenchmarkModel = @import("dqn_bench_model.zig").DqnBenchmarkModel;
 const GcnBenchmarkModel = @import("gcn_bench_model.zig").GcnBenchmarkModel;
 const MnistBenchmarkModel = @import("mnist_bench_model.zig").MnistBenchmarkModel;
+const PendulumDynamicsModel = @import("examples_pendulum_model").PendulumDynamicsModel;
 
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 
@@ -92,6 +94,8 @@ pub fn expectedBatchSize(spec: manifest.Spec) ?usize {
         .mnist_mlp_infer,
         .char_lm_train,
         .char_lm_infer,
+        .pendulum_dynamics_train,
+        .pendulum_dynamics_infer,
         .dqn_cartpole_train,
         .dqn_cartpole_infer,
         => spec.batch_size,
@@ -131,6 +135,9 @@ pub fn expectedShapeMetadata(
         .char_lm_train,
         .char_lm_infer,
         => shapeMetadataFromCharLm(allocator, spec),
+        .pendulum_dynamics_train,
+        .pendulum_dynamics_infer,
+        => shapeMetadataFromPendulum(allocator, spec),
         .compiler_dqn_cartpole_capture => shapeMetadataFromDqnTrain(allocator, spec),
         .compiler_gcn_capture => shapeMetadataFromGcn(allocator, spec, spec.input_shape.?[0] * 4, true),
         .dqn_cartpole_train => shapeMetadataFromDqnTrain(allocator, spec),
@@ -229,6 +236,8 @@ pub fn run(allocator: std.mem.Allocator, spec: manifest.Spec) !RunResult {
         .mnist_mlp_infer => runMnistInfer(allocator, spec, &context),
         .char_lm_train => runCharLmTrain(allocator, spec, &context),
         .char_lm_infer => runCharLmInfer(allocator, spec, &context),
+        .pendulum_dynamics_train => runPendulumTrain(allocator, spec, &context),
+        .pendulum_dynamics_infer => runPendulumInfer(allocator, spec, &context),
         .dqn_cartpole_train => runDqnTrain(allocator, spec, &context),
         .dqn_cartpole_infer => runDqnInfer(allocator, spec, &context),
         .gcn_train => runGcnTrain(allocator, spec, &context),
@@ -1293,6 +1302,140 @@ fn runCharLmInfer(allocator: std.mem.Allocator, spec: manifest.Spec, context: *R
     };
 }
 
+fn runPendulumTrain(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
+    const batch_size = spec.batch_size.?;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    const host = context.host();
+    const device = context.device();
+
+    var timer = try std.time.Timer.start();
+    var model = try PendulumDynamicsModel(f32).initWithGraphAndSeed(
+        device,
+        pendulum_data.input_feature_count,
+        pendulumHiddenSize(),
+        pendulum_data.output_feature_count,
+        &graph,
+        spec.seed,
+    );
+    defer model.deinit();
+
+    var adam = zg.optim.Adam.init(allocator, .{
+        .lr = 0.01,
+        .beta1 = 0.9,
+        .beta2 = 0.999,
+        .epsilon = 1e-8,
+    });
+    defer adam.deinit();
+    const optimizer = adam.optimizer();
+    try model.attach_optimizer(optimizer);
+
+    var generated = try pendulum_data.generateTransitions(allocator, batch_size, spec.seed +% 89, .{});
+    defer generated.deinit(allocator);
+
+    const setup_latency_ns = timer.read();
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+
+    for (0..spec.warmup_iterations) |_| {
+        try onePendulumTrainingStep(
+            &graph,
+            device,
+            &model,
+            generated.inputs,
+            spec.input_shape.?,
+            generated.targets,
+            spec.label_shape.?,
+            optimizer,
+        );
+    }
+    maybeResetHostBenchmarkTelemetry(host);
+    for (timings) |*timing| {
+        timer.reset();
+        try onePendulumTrainingStep(
+            &graph,
+            device,
+            &model,
+            generated.inputs,
+            spec.input_shape.?,
+            generated.targets,
+            spec.label_shape.?,
+            optimizer,
+        );
+        timing.* = timer.read();
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromPendulum(allocator, spec),
+        .batch_size = batch_size,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = batch_size,
+        .throughput_unit = "samples",
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runPendulumInfer(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
+    const Tensor = zg.NDTensor(f32);
+    const batch_size = spec.batch_size.?;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    const host = context.host();
+    const device = context.device();
+
+    var timer = try std.time.Timer.start();
+    var model = try PendulumDynamicsModel(f32).initWithGraphAndSeed(
+        device,
+        pendulum_data.input_feature_count,
+        pendulumHiddenSize(),
+        pendulum_data.output_feature_count,
+        &graph,
+        spec.seed,
+    );
+    defer model.deinit();
+    model.set_requires_grad(false);
+
+    var generated = try pendulum_data.generateTransitions(allocator, batch_size, spec.seed +% 97, .{});
+    defer generated.deinit(allocator);
+
+    const input = try Tensor.from_slice(device, generated.inputs, spec.input_shape.?, .{ .graph = &graph });
+    defer input.deinit();
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    const previous_grad_state = zg.runtime.grad_enabled;
+    zg.runtime.grad_enabled = false;
+    defer zg.runtime.grad_enabled = previous_grad_state;
+
+    for (0..spec.warmup_iterations) |_| {
+        const output = try model.forward(input);
+        output.deinit();
+    }
+    maybeResetHostBenchmarkTelemetry(host);
+    for (timings) |*timing| {
+        timer.reset();
+        const output = try model.forward(input);
+        timing.* = timer.read();
+        output.deinit();
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromPendulum(allocator, spec),
+        .batch_size = batch_size,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = batch_size,
+        .throughput_unit = "samples",
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
 fn runDqnTrain(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const batch_size = spec.batch_size.?;
 
@@ -1636,6 +1779,34 @@ fn oneCharLmTrainingStep(
     defer output.deinit();
 
     const loss = try zg.loss.softmax_cross_entropy_loss(f32, output, labels);
+    defer loss.deinit();
+
+    try loss.backward();
+    try optimizer.step();
+    model.zero_grad();
+}
+
+fn onePendulumTrainingStep(
+    graph: *zg.Graph,
+    device: zg.DeviceReference,
+    model: *PendulumDynamicsModel(f32),
+    input_values: []const f32,
+    input_shape: []const usize,
+    label_values: []const f32,
+    label_shape: []const usize,
+    optimizer: zg.Optimizer,
+) !void {
+    const Tensor = zg.NDTensor(f32);
+
+    const input = try Tensor.from_slice(device, input_values, input_shape, .{ .graph = graph });
+    defer input.deinit();
+    const labels = try Tensor.from_slice(device, label_values, label_shape, .{ .graph = graph });
+    defer labels.deinit();
+
+    const output = try model.forward(input);
+    defer output.deinit();
+
+    const loss = try zg.loss.mse_loss(f32, output, labels);
     defer loss.deinit();
 
     try loss.backward();
@@ -2205,6 +2376,16 @@ fn shapeMetadataFromCharLm(allocator: std.mem.Allocator, spec: manifest.Spec) ![
     return shapes;
 }
 
+fn shapeMetadataFromPendulum(allocator: std.mem.Allocator, spec: manifest.Spec) ![]const result.ShapeMetadata {
+    const label_shape_count: usize = if (spec.label_shape == null) 0 else 1;
+    const shapes = try allocator.alloc(result.ShapeMetadata, 1 + label_shape_count);
+    shapes[0] = .{ .name = "input", .dims = spec.input_shape.? };
+    if (spec.label_shape) |label_shape| {
+        shapes[1] = .{ .name = "labels", .dims = label_shape };
+    }
+    return shapes;
+}
+
 fn shapeMetadataFromDqnTrain(allocator: std.mem.Allocator, spec: manifest.Spec) ![]const result.ShapeMetadata {
     const batch_size = spec.batch_size.?;
     const shapes = try allocator.alloc(result.ShapeMetadata, 5);
@@ -2263,6 +2444,10 @@ fn compilerCaptureMemoryStats(
 
 fn charLmHiddenSize(vocab_size: usize) usize {
     return @max(vocab_size * 2, 64);
+}
+
+fn pendulumHiddenSize() usize {
+    return 48;
 }
 
 fn splitmix64(state: u64) u64 {
@@ -2643,6 +2828,71 @@ test "run char lm infer benchmark" {
     try std.testing.expectEqual(@as(usize, 1), output.shapes.len);
     try std.testing.expectEqualStrings("input", output.shapes[0].name);
     try std.testing.expectEqual(@as(usize, 8), output.batch_size.?);
+}
+
+test "run pendulum train benchmark" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const input_shape = [_]usize{ 16, 4 };
+    const label_shape = [_]usize{ 16, 3 };
+    const spec: manifest.Spec = .{
+        .id = "test.pendulum.train",
+        .suite = .model_train,
+        .kind = .pendulum_dynamics_train,
+        .dtype = .f32,
+        .warmup_iterations = 0,
+        .measured_iterations = 1,
+        .batch_size = 16,
+        .thread_count = 1,
+        .seed = 1,
+        .input_shape = input_shape[0..],
+        .label_shape = label_shape[0..],
+        .provenance = inlineProvenance(&.{
+            "generate deterministic pendulum states",
+            "encode theta as sine/cosine features",
+            "simulate next-state regression targets",
+        }),
+        .path = "inline",
+    };
+
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.ok, run_result.status);
+    const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
+    try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
+    try std.testing.expectEqual(@as(usize, 2), output.shapes.len);
+    try std.testing.expectEqualStrings("labels", output.shapes[1].name);
+}
+
+test "run pendulum infer benchmark" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const input_shape = [_]usize{ 16, 4 };
+    const spec: manifest.Spec = .{
+        .id = "test.pendulum.infer",
+        .suite = .model_infer,
+        .kind = .pendulum_dynamics_infer,
+        .dtype = .f32,
+        .warmup_iterations = 0,
+        .measured_iterations = 1,
+        .batch_size = 16,
+        .thread_count = 1,
+        .seed = 1,
+        .input_shape = input_shape[0..],
+        .provenance = inlineProvenance(&.{
+            "generate deterministic pendulum states",
+            "encode theta as sine/cosine features",
+        }),
+        .path = "inline",
+    };
+
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.ok, run_result.status);
+    const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
+    try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
+    try std.testing.expectEqual(@as(usize, 1), output.shapes.len);
+    try std.testing.expectEqualStrings("input", output.shapes[0].name);
 }
 
 test "run gcn train benchmark" {

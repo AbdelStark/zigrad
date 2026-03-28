@@ -1,0 +1,20 @@
+{
+  "id": "model-infer.pendulum-dynamics.synthetic.f32.batch32",
+  "suite": "model-infer",
+  "kind": "pendulum_dynamics_infer",
+  "dtype": "f32",
+  "warmup_iterations": 1,
+  "measured_iterations": 3,
+  "batch_size": 32,
+  "input_shape": [32, 4],
+  "seed": 81761,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "generate deterministic pendulum states",
+      "encode theta as sine/cosine features"
+    ]
+  },
+  "notes": "Three-layer MLP with hidden width 48 predicts sine/cosine next-state targets plus normalized angular velocity.",
+  "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py"
+}

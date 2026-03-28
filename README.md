@@ -61,14 +61,14 @@ records now carry the checked-in spec path, declared benchmark provenance
 discoverable, and captured host thread-environment hints alongside backend
 telemetry. The current smoke suite covers deterministic primitive and BLAS
 workloads, including conv-lowering coverage and a nested-broadcast matmul
-fallback case, plus MNIST MLP, a char-level causal language model,
-CartPole-style DQN, and two-layer GCN workloads. The harness now also includes
-a dedicated `compiler` suite for repeated eager graph-session capture on the
-same maintained families, measuring forward-plus-loss graph construction and
-teardown separately from model setup. Host benchmark/build metadata now records
-the explicit BLAS provider as `accelerate`, `openblas`, or `mkl`, and Zig runs
-also report host BLAS dispatch telemetry so fallback usage is visible in the
-JSONL output:
+fallback case, plus MNIST MLP, a char-level causal language model, pendulum
+dynamics regression, CartPole-style DQN, and two-layer GCN workloads. The
+harness now also includes a dedicated `compiler` suite for repeated eager
+graph-session capture on the same maintained families, measuring
+forward-plus-loss graph construction and teardown separately from model setup.
+Host benchmark/build metadata now records the explicit BLAS provider as
+`accelerate`, `openblas`, or `mkl`, and Zig runs also report host BLAS
+dispatch telemetry so fallback usage is visible in the JSONL output:
 
 ```shell
 zig build benchmark

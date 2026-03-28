@@ -44,6 +44,7 @@ You can also pass runtime arguments through the benchmark executable:
 zig build benchmark -- --baseline pytorch
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/char-lm-synthetic.json
+zig build benchmark -- --spec benchmarks/specs/model-infer/pendulum-dynamics-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json
 zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2 --thread-count 4
@@ -187,12 +188,14 @@ emits both a machine-readable manifest and a Markdown summary for humans.
 - `model-train`
   - synthetic MNIST-style MLP training step
   - synthetic char-level causal language model training step
+  - synthetic pendulum dynamics regression training step
   - synthetic CartPole-shaped DQN training step
   - CUDA-targeted synthetic CartPole-shaped DQN training step spec
   - synthetic two-layer GCN training step on a deterministic graph
 - `model-infer`
   - synthetic MNIST-style MLP inference step
   - synthetic char-level causal language model inference step
+  - synthetic pendulum dynamics regression inference step
   - CUDA-targeted synthetic MNIST-style MLP inference step spec
   - synthetic CartPole-shaped DQN inference step
   - synthetic two-layer GCN inference step on a deterministic graph
@@ -201,7 +204,9 @@ These model benchmarks mirror the repository's reference families while using
 deterministic synthetic inputs, transitions, labels, and graphs so the suite
 runs from a clean checkout without dataset downloads or simulator setup. The
 char-LM workloads mirror [`examples/char-lm/`](../examples/char-lm/) with
-one-hot causal windows and next-token labels.
+one-hot causal windows and next-token labels, while the pendulum workloads
+mirror [`examples/pendulum/`](../examples/pendulum/) with sine/cosine angle
+features plus deterministic next-state regression targets.
 The compiler suite measures repeated eager graph-session capture on persistent
 reference-model parameters, pairing each capture step with explicit graph
 teardown so setup cost stays separate from measured forward-plus-loss graph

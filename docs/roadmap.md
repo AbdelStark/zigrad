@@ -68,7 +68,7 @@ documents we will implement against.
 
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, external baseline-runner smoke validation, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/compiler/MNIST/char-LM/DQN/GCN coverage, conv-lowering and broadcast-fallback matmul coverage, host thread-sweep/scaling-report workflows, and backend-aware CUDA benchmark request specs with explicit skip/fail semantics plus dedicated smoke coverage are landed; future real-GPU and interop suites remain. |
+| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, external baseline-runner smoke validation, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/compiler/MNIST/char-LM/pendulum/DQN/GCN coverage, conv-lowering and broadcast-fallback matmul coverage, host thread-sweep/scaling-report workflows, and backend-aware CUDA benchmark request specs with explicit skip/fail semantics plus dedicated smoke coverage are landed; future real-GPU and interop suites remain. |
 | RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, a provider-sensitive numerical parity suite, opt-in runtime diagnostics hooks, example runtime smoke coverage for hello-world/MNIST/DQN/GCN, and Markdown/JSON provider plus thread-scaling report generators are landed; publication-path smoke validation now covers provider/thread reports and CI emits thread-scaling bundle artifacts, while oneMKL execution and published provider comparison runs remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Runtime selection, diagnostics, CUDA-safe DQN/GCN kernels, backend-dispatched Adam optimizer updates, host-staged loss fallbacks for maintained training workloads, and benchmark-harness integration for checked-in CUDA-targeted specs are landed; real GPU compile/run validation and executed CUDA benchmark suites remain. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
@@ -79,7 +79,7 @@ documents we will implement against.
 | RFC-0009 | MLIR Lowering Pipeline | `Exploratory` | P2 | RFC-0007, RFC-0008 | Optional compiler interoperability layer. |
 | RFC-0010 | ZML Inference Bridge | `Draft` | P2 | RFC-0007 | Enables inference handoff to ZML for pure serving flows. |
 | RFC-0011 | Apache TVM Integration | `Exploratory` | P3 | RFC-0001, RFC-0007, RFC-0009 | External compiler/autotuning path. |
-| RFC-0012 | Examples and Reference Models | `Ready` | P1 | RFC-0001, RFC-0002, RFC-0003 | Maintained smoke coverage now exists for hello-world, MNIST, char-LM, DQN, and GCN; the first `llm` reference example and matching benchmark hooks are landed, while physics/control coverage and a deeper transformer-style portfolio still remain. |
+| RFC-0012 | Examples and Reference Models | `Ready` | P1 | RFC-0001, RFC-0002, RFC-0003 | Maintained smoke coverage now exists for hello-world, MNIST, char-LM, pendulum dynamics, DQN, and GCN; the first `llm` and physics/control reference examples plus matching benchmark hooks are landed, while the upgraded RL slice and a deeper transformer-style portfolio still remain. |
 
 ## Recommended Implementation Order
 
@@ -172,7 +172,6 @@ Every RFC in this folder set must maintain:
     now actively executing on top of the already-landed P0 measurement/backend
     foundations.
 - Remains:
-  - Add the first physics/control reference example.
   - Decide when to replace the MLP-style char-LM with a transformer-style
     sequence model as RFC-0006/RFC-0007 mature.
 - Blockers:
@@ -181,6 +180,47 @@ Every RFC in this folder set must maintain:
 - Validation:
   - `zig build test-example-smoke`
   - `zig build test-benchmark-smoke`
+
+### RFC-0001/RFC-0012 2026-03-28 Pendulum Dynamics Reference Example And Benchmark Slice
+
+- Completed:
+  - Landed a maintained physics/control reference example under
+    [`examples/pendulum/`](../examples/pendulum/)
+    with deterministic pendulum transition generation, standalone build files,
+    README guidance, regression training, and rollout evaluation from a clean
+    checkout.
+  - Wired the example into repo-level smoke coverage through
+    [`build.zig`](../build.zig)
+    and
+    [`tests/src/example_smoke_main.zig`](../tests/src/example_smoke_main.zig),
+    including a rollout-RMSE smoke threshold so the new maintained example has
+    explicit quality gating.
+  - Extended RFC-0001’s maintained benchmark surface with checked-in pendulum
+    train/infer specs, workload execution, smoke coverage, and optional
+    PyTorch baseline support in
+    [`benchmarks/src/manifest.zig`](../benchmarks/src/manifest.zig),
+    [`benchmarks/src/workload.zig`](../benchmarks/src/workload.zig),
+    [`benchmarks/specs/model-train/pendulum-dynamics-synthetic.json`](../benchmarks/specs/model-train/pendulum-dynamics-synthetic.json),
+    [`benchmarks/specs/model-infer/pendulum-dynamics-synthetic.json`](../benchmarks/specs/model-infer/pendulum-dynamics-synthetic.json),
+    and
+    [`benchmarks/runners/pytorch/mnist_mlp.py`](../benchmarks/runners/pytorch/mnist_mlp.py).
+  - RFC-0012 now satisfies its maintained-portfolio acceptance criterion for
+    one `llm`, one RL/control example, and one physics/robotics-oriented
+    example.
+- Remains:
+  - Add the upgraded RL/reference-control slice still listed in RFC-0012.
+  - Decide whether the pendulum family should gain compiler-capture coverage
+    once RFC-0006 and RFC-0007 expose a stronger graph pipeline.
+- Blockers:
+  - CUDA-capable validation remains unavailable in this environment, so the
+    new example and benchmark slice were verified on host only.
+- Validation:
+  - `zig build test-example-smoke`
+  - `cd examples/pendulum && ZG_EXAMPLE_SMOKE=1 zig build run`
+  - `zig build test-benchmark-smoke`
+  - `zig build benchmark -- --spec benchmarks/specs/model-infer/pendulum-dynamics-synthetic.json --baseline pytorch --output .zig-cache/pendulum-dynamics-baseline.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/pendulum-dynamics-baseline.jsonl`
+  - `zig build test`
 
 ### RFC-0001 2026-03-28 Char-LM Benchmark Coverage
 

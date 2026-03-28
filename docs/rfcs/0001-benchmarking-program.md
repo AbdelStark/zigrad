@@ -306,6 +306,42 @@ Regression gating should use broad thresholds first, for example:
   - `zig build test-example-smoke`
   - `zig build test-benchmark-smoke`
 
+### 2026-03-28 Pendulum Dynamics Benchmark Coverage
+
+- Completed:
+  - Extended
+    [`benchmarks/src/manifest.zig`](../../benchmarks/src/manifest.zig),
+    [`benchmarks/src/workload.zig`](../../benchmarks/src/workload.zig), and
+    [`benchmarks/runners/pytorch/mnist_mlp.py`](../../benchmarks/runners/pytorch/mnist_mlp.py)
+    with `pendulum_dynamics_train` and `pendulum_dynamics_infer`, so RFC-0001
+    now benchmarks a maintained physics/control workload alongside MNIST,
+    char-LM, DQN, and GCN.
+  - Added checked-in specs in
+    [`benchmarks/specs/model-train/pendulum-dynamics-synthetic.json`](../../benchmarks/specs/model-train/pendulum-dynamics-synthetic.json)
+    and
+    [`benchmarks/specs/model-infer/pendulum-dynamics-synthetic.json`](../../benchmarks/specs/model-infer/pendulum-dynamics-synthetic.json),
+    plus smoke coverage through
+    [`tests/src/benchmark_smoke_main.zig`](../../tests/src/benchmark_smoke_main.zig).
+  - Updated
+    [`README.md`](../../README.md),
+    [`benchmarks/README.md`](../../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md)
+    so the new physics/control benchmark surface is documented next to the
+    existing reference-model workflows.
+- Remains:
+  - Add compiler-capture coverage for the pendulum family once RFC-0006 and
+    RFC-0007 expose a meaningful captured-graph optimization path for this
+    workload.
+  - Capture and publish broader pendulum benchmark result sets once dedicated
+    publication runs are scheduled.
+- Blockers:
+  - CUDA-capable validation remains unavailable in this environment, so the
+    new benchmark slice was validated on host only.
+- Validation performed:
+  - `zig build test-benchmark-smoke`
+  - `zig build benchmark -- --spec benchmarks/specs/model-infer/pendulum-dynamics-synthetic.json --baseline pytorch --output .zig-cache/pendulum-dynamics-baseline.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/pendulum-dynamics-baseline.jsonl`
+
 ### 2026-03-28 Backend-Aware CUDA Benchmark Requests
 
 - Completed:

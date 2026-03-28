@@ -5,6 +5,7 @@ const mnist_main = @import("examples_mnist_main");
 const dqn_train = @import("examples_dqn_train");
 const gcn_main = @import("examples_gcn_main");
 const char_lm_main = @import("examples_char_lm_main");
+const pendulum_main = @import("examples_pendulum_main");
 
 const std_options = .{ .log_level = .info };
 
@@ -46,5 +47,16 @@ pub fn main() !void {
         char_lm_summary.final_loss >= char_lm_summary.initial_loss)
     {
         return error.CharLmSmokeFailed;
+    }
+
+    const pendulum_summary = try pendulum_main.trainPendulumSmoke();
+    if (pendulum_summary.train_batches == 0 or
+        !std.math.isFinite(pendulum_summary.initial_loss) or
+        !std.math.isFinite(pendulum_summary.final_loss) or
+        !std.math.isFinite(pendulum_summary.rollout_rmse) or
+        pendulum_summary.final_loss >= pendulum_summary.initial_loss or
+        pendulum_summary.rollout_rmse >= 0.35)
+    {
+        return error.PendulumSmokeFailed;
     }
 }
