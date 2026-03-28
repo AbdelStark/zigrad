@@ -151,3 +151,47 @@ support:
 - Multi-stream scheduling once lazy tensors exist.
 - NCCL/GPU distributed work after the single-device path is stable.
 - Kernel autotuning or TVM-assisted generation later in the roadmap.
+
+## Agentic Context
+
+### 2026-03-28 Runtime Device Selection + CUDA Diagnostics
+
+- Completed:
+  - Added shared runtime-device selection in
+    [`src/device/runtime_device.zig`](../../src/device/runtime_device.zig),
+    exported through [`src/device.zig`](../../src/device.zig) and
+    [`src/zigrad.zig`](../../src/zigrad.zig), so callers can request
+    `ZG_DEVICE=host|cpu|cuda[:index]` with explicit build-time and availability
+    errors.
+  - Added public CUDA diagnostics in
+    [`src/device/cuda_device.zig`](../../src/device/cuda_device.zig) covering
+    selected device id, device name, compute capability, multiprocessor count,
+    total global memory, and CUDA driver/runtime versions, plus the
+    `ZG_CUDA_DIAGNOSTICS=1` opt-in logging hook.
+  - Fixed CUDA context teardown in
+    [`src/cuda/cuda_utils.cu`](../../src/cuda/cuda_utils.cu) and
+    [`src/cuda/device_properties.cu`](../../src/cuda/device_properties.cu) by
+    surfacing `deinit_device(...)` and destroying the owned `CUcontext` during
+    `CudaDevice.deinit()`.
+  - Updated standalone example build scripts under [`examples/`](../../examples/)
+    to accept `-Denable_cuda=true` and `-Drebuild_cuda=true`, and wired the
+    hello-world plus MNIST entrypoints to the shared selector.
+  - Added host-copy helpers in [`src/ndtensor.zig`](../../src/ndtensor.zig) so
+    the MNIST evaluation path no longer assumes host-backed tensor storage when
+    reading prediction batches.
+- Remains:
+  - Validate the CUDA runtime path on a real toolkit/device combination.
+  - Add dedicated CUDA smoke and benchmark runs once GPU-capable runners are
+    available.
+  - Finish the remaining device-safety work in DQN and GCN before those
+    examples opt into CUDA execution.
+- Blockers:
+  - This macOS host had no CUDA toolkit or CUDA device available, so the run
+    validated only the non-CUDA build path plus the new explicit error/reporting
+    surfaces.
+- Validation performed:
+  - `zig build test`
+  - `cd examples/hello-world && zig build run`
+  - `cd examples/hello-world && zig build --help | rg "enable_cuda|rebuild_cuda|host_blas"`
+  - `cd examples/dqn && zig build --help | rg "enable_cuda|rebuild_cuda|host_blas"`
+  - `cd examples/gcn && zig build --help | rg "enable_cuda|rebuild_cuda|host_blas"`

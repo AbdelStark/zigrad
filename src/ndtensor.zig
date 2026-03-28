@@ -184,6 +184,26 @@ pub fn NDTensor(comptime T: type) type {
             return self.data.get_data();
         }
 
+        pub fn copy_to_host(self: *const Self, dst: []T) !void {
+            if (dst.len != self.get_size()) return error.InvalidHostCopySize;
+
+            if (self.device.is_host()) {
+                @memcpy(dst, self.get_data());
+                return;
+            }
+
+            self.device.sync();
+            self.device.mem_transfer(T, self.get_data(), dst, .DtoH);
+            self.device.sync();
+        }
+
+        pub fn to_host_owned(self: *const Self, allocator: std.mem.Allocator) ![]T {
+            const host = try allocator.alloc(T, self.get_size());
+            errdefer allocator.free(host);
+            try self.copy_to_host(host);
+            return host;
+        }
+
         pub fn get_dim(self: *const Self, i: usize) usize {
             return self.data.shape.get(i);
         }
@@ -2322,6 +2342,25 @@ test "tensor/Graph/getter-setter" {
         try std.testing.expectEqualSlices(f32, &.{ 1, 1, 1, 1, 1 }, t2.get_data());
     }
 
+}
+
+test "tensor/to_host_owned duplicates tensor contents" {
+    var cpu = zg.device.HostDevice.init();
+    defer cpu.deinit();
+
+    const device = cpu.reference();
+
+    var graph = Graph.init(std.testing.allocator, .{});
+    defer graph.deinit();
+
+    const Tensor = NDTensor(f32);
+    const tensor = try Tensor.from_slice(device, &.{ 1, 2, 3, 4 }, &.{ 2, 2 }, .{ .graph = &graph });
+    defer tensor.deinit();
+
+    const host = try tensor.to_host_owned(std.testing.allocator);
+    defer std.testing.allocator.free(host);
+
+    try std.testing.expectEqualSlices(f32, &.{ 1, 2, 3, 4 }, host);
 }
 
 test "tensor/pow" {

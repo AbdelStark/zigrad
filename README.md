@@ -148,6 +148,11 @@ For runtime diagnostics outside the benchmark harness, set
 program. The snapshot reports the configured host provider, provider-specific
 threading environment hints, and any observed batched-matmul fallback usage.
 
+CUDA-enabled builds also expose runtime device metadata. Set
+`ZG_CUDA_DIAGNOSTICS=1` when running a CUDA-capable example to log the selected
+device id, device name, compute capability, multiprocessor count, total global
+memory, and CUDA driver/runtime versions.
+
 Benchmark authoring and smoke-policy guidance live in
 [`benchmarks/AUTHORING.md`](./benchmarks/AUTHORING.md).
 
@@ -200,6 +205,10 @@ We did not have to use Zigrad's modules to write this network at all, as Zigrad 
 
 Only dependency is a BLAS library.
 
+CUDA remains optional and experimental. When an example supports it, build with
+`-Denable_cuda=true` and select the runtime backend with
+`ZG_DEVICE=host|cpu|cuda[:index]`.
+
 ### Linux
 
 On linux (or intel mac) you have some options,
@@ -229,6 +238,9 @@ Hello world example shows how to run a backward pass using the `GraphManager.` N
 git clone https://github.com/Marco-Christiani/zigrad/
 cd zigrad/examples/hello-world
 zig build run
+
+# Optional CUDA runtime selection when built with CUDA enabled
+ZG_DEVICE=cuda zig build run -Denable_cuda=true
 ```
 
 Run the mnist demo
@@ -237,7 +249,17 @@ Run the mnist demo
 cd zigrad/examples/mnist
 make help
 make
+
+# Optional CUDA smoke run when built with CUDA enabled
+ZG_DEVICE=cuda ZG_EXAMPLE_SMOKE=1 zig build run -Denable_cuda=true
 ```
+
+Runtime backend expectations are now explicit:
+
+- `examples/hello-world` and `examples/mnist` support
+  `ZG_DEVICE=host|cpu|cuda[:index]`.
+- `examples/dqn` and `examples/gcn` currently remain host-only and reject CUDA
+  requests until their remaining device-safety work lands.
 
 Fast smoke-mode entrypoints are also available for runtime validation without
 full datasets or long training loops:

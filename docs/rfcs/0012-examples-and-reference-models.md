@@ -137,3 +137,32 @@ documented rather than hidden in bespoke scripts.
 - Should Mujoco live inside the main repo, or remain an optional external setup?
 - How much artifact caching should the repo standardize?
 
+## Agentic Context
+
+### 2026-03-28 Explicit Example Backend Expectations
+
+- Completed:
+  - Moved the maintained example entrypoints onto the shared runtime-device
+    selector from [`src/device/runtime_device.zig`](../../src/device/runtime_device.zig),
+    so backend intent now lives in code instead of ad hoc commented-out device
+    setup.
+  - Marked current backend expectations explicitly: hello-world and MNIST can
+    request CUDA when built with `-Denable_cuda=true`, while DQN and GCN remain
+    host-only until their device-safety audits are completed.
+  - Updated the standalone example build scripts and README surfaces so the
+    repo now documents the same backend contract that the code enforces.
+  - Removed a host-storage assumption from MNIST evaluation by adding the
+    `NDTensor.to_host_owned(...)` helper in [`src/ndtensor.zig`](../../src/ndtensor.zig).
+- Remains:
+  - Audit and migrate the DQN and GCN reference paths so they can participate
+    in RFC-0003 CUDA validation instead of rejecting CUDA requests.
+  - Add dedicated README coverage for the MNIST and hello-world runtime device
+    contract if those examples grow beyond the top-level README guidance.
+- Blockers:
+  - No CUDA hardware was available in this run, so the newly declared backend
+    expectations were validated on host plus explicit error behavior only.
+- Validation performed:
+  - `zig build test`
+  - `cd examples/hello-world && zig build --help | rg "enable_cuda|rebuild_cuda|host_blas"`
+  - `cd examples/dqn && zig build --help | rg "enable_cuda|rebuild_cuda|host_blas"`
+  - `cd examples/gcn && zig build --help | rg "enable_cuda|rebuild_cuda|host_blas"`

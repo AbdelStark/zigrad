@@ -10,15 +10,9 @@ const log = std.log.scoped(.gnn);
 const T = f32;
 const Optimizer = zg.optim.Adam;
 
-fn maybeWriteHostDiagnostics(cpu: *const zg.device.HostDevice, label: []const u8, include_telemetry: bool) void {
-    _ = cpu.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
-        .label = label,
-        .include_telemetry = include_telemetry,
-    }) catch {};
-}
-
 pub const RunConfig = struct {
     num_epochs: usize = 50,
+    device_request: ?zg.device.RuntimeDeviceRequest = null,
 };
 
 pub const RunSummary = struct {
@@ -50,12 +44,18 @@ pub fn run_cora_with_config(data_dir: []const u8, config: RunConfig) !RunSummary
     });
     defer zg.global_graph_deinit();
 
-    var cpu = zg.device.HostDevice.init();
-    defer cpu.deinit();
-    maybeWriteHostDiagnostics(&cpu, "gcn:start", false);
-    defer maybeWriteHostDiagnostics(&cpu, "gcn:summary", true);
+    var runtime_device = try zg.device.initRuntimeDevice(config.device_request, .{ .allow_cuda = false });
+    defer runtime_device.deinit();
+    _ = runtime_device.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
+        .label = "gcn:start",
+        .include_telemetry = false,
+    }) catch {};
+    defer _ = runtime_device.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
+        .label = "gcn:summary",
+        .include_telemetry = true,
+    }) catch {};
 
-    const device = cpu.reference();
+    const device = runtime_device.reference();
 
     var buf1: [1024]u8 = undefined;
     var buf2: [1024]u8 = undefined;
@@ -84,12 +84,18 @@ pub fn runSyntheticSmoke() !RunSummary {
     });
     defer zg.global_graph_deinit();
 
-    var cpu = zg.device.HostDevice.init();
-    defer cpu.deinit();
-    maybeWriteHostDiagnostics(&cpu, "gcn:start", false);
-    defer maybeWriteHostDiagnostics(&cpu, "gcn:summary", true);
+    var runtime_device = try zg.device.initRuntimeDevice(config.device_request, .{ .allow_cuda = false });
+    defer runtime_device.deinit();
+    _ = runtime_device.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
+        .label = "gcn:start",
+        .include_telemetry = false,
+    }) catch {};
+    defer _ = runtime_device.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
+        .label = "gcn:summary",
+        .include_telemetry = true,
+    }) catch {};
 
-    const device = cpu.reference();
+    const device = runtime_device.reference();
     const dataset = try Dataset(T).loadSyntheticSmoke(device);
     defer dataset.deinit();
 

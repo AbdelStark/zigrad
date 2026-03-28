@@ -1,5 +1,11 @@
 # gcn
 
+## Backend expectation
+
+This reference example is currently host-only. The message-passing path still
+contains host-view assumptions, so `ZG_DEVICE=cuda` is rejected intentionally
+until the remaining device-safety work is completed.
+
 ## download dataset
 
 ```bash

@@ -21,6 +21,7 @@ pub const TrainConfig = struct {
     train_every: usize = 1,
     early_stop_window: usize = 100,
     early_stop_reward: ?T = 195,
+    device_request: ?zg.device.RuntimeDeviceRequest = null,
 };
 
 pub const TrainSummary = struct {
@@ -29,13 +30,6 @@ pub const TrainSummary = struct {
     optimization_steps: usize,
     solved: bool,
 };
-
-fn maybeWriteHostDiagnostics(cpu: *const zg.device.HostDevice, label: []const u8, include_telemetry: bool) void {
-    _ = cpu.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
-        .label = label,
-        .include_telemetry = include_telemetry,
-    }) catch {};
-}
 
 pub fn trainDQN() !void {
     _ = try trainDQNWithConfig(.{});
@@ -61,11 +55,17 @@ pub fn trainDQNWithConfig(config: TrainConfig) !TrainSummary {
     if (config.batch_size == 0) return error.InvalidBatchSize;
     if (config.train_every == 0) return error.InvalidTrainInterval;
 
-    var cpu = zg.device.HostDevice.init();
-    defer cpu.deinit();
-    maybeWriteHostDiagnostics(&cpu, "dqn:start", false);
-    defer maybeWriteHostDiagnostics(&cpu, "dqn:summary", true);
-    const device = cpu.reference();
+    var runtime_device = try zg.device.initRuntimeDevice(config.device_request, .{ .allow_cuda = false });
+    defer runtime_device.deinit();
+    _ = runtime_device.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
+        .label = "dqn:start",
+        .include_telemetry = false,
+    }) catch {};
+    defer _ = runtime_device.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
+        .label = "dqn:summary",
+        .include_telemetry = true,
+    }) catch {};
+    const device = runtime_device.reference();
 
     // Zigrad has a global graph that can be overriden for user-provided graphs.
     zg.global_graph_init(std.heap.smp_allocator, .{

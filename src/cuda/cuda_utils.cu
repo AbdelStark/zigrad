@@ -70,12 +70,50 @@ extern "C" DevicePropertiesWrapper init_device(unsigned device_number) {
   cudaDeviceProp deviceProp;
   CUDA_ASSERT(cudaGetDeviceProperties(&deviceProp, device));
 
-  return DeviceProperties::wrap(new DeviceProperties(deviceProp));
+  return DeviceProperties::wrap(new DeviceProperties(deviceProp, device, context));
 }
 
 extern "C" void deinit_device(DevicePropertiesWrapper wrapper) {
   auto properties = DeviceProperties::unwrap(wrapper);
+  CURESULT_ASSERT(cuCtxDestroy(properties->context));
   delete properties;
+}
+
+extern "C" const char *device_name(DevicePropertiesWrapper wrapper) {
+  const auto properties = DeviceProperties::unwrap(wrapper);
+  return properties->name;
+}
+
+extern "C" len_t device_compute_capability_major(DevicePropertiesWrapper wrapper) {
+  const auto properties = DeviceProperties::unwrap(wrapper);
+  return properties->compute_version.major;
+}
+
+extern "C" len_t device_compute_capability_minor(DevicePropertiesWrapper wrapper) {
+  const auto properties = DeviceProperties::unwrap(wrapper);
+  return properties->compute_version.minor;
+}
+
+extern "C" len_t device_multiprocessor_count(DevicePropertiesWrapper wrapper) {
+  const auto properties = DeviceProperties::unwrap(wrapper);
+  return properties->multi_processor_count;
+}
+
+extern "C" size_t device_total_global_memory(DevicePropertiesWrapper wrapper) {
+  const auto properties = DeviceProperties::unwrap(wrapper);
+  return properties->memory.total_global;
+}
+
+extern "C" int cuda_driver_version() {
+  int version = 0;
+  CURESULT_ASSERT(cuDriverGetVersion(&version));
+  return version;
+}
+
+extern "C" int cuda_runtime_version() {
+  int version = 0;
+  CUDA_ASSERT(cudaRuntimeGetVersion(&version));
+  return version;
 }
 
 // Convenience wrapper for cudaGetLastError.

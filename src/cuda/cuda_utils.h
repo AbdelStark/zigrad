@@ -18,10 +18,18 @@ EXTERN_C len_t mem_page_size(unsigned device_id);
 
 // device api
 EXTERN_C DevicePropertiesWrapper init_device(unsigned);
+EXTERN_C void deinit_device(DevicePropertiesWrapper);
 EXTERN_C void check_last_error();
 EXTERN_C void device_synchronize();
 EXTERN_C len_t device_total_memory(unsigned);
 EXTERN_C unsigned device_count();
+EXTERN_C const char* device_name(DevicePropertiesWrapper);
+EXTERN_C len_t device_compute_capability_major(DevicePropertiesWrapper);
+EXTERN_C len_t device_compute_capability_minor(DevicePropertiesWrapper);
+EXTERN_C len_t device_multiprocessor_count(DevicePropertiesWrapper);
+EXTERN_C size_t device_total_global_memory(DevicePropertiesWrapper);
+EXTERN_C int cuda_driver_version();
+EXTERN_C int cuda_runtime_version();
 
 // stream api
 EXTERN_C StreamWrapper init_stream();

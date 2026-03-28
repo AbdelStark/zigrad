@@ -3,6 +3,8 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const enable_cuda = b.option(bool, "enable_cuda", "Enable CUDA") orelse false;
+    const rebuild_cuda = b.option(bool, "rebuild_cuda", "Rebuild CUDA") orelse false;
     const legacy_enable_mkl = b.option(bool, "enable_mkl", "Deprecated: use -Dhost_blas=mkl.") orelse false;
     const host_blas = b.option([]const u8, "host_blas", "Host BLAS provider: auto|accelerate|openblas|mkl.") orelse if (legacy_enable_mkl) "mkl" else "auto";
 
@@ -11,6 +13,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .tracy_enable = false,
         .host_blas = host_blas,
+        .enable_cuda = enable_cuda,
+        .rebuild_cuda = rebuild_cuda,
     });
     const tensorboard_dep = b.dependency("tensorboard", .{
         .target = target,

@@ -615,3 +615,42 @@ Every RFC in this folder set must maintain:
   - `zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json --output /tmp/zigrad-conv-benchmark.jsonl`
   - `zig build benchmark-blas -- --output /tmp/zigrad-blas.jsonl`
   - `zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json --baseline pytorch --output /tmp/zigrad-conv-benchmark-baseline.jsonl`
+
+### RFC-0003 2026-03-28 Runtime Device Selection + CUDA Diagnostics
+
+- Completed:
+  - Added shared runtime-device selection in
+    [`src/device/runtime_device.zig`](../src/device/runtime_device.zig) and
+    exported it through [`src/device.zig`](../src/device.zig) plus
+    [`src/zigrad.zig`](../src/zigrad.zig), establishing the runtime contract
+    `ZG_DEVICE=host|cpu|cuda[:index]`.
+  - Added public CUDA runtime diagnostics in
+    [`src/device/cuda_device.zig`](../src/device/cuda_device.zig), including
+    selected device metadata and CUDA driver/runtime version reporting behind
+    `ZG_CUDA_DIAGNOSTICS=1`.
+  - Fixed CUDA context teardown in
+    [`src/cuda/cuda_utils.cu`](../src/cuda/cuda_utils.cu) and
+    [`src/cuda/device_properties.cu`](../src/cuda/device_properties.cu), so
+    `CudaDevice.deinit()` now releases the owned `CUcontext` instead of leaking
+    it.
+  - Updated the standalone example build entrypoints for hello-world, DQN, and
+    GCN to expose `-Denable_cuda` / `-Drebuild_cuda`, and wired hello-world plus
+    MNIST to the shared selector while explicitly keeping DQN and GCN host-only
+    until their device-safety work lands.
+  - Added `NDTensor.copy_to_host(...)` /
+    `NDTensor.to_host_owned(...)` in [`src/ndtensor.zig`](../src/ndtensor.zig)
+    and used them in the MNIST evaluation path so prediction reads no longer
+    assume host-backed storage.
+- Remains:
+  - Validate the CUDA runtime path on actual GPU hardware.
+  - Add dedicated CUDA smoke/benchmark coverage.
+  - Migrate DQN and GCN off their remaining host-view assumptions.
+- Blockers:
+  - No CUDA toolkit or CUDA device was available on this machine, so this run
+    validated only the host path plus the new error/reporting surfaces.
+- Validation:
+  - `zig build test`
+  - `cd examples/hello-world && zig build run`
+  - `cd examples/hello-world && zig build --help | rg "enable_cuda|rebuild_cuda|host_blas"`
+  - `cd examples/dqn && zig build --help | rg "enable_cuda|rebuild_cuda|host_blas"`
+  - `cd examples/gcn && zig build --help | rg "enable_cuda|rebuild_cuda|host_blas"`

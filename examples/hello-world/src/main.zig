@@ -17,13 +17,6 @@ pub const zigrad_settings: zg.Settings = .{
     },
 };
 
-fn maybeWriteHostDiagnostics(cpu: *const zg.device.HostDevice, label: []const u8, include_telemetry: bool) void {
-    _ = cpu.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
-        .label = label,
-        .include_telemetry = include_telemetry,
-    }) catch {};
-}
-
 pub fn main() !void {
     const allocator = std.heap.smp_allocator;
 
@@ -36,13 +29,19 @@ pub fn main() !void {
 
     // Create a device that will provide blas,
     // tensor, and nn functionality.
-    var cpu = zg.device.HostDevice.init();
-    defer cpu.deinit();
-    maybeWriteHostDiagnostics(&cpu, "hello-world:start", false);
-    defer maybeWriteHostDiagnostics(&cpu, "hello-world:summary", true);
+    var runtime_device = try zg.device.initRuntimeDevice(null, .{ .allow_cuda = true });
+    defer runtime_device.deinit();
+    _ = runtime_device.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
+        .label = "hello-world:start",
+        .include_telemetry = false,
+    }) catch {};
+    defer _ = runtime_device.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
+        .label = "hello-world:summary",
+        .include_telemetry = true,
+    }) catch {};
 
     // Generic device interface (union of pointers)
-    const device = cpu.reference();
+    const device = runtime_device.reference();
 
     // Create a uniformly random tensor
     const x = try zg.NDTensor(f32).random(device, &.{ 32, 32 }, .uniform, .{});

@@ -19,19 +19,13 @@ pub const zigrad_settings: zg.Settings = .{
     },
 };
 
-fn maybeWriteHostDiagnostics(cpu: *const zg.device.HostDevice, label: []const u8, include_telemetry: bool) void {
-    _ = cpu.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
-        .label = label,
-        .include_telemetry = include_telemetry,
-    }) catch {};
-}
-
 pub const RunConfig = struct {
     batch_size: usize = 64,
     num_epochs: usize = 3,
     verbose: ?bool = null,
     load_path: ?[]const u8 = "mnist.stz",
     save_path: ?[]const u8 = "mnist.stz",
+    device_request: ?zg.device.RuntimeDeviceRequest = null,
 };
 
 pub const RunSummary = struct {
@@ -56,17 +50,17 @@ pub fn run_mnist_with_config(train_path: []const u8, test_path: []const u8, conf
     });
     defer zg.global_graph_deinit();
 
-    var cpu = zg.device.HostDevice.init();
-    defer cpu.deinit();
-    maybeWriteHostDiagnostics(&cpu, "mnist:start", false);
-    defer maybeWriteHostDiagnostics(&cpu, "mnist:summary", true);
-    const device = cpu.reference();
-
-    // std.debug.print("initializing device...", .{});
-    // var gpu = zg.device.CudaDevice.init(0);
-    // defer gpu.deinit();
-    // std.debug.print("Done\n", .{});
-    // const device = gpu.reference();
+    var runtime_device = try zg.device.initRuntimeDevice(config.device_request, .{ .allow_cuda = true });
+    defer runtime_device.deinit();
+    _ = runtime_device.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
+        .label = "mnist:start",
+        .include_telemetry = false,
+    }) catch {};
+    defer _ = runtime_device.maybeWriteRuntimeDiagnostics(std.fs.File.stderr().deprecatedWriter(), .{
+        .label = "mnist:summary",
+        .include_telemetry = true,
+    }) catch {};
+    const device = runtime_device.reference();
 
     var sgd = zg.optim.SGD.init(std.heap.smp_allocator, .{
         .lr = 0.01,
@@ -199,17 +193,22 @@ pub fn main() !void {
 
 fn eval_mnist(model: *MnistModel(T), dataset: MnistDataset(T)) !struct { correct: f32, n: u32, acc: f32 } {
     zg.runtime.grad_enabled = false; // disable gradient tracking
+    const allocator = std.heap.smp_allocator;
     var n: u32 = 0;
     var correct: f32 = 0;
     for (dataset.images, dataset.labels) |image, label| {
         const output = try model.forward(image);
         defer output.deinit();
+        const output_host = try output.to_host_owned(allocator);
+        defer allocator.free(output_host);
+        const label_host = try label.to_host_owned(allocator);
+        defer allocator.free(label_host);
         const batch_n = output.data.shape.get(0);
         for (0..batch_n) |j| {
             const start = j * 10;
             const end = start + 10;
-            const yh = std.mem.indexOfMax(T, output.data.data.raw[start..end]);
-            const y = std.mem.indexOfMax(T, label.data.data.raw[start..end]);
+            const yh = std.mem.indexOfMax(T, output_host[start..end]);
+            const y = std.mem.indexOfMax(T, label_host[start..end]);
             correct += if (yh == y) 1 else 0;
             n += 1;
         }

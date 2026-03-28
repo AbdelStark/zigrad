@@ -44,7 +44,9 @@ typedef struct {
 
 struct DeviceProperties {
 
-  DeviceProperties(cudaDeviceProp prop) :
+  DeviceProperties(cudaDeviceProp prop, CUdevice device_, CUcontext context_) :
+    device{ device_ },
+    context{ context_ },
     multi_processor_count{ (len_t)prop.multiProcessorCount },
     max_threads_per_multi_processor{ (len_t)prop.maxThreadsPerMultiProcessor },
     max_threads_per_block{ (len_t)prop.maxThreadsPerBlock },
@@ -77,6 +79,7 @@ struct DeviceProperties {
       .per_multiprocessor = (len_t)prop.regsPerMultiprocessor,
     }
   {
+    snprintf(name, sizeof(name), "%s", prop.name);
   }
 
   static DevicePropertiesWrapper wrap(DeviceProperties* ptr) {
@@ -87,6 +90,9 @@ struct DeviceProperties {
     return static_cast<DeviceProperties*>(wrapper.ptr);
   }
   
+  CUdevice device;
+  CUcontext context;
+  char name[256];
   len_t multi_processor_count;
   len_t max_threads_per_multi_processor;
   len_t max_threads_per_block;

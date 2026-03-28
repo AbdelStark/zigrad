@@ -16,6 +16,76 @@ const build_options = @import("build_options");
 
 const opspec = @import("opspec.zig");
 
+pub const CudaDiagnosticsFormatOptions = struct {
+    label: ?[]const u8 = null,
+    trailing_newline: bool = true,
+};
+
+pub const CudaRuntimeDiagnostics = struct {
+    device_count: u32,
+    device_number: u32,
+    device_name: []const u8,
+    compute_capability_major: usize,
+    compute_capability_minor: usize,
+    multiprocessor_count: usize,
+    total_global_memory_bytes: usize,
+    driver_version_raw: i32,
+    runtime_version_raw: i32,
+
+    pub fn write(self: CudaRuntimeDiagnostics, writer: anytype, options: CudaDiagnosticsFormatOptions) !void {
+        try writer.writeAll("zigrad cuda backend");
+        if (options.label) |label| {
+            try writer.print(" [{s}]", .{label});
+        }
+        try writer.print(
+            " device={d}/{d} name=\"{s}\" compute_capability={d}.{d} multiprocessors={d} total_global_memory_bytes={d} driver=",
+            .{
+                self.device_number,
+                self.device_count,
+                self.device_name,
+                self.compute_capability_major,
+                self.compute_capability_minor,
+                self.multiprocessor_count,
+                self.total_global_memory_bytes,
+            },
+        );
+        try writeCudaVersion(writer, self.driver_version_raw);
+        try writer.writeAll(" runtime=");
+        try writeCudaVersion(writer, self.runtime_version_raw);
+        if (options.trailing_newline) {
+            try writer.writeByte('\n');
+        }
+    }
+};
+
+fn writeCudaVersion(writer: anytype, raw: i32) !void {
+    if (raw <= 0) {
+        try writer.writeAll("unknown");
+        return;
+    }
+
+    const major = @divTrunc(raw, 1000);
+    const minor = @divTrunc(@mod(raw, 1000), 10);
+    try writer.print("{d}.{d}", .{ major, minor });
+}
+
+fn envValueEnabled(value: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(value, "1") or
+        std.ascii.eqlIgnoreCase(value, "true") or
+        std.ascii.eqlIgnoreCase(value, "yes") or
+        std.ascii.eqlIgnoreCase(value, "on");
+}
+
+fn diagnosticsEnabled() bool {
+    const raw = std.posix.getenv("ZG_CUDA_DIAGNOSTICS") orelse return false;
+    return envValueEnabled(raw);
+}
+
+fn deviceName(properties: cuda.DevicePropertiesWrapper) []const u8 {
+    const raw = cuda.device_name(properties);
+    return std.mem.span(@as([*:0]const u8, @ptrCast(raw)));
+}
+
 // TODO: Move the abstraction up a level when we decide to
 // support more granular operations over cuda virtual memory
 const DataHandler = struct {
@@ -84,7 +154,7 @@ const CUDA_COMPILE_ERROR =
     \\
     \\You are attempting to use a CudaDevice object but CUDA is not enabled.
     \\
-    \\To enable CUDA, build the project with -Dcuda_enabled=true. You can pass
+    \\To enable CUDA, build the project with -Denable_cuda=true. You can pass
     \\this flag to the Zigrad module in the build system if you are linking it
     \\into an existing project.
     \\
@@ -151,11 +221,40 @@ pub fn deinit(self: *Self) void {
     cuda.deinit_cublas_handle(self.context.cublas);
     cuda.deinit_cutensor_handle(self.context.cutensor);
     cuda.deinit_stream(self.context.stream);
+    cuda.deinit_device(self.context.properties);
     self.* = undefined;
 }
 
 pub fn reference(self: *Self) DeviceReference {
     return .{ .ptrs = .{ .cuda = self } };
+}
+
+pub fn deviceNumber(self: *const Self) u32 {
+    return self.context.device_number;
+}
+
+pub fn runtimeDiagnostics(self: *const Self) CudaRuntimeDiagnostics {
+    return .{
+        .device_count = device_count(),
+        .device_number = self.context.device_number,
+        .device_name = deviceName(self.context.properties),
+        .compute_capability_major = cuda.device_compute_capability_major(self.context.properties),
+        .compute_capability_minor = cuda.device_compute_capability_minor(self.context.properties),
+        .multiprocessor_count = cuda.device_multiprocessor_count(self.context.properties),
+        .total_global_memory_bytes = cuda.device_total_global_memory(self.context.properties),
+        .driver_version_raw = cuda.cuda_driver_version(),
+        .runtime_version_raw = cuda.cuda_runtime_version(),
+    };
+}
+
+pub fn writeRuntimeDiagnostics(self: *const Self, writer: anytype, options: CudaDiagnosticsFormatOptions) !void {
+    try self.runtimeDiagnostics().write(writer, options);
+}
+
+pub fn maybeWriteRuntimeDiagnostics(self: *const Self, writer: anytype, options: CudaDiagnosticsFormatOptions) !bool {
+    if (!diagnosticsEnabled()) return false;
+    try self.writeRuntimeDiagnostics(writer, options);
+    return true;
 }
 
 pub fn dtype(T: type) cuda.dtype {
