@@ -1,0 +1,14 @@
+{
+  "id": "blas.matvec.f32.1024x1024",
+  "suite": "blas",
+  "kind": "blas_matvec",
+  "dtype": "f32",
+  "warmup_iterations": 3,
+  "measured_iterations": 8,
+  "thread_count": 1,
+  "seed": 81761,
+  "lhs_shape": [1024, 1024],
+  "rhs_shape": [1024],
+  "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py",
+  "notes": "Deterministic BLAS matrix-vector multiply benchmark."
+}

@@ -1,0 +1,14 @@
+{
+  "id": "autograd.dot-backward.f32.65536",
+  "suite": "autograd",
+  "kind": "autograd_dot_backward",
+  "dtype": "f32",
+  "warmup_iterations": 2,
+  "measured_iterations": 6,
+  "thread_count": 1,
+  "seed": 81761,
+  "lhs_shape": [65536],
+  "rhs_shape": [65536],
+  "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py",
+  "notes": "Deterministic autograd dot benchmark measuring forward plus backward."
+}

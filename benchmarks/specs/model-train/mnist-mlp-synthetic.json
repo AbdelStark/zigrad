@@ -1,0 +1,15 @@
+{
+  "id": "model-train.mnist-mlp.synthetic.f32.batch64",
+  "suite": "model-train",
+  "kind": "mnist_mlp_train",
+  "dtype": "f32",
+  "warmup_iterations": 1,
+  "measured_iterations": 4,
+  "batch_size": 64,
+  "thread_count": 1,
+  "seed": 81761,
+  "input_shape": [64, 1, 28, 28],
+  "label_shape": [64, 10],
+  "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py",
+  "notes": "Synthetic MNIST-shaped training step benchmark with one-hot labels."
+}

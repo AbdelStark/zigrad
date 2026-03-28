@@ -13,6 +13,7 @@ pub fn collect(
     allocator: std.mem.Allocator,
     harness_version: []const u8,
     thread_count: ?u32,
+    host_blas_telemetry: ?result.HostBlasTelemetry,
 ) !Snapshot {
     return .{
         .runtime = .{
@@ -34,6 +35,7 @@ pub fn collect(
             .device = "host",
             .host_provider = hostProvider(),
             .thread_count = thread_count,
+            .host_blas_telemetry = host_blas_telemetry,
         },
     };
 }
@@ -139,4 +141,19 @@ test "host provider reflects configured host backend" {
         zg.device.configured_host_blas_provider.name(),
         hostProvider(),
     );
+}
+
+test "collect attaches host BLAS telemetry to backend metadata" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const snapshot = try collect(arena.allocator(), "0.1.0", 4, .{
+        .matmul_calls = 3,
+        .bmm_acc_calls = 1,
+        .direct_bmm_dispatches = 1,
+    });
+
+    try std.testing.expectEqual(@as(u64, 3), snapshot.backend.host_blas_telemetry.?.matmul_calls);
+    try std.testing.expectEqual(@as(u64, 1), snapshot.backend.host_blas_telemetry.?.bmm_acc_calls);
+    try std.testing.expectEqual(@as(u64, 1), snapshot.backend.host_blas_telemetry.?.direct_bmm_dispatches);
 }

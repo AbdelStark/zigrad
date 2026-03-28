@@ -68,8 +68,8 @@ documents we will implement against.
 
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, smoke CI, and synthetic BLAS/autograd/memory/MNIST/DQN/GCN plus conv-lowering coverage are landed; future CUDA/compiler/interop suites remain. |
-| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, example-model audit coverage, and legacy Conv2D lowering audit are landed; Linux OpenBLAS/oneMKL parity and performance validation remain. |
+| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, authoring guide, smoke CI, and synthetic BLAS/autograd/memory/MNIST/DQN/GCN plus conv-lowering and broadcast-fallback matmul coverage are landed; Zig JSONL output now carries host BLAS dispatch telemetry, while future CUDA/compiler/interop suites remain. |
+| RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, and legacy Conv2D lowering audit are landed; Linux OpenBLAS/oneMKL parity and performance validation remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Turns experimental CUDA into a supported execution backend. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
 | RFC-0005 | ggml/GGUF Interop | `Planned` | P1 | RFC-0001, RFC-0012 | Critical for LLM examples and inference compatibility. |
@@ -147,6 +147,34 @@ Every RFC in this folder set must maintain:
   - `zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json --output /tmp/zigrad-conv-benchmark.jsonl`
   - `zig build benchmark-blas -- --output /tmp/zigrad-blas.jsonl`
   - `zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json --baseline pytorch --output /tmp/zigrad-conv-benchmark-baseline.jsonl`
+
+### RFC-0001 2026-03-28 Host Dispatch Telemetry Promotion
+
+- Completed:
+  - Extended the benchmark result schema so Zig benchmark records can carry
+    per-workload host BLAS telemetry, including direct batched-dispatch counts
+    and nested-broadcast fallback counts.
+  - Un-ignored `benchmarks/specs/**/*.json` in the repository so benchmark
+    specs become committed harness inputs instead of hidden local-only state.
+  - Added a deterministic primitive benchmark spec for nested-broadcast matmul
+    so the smoke suite now covers the manual fallback path introduced for
+    non-modulo-safe batch broadcasts.
+  - Threaded the telemetry through the benchmark harness and documented the new
+    backend metadata in the benchmark README/authoring guide and top-level
+    README.
+- Remains:
+  - Add equivalent benchmark-visible telemetry for CUDA/compiler/interop
+    backends when those RFCs become executable.
+  - Collect non-skipped PyTorch baseline data on a machine with `torch`
+    installed.
+- Blockers:
+  - Local validation still exercised only the macOS Accelerate backend, so
+    OpenBLAS/oneMKL benchmark records with the new telemetry remain pending.
+- Validation:
+  - `zig build test`
+  - `zig build benchmark-primitive -- --output /tmp/zigrad-primitive.jsonl`
+  - `zig build benchmark -- --spec benchmarks/specs/primitive/matmul-broadcast-fallback-f32-2x2x2x3-2x1x3x2.json --output /tmp/zigrad-broadcast-fallback.jsonl`
+  - `zig build benchmark-models -- --output /tmp/zigrad-models.jsonl`
 
 ### RFC-0001 Snapshot
 

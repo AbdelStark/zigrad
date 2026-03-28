@@ -1,0 +1,14 @@
+{
+  "id": "blas.dot.f32.262144",
+  "suite": "blas",
+  "kind": "blas_dot",
+  "dtype": "f32",
+  "warmup_iterations": 3,
+  "measured_iterations": 8,
+  "thread_count": 1,
+  "seed": 81761,
+  "lhs_shape": [262144],
+  "rhs_shape": [262144],
+  "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py",
+  "notes": "Deterministic BLAS dot product on contiguous vectors."
+}

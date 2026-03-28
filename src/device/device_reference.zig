@@ -116,6 +116,28 @@ pub fn clear_cache(self: Self) void {
     };
 }
 
+pub fn recordDirectBmmDispatch(self: Self) void {
+    switch (self.ptrs) {
+        inline else => |dev| {
+            const D = std.meta.Child(@TypeOf(dev));
+            if (comptime @hasDecl(D, "recordDirectBmmDispatch")) {
+                dev.recordDirectBmmDispatch();
+            }
+        },
+    }
+}
+
+pub fn recordFallbackBmmDispatch(self: Self, batch_count: usize) void {
+    switch (self.ptrs) {
+        inline else => |dev| {
+            const D = std.meta.Child(@TypeOf(dev));
+            if (comptime @hasDecl(D, "recordFallbackBmmDispatch")) {
+                dev.recordFallbackBmmDispatch(batch_count);
+            }
+        },
+    }
+}
+
 pub fn sync(self: Self) void {
     return switch (self.ptrs) {
         inline else => |dev| dev.sync(),

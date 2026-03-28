@@ -44,6 +44,16 @@ pub const HostOpTelemetry = struct {
     }
 };
 
+pub const HostDispatchTelemetry = struct {
+    direct_bmm_dispatches: u64 = 0,
+    fallback_bmm_dispatches: u64 = 0,
+    fallback_bmm_batches: u64 = 0,
+
+    pub fn totalBmmDispatches(self: HostDispatchTelemetry) u64 {
+        return self.direct_bmm_dispatches + self.fallback_bmm_dispatches;
+    }
+};
+
 const HostOpTelemetryState = struct {
     mutex: std.Thread.Mutex = .{},
     snapshot: HostOpTelemetry = .{},
@@ -64,6 +74,36 @@ const HostOpTelemetryState = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
         @field(self.snapshot, field) += 1;
+    }
+};
+
+const HostDispatchTelemetryState = struct {
+    mutex: std.Thread.Mutex = .{},
+    snapshot: HostDispatchTelemetry = .{},
+
+    fn read(self: *HostDispatchTelemetryState) HostDispatchTelemetry {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        return self.snapshot;
+    }
+
+    fn reset(self: *HostDispatchTelemetryState) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.snapshot = .{};
+    }
+
+    fn recordDirectBmmDispatch(self: *HostDispatchTelemetryState) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.snapshot.direct_bmm_dispatches += 1;
+    }
+
+    fn recordFallbackBmmDispatch(self: *HostDispatchTelemetryState, batch_count: usize) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.snapshot.fallback_bmm_dispatches += 1;
+        self.snapshot.fallback_bmm_batches += @as(u64, @intCast(batch_count));
     }
 };
 
@@ -213,6 +253,7 @@ const Self = @This();
 
 cache: CachingAllocator,
 op_telemetry: HostOpTelemetryState = .{},
+dispatch_telemetry: HostDispatchTelemetryState = .{},
 
 pub fn init() Self {
     return init_advanced(.{}); // system defaults
@@ -251,6 +292,22 @@ pub fn opTelemetry(self: *const Self) HostOpTelemetry {
 
 pub fn resetOpTelemetry(self: *Self) void {
     self.op_telemetry.reset();
+}
+
+pub fn dispatchTelemetry(self: *const Self) HostDispatchTelemetry {
+    return @constCast(&self.dispatch_telemetry).read();
+}
+
+pub fn resetDispatchTelemetry(self: *Self) void {
+    self.dispatch_telemetry.reset();
+}
+
+pub fn recordDirectBmmDispatch(self: *Self) void {
+    self.dispatch_telemetry.recordDirectBmmDispatch();
+}
+
+pub fn recordFallbackBmmDispatch(self: *Self, batch_count: usize) void {
+    self.dispatch_telemetry.recordFallbackBmmDispatch(batch_count);
 }
 
 // callback to replace host reference to union

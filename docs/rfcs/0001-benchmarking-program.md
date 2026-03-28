@@ -214,6 +214,44 @@ Regression gating should use broad thresholds first, for example:
 
 ## Agentic Context
 
+### 2026-03-28 Host Dispatch Telemetry Promotion
+
+- Completed:
+  - Extended [`benchmarks/src/result.zig`](../../benchmarks/src/result.zig)
+    so Zig benchmark records can carry `backend.host_blas_telemetry`,
+    including low-level BLAS call counts plus direct-batched versus
+    fallback-broadcast dispatch counts.
+  - Updated [`.gitignore`](../../.gitignore) so
+    [`benchmarks/specs/`](../../benchmarks/specs/) JSON files are no longer
+    hidden behind the repository-wide `*.json` ignore rule; the benchmark
+    harness inputs are now committed product surface.
+  - Threaded the telemetry through
+    [`benchmarks/src/workload.zig`](../../benchmarks/src/workload.zig),
+    [`benchmarks/src/cli.zig`](../../benchmarks/src/cli.zig), and
+    [`benchmarks/src/metadata.zig`](../../benchmarks/src/metadata.zig), with
+    counters reset after warmup so the metadata reflects measured work rather
+    than setup or warmup noise.
+  - Added a deterministic nested-broadcast primitive matmul spec under
+    [`benchmarks/specs/primitive/`](../../benchmarks/specs/primitive/) so the
+    smoke suite exercises the manual fallback path as part of RFC-0001.
+  - Updated benchmark docs in
+    [`benchmarks/README.md`](../../benchmarks/README.md),
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md), and
+    [`README.md`](../../README.md).
+- Remains:
+  - Add benchmark-visible telemetry for CUDA/compiler/interop suites as those
+    RFCs become executable.
+  - Capture non-skipped PyTorch baseline data on a machine with `torch`
+    installed.
+- Blockers:
+  - This run still validated only the macOS Accelerate path, so OpenBLAS and
+    oneMKL benchmark records carrying the new telemetry remain unexecuted.
+- Validation performed:
+  - `zig build test`
+  - `zig build benchmark-primitive -- --output /tmp/zigrad-primitive.jsonl`
+  - `zig build benchmark -- --spec benchmarks/specs/primitive/matmul-broadcast-fallback-f32-2x2x2x3-2x1x3x2.json --output /tmp/zigrad-broadcast-fallback.jsonl`
+  - `zig build benchmark-models -- --output /tmp/zigrad-models.jsonl`
+
 ### 2026-03-28 Conv Lowering Coverage
 
 - Completed:

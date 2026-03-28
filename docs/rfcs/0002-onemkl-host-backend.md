@@ -154,6 +154,38 @@ regardless of provider:
 
 ## Agentic Context
 
+### 2026-03-28 Benchmark-Visible Fallback Telemetry
+
+- Completed:
+  - Extended [`src/device/host_device.zig`](../../src/device/host_device.zig)
+    with `HostDispatchTelemetry`, separating direct batched BLAS dispatches
+    from the manual broadcast-fallback path while preserving the existing
+    low-level op counters.
+  - Threaded dispatch instrumentation through
+    [`src/device/device_reference.zig`](../../src/device/device_reference.zig)
+    and [`src/ndarray.zig`](../../src/ndarray.zig) so nested broadcast layouts
+    now report fallback usage explicitly instead of only implying it through
+    `matmul` call counts.
+  - Updated [`benchmarks/src/provider_audit.zig`](../../benchmarks/src/provider_audit.zig)
+    so the MNIST, DQN, GCN, legacy Conv2D, and nested-broadcast matmul tests
+    assert exact dispatch-path telemetry in addition to raw BLAS op counts.
+  - Promoted the same telemetry into benchmark JSONL output so provider
+    fallback mode is visible in RFC-0001 results instead of remaining a
+    benchmark-test-only surface.
+- Remains:
+  - Run the same telemetry checks on Linux OpenBLAS and oneMKL builds.
+  - Add cross-provider numerical parity coverage and published provider
+    comparison tables once Linux/x86 environments are available.
+  - Add runtime smoke coverage for the broader example portfolio.
+- Blockers:
+  - This run still had no Linux OpenBLAS/oneMKL environment, so the new
+    fallback telemetry was validated only on the macOS Accelerate backend.
+- Validation performed:
+  - `zig build test`
+  - `zig build benchmark-primitive -- --output /tmp/zigrad-primitive.jsonl`
+  - `zig build benchmark -- --spec benchmarks/specs/primitive/matmul-broadcast-fallback-f32-2x2x2x3-2x1x3x2.json --output /tmp/zigrad-broadcast-fallback.jsonl`
+  - `zig build benchmark-models -- --output /tmp/zigrad-models.jsonl`
+
 ### 2026-03-28 Legacy Conv2D BLAS Audit
 
 - Completed:

@@ -51,6 +51,7 @@ zig build benchmark-compare -- \
 - `primitive`
   - deterministic contiguous add
   - deterministic square matmul
+  - deterministic nested-broadcast matmul that exercises the host fallback path
 - `blas`
   - deterministic vector dot product
   - deterministic matrix-vector multiply
@@ -125,6 +126,14 @@ Each run emits one JSON object per benchmark with:
   - device kind
   - host provider (`accelerate`, `openblas`, or `mkl`)
   - configured thread count
+  - optional host BLAS telemetry for Zig runs:
+    - `dot_calls`
+    - `matvec_calls`
+    - `matmul_calls`
+    - `bmm_acc_calls`
+    - `direct_bmm_dispatches`
+    - `fallback_bmm_dispatches`
+    - `fallback_bmm_batches`
 - setup latency
 - measured latency summary:
   - min

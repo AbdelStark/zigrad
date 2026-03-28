@@ -1,0 +1,12 @@
+{
+  "id": "primitive.matmul.f32.256x256x256",
+  "suite": "primitive",
+  "kind": "primitive_matmul",
+  "dtype": "f32",
+  "warmup_iterations": 3,
+  "measured_iterations": 8,
+  "thread_count": 1,
+  "lhs_shape": [256, 256],
+  "rhs_shape": [256, 256],
+  "notes": "Square GEMM with deterministic dense operands."
+}

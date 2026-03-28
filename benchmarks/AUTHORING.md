@@ -26,13 +26,16 @@ When adding a benchmark:
 
 1. Add or extend the manifest enum and validation rules.
 2. Implement the workload in `workload.zig`.
-3. Add a JSON spec under [`benchmarks/specs/`](./specs/).
+3. Add a JSON spec under [`benchmarks/specs/`](./specs/). If the workload is
+   meant to verify a provider-sensitive path, choose shapes that make the
+   expected `backend.host_blas_telemetry` signal obvious.
 4. Add or update an optional baseline runner when parity exists.
 5. Add tests for parsing, execution logic, and any comparison edge cases.
 
 ## Spec Rules
 
 Specs are JSON files grouped by suite under [`benchmarks/specs/`](./specs/).
+They are part of the committed benchmark contract, not ignored local outputs.
 
 Required fields:
 

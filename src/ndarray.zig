@@ -935,6 +935,7 @@ fn bmm_acc_impl(
         canUseModuloBatchMapping(b_batch_dims, broadcast_batch_dims);
 
     if (use_batched_dispatch) {
+        device.recordDirectBmmDispatch();
         device.dispatch(opspec.bmm_acc(T){
             .A = A.get_data(),
             .A_shape = &.{ n_batches_a, M, K },
@@ -956,6 +957,8 @@ fn bmm_acc_impl(
     const a_chunk = a_rows * a_cols;
     const b_chunk = b_rows * b_cols;
     const c_chunk = M * N;
+
+    device.recordFallbackBmmDispatch(@intCast(n_batches_c));
 
     const c_batch_count: usize = @intCast(c_batch_dims.size());
     var c_written: ?[]bool = null;

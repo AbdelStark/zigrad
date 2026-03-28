@@ -16,6 +16,7 @@ pub const RunOutput = struct {
     throughput_items: ?usize = null,
     throughput_unit: ?[]const u8 = null,
     memory: ?result.MemoryStats = null,
+    host_blas_telemetry: ?result.HostBlasTelemetry = null,
     notes: ?[]const u8 = null,
 };
 
@@ -29,6 +30,25 @@ pub fn applyThreadCount(thread_count: ?u32) void {
     setEnv("MKL_NUM_THREADS", value);
     setEnv("BLIS_NUM_THREADS", value);
     setEnv("VECLIB_MAXIMUM_THREADS", value);
+}
+
+fn resetHostBenchmarkTelemetry(host: *zg.device.HostDevice) void {
+    host.resetOpTelemetry();
+    host.resetDispatchTelemetry();
+}
+
+fn captureHostBlasTelemetry(host: *const zg.device.HostDevice) result.HostBlasTelemetry {
+    const op = host.opTelemetry();
+    const dispatch = host.dispatchTelemetry();
+    return .{
+        .dot_calls = op.dot_calls,
+        .matvec_calls = op.matvec_calls,
+        .matmul_calls = op.matmul_calls,
+        .bmm_acc_calls = op.bmm_acc_calls,
+        .direct_bmm_dispatches = dispatch.direct_bmm_dispatches,
+        .fallback_bmm_dispatches = dispatch.fallback_bmm_dispatches,
+        .fallback_bmm_batches = dispatch.fallback_bmm_batches,
+    };
 }
 
 pub fn run(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
@@ -76,6 +96,7 @@ fn runBlasDot(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         var output = try lhs.dot(rhs, device);
         output.deinit(device);
     }
+    resetHostBenchmarkTelemetry(&host);
     for (timings) |*timing| {
         timer.reset();
         var output = try lhs.dot(rhs, device);
@@ -90,6 +111,7 @@ fn runBlasDot(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .timings_ns = timings,
         .throughput_items = countElements(spec.lhs_shape.?),
         .throughput_unit = "elements",
+        .host_blas_telemetry = captureHostBlasTelemetry(&host),
         .notes = spec.notes,
     };
 }
@@ -117,6 +139,7 @@ fn runBlasMatvec(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         var output = try matrix.matvec(vector, device, .{});
         output.deinit(device);
     }
+    resetHostBenchmarkTelemetry(&host);
     for (timings) |*timing| {
         timer.reset();
         var output = try matrix.matvec(vector, device, .{});
@@ -131,6 +154,7 @@ fn runBlasMatvec(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .timings_ns = timings,
         .throughput_items = countElements(spec.lhs_shape.?),
         .throughput_unit = "matrix-elements",
+        .host_blas_telemetry = captureHostBlasTelemetry(&host),
         .notes = spec.notes,
     };
 }
@@ -168,6 +192,7 @@ fn runBlasConv2dIm2col(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOu
         }, device);
         output.deinit(device);
     }
+    resetHostBenchmarkTelemetry(&host);
     for (timings) |*timing| {
         timer.reset();
         var output = try zg.conv_utils.conv2dForwardIm2col(f32, input, weights, null, .{
@@ -186,6 +211,7 @@ fn runBlasConv2dIm2col(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOu
         .timings_ns = timings,
         .throughput_items = spec.lhs_shape.?[0],
         .throughput_unit = "samples",
+        .host_blas_telemetry = captureHostBlasTelemetry(&host),
         .notes = spec.notes,
     };
 }
@@ -208,6 +234,7 @@ fn runAutogradDotBackward(allocator: std.mem.Allocator, spec: manifest.Spec) !Ru
     for (0..spec.warmup_iterations) |_| {
         try oneAutogradDotBackwardStep(allocator, device, lhs_data, rhs_data, spec.lhs_shape.?, spec.rhs_shape.?);
     }
+    resetHostBenchmarkTelemetry(&host);
     for (timings) |*timing| {
         timer.reset();
         try oneAutogradDotBackwardStep(allocator, device, lhs_data, rhs_data, spec.lhs_shape.?, spec.rhs_shape.?);
@@ -221,6 +248,7 @@ fn runAutogradDotBackward(allocator: std.mem.Allocator, spec: manifest.Spec) !Ru
         .timings_ns = timings,
         .throughput_items = countElements(spec.lhs_shape.?),
         .throughput_unit = "elements",
+        .host_blas_telemetry = captureHostBlasTelemetry(&host),
         .notes = spec.notes,
     };
 }
@@ -243,6 +271,7 @@ fn runAutogradMatvecBackward(allocator: std.mem.Allocator, spec: manifest.Spec) 
     for (0..spec.warmup_iterations) |_| {
         try oneAutogradMatvecBackwardStep(allocator, device, matrix_data, vector_data, spec.lhs_shape.?, spec.rhs_shape.?);
     }
+    resetHostBenchmarkTelemetry(&host);
     for (timings) |*timing| {
         timer.reset();
         try oneAutogradMatvecBackwardStep(allocator, device, matrix_data, vector_data, spec.lhs_shape.?, spec.rhs_shape.?);
@@ -256,6 +285,7 @@ fn runAutogradMatvecBackward(allocator: std.mem.Allocator, spec: manifest.Spec) 
         .timings_ns = timings,
         .throughput_items = countElements(spec.lhs_shape.?),
         .throughput_unit = "matrix-elements",
+        .host_blas_telemetry = captureHostBlasTelemetry(&host),
         .notes = spec.notes,
     };
 }
@@ -286,6 +316,7 @@ fn runPrimitiveAdd(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput
         const output = try lhs.add(rhs);
         output.deinit();
     }
+    resetHostBenchmarkTelemetry(&host);
     for (timings) |*timing| {
         timer.reset();
         const output = try lhs.add(rhs);
@@ -300,6 +331,7 @@ fn runPrimitiveAdd(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput
         .timings_ns = timings,
         .throughput_items = countElements(spec.lhs_shape.?),
         .throughput_unit = "elements",
+        .host_blas_telemetry = captureHostBlasTelemetry(&host),
         .notes = spec.notes,
     };
 }
@@ -330,6 +362,7 @@ fn runPrimitiveMatmul(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOut
         const output = try lhs.bmm(rhs, .{});
         output.deinit();
     }
+    resetHostBenchmarkTelemetry(&host);
     for (timings) |*timing| {
         timer.reset();
         const output = try lhs.bmm(rhs, .{});
@@ -344,6 +377,7 @@ fn runPrimitiveMatmul(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOut
         .timings_ns = timings,
         .throughput_items = spec.batch_size,
         .throughput_unit = null,
+        .host_blas_telemetry = captureHostBlasTelemetry(&host),
         .notes = spec.notes,
     };
 }
@@ -367,6 +401,7 @@ fn runMemoryTensorCacheCycle(allocator: std.mem.Allocator, spec: manifest.Spec) 
     }
 
     host.resetCacheTelemetry();
+    resetHostBenchmarkTelemetry(&host);
 
     const timings = try allocator.alloc(u64, spec.measured_iterations);
     for (timings) |*timing| {
@@ -389,6 +424,7 @@ fn runMemoryTensorCacheCycle(allocator: std.mem.Allocator, spec: manifest.Spec) 
             .final_live_bytes = @as(u64, @intCast(telemetry.live_bytes)),
             .peak_scratch_bytes = @as(u64, @intCast(telemetry.peak_scratch_bytes)),
         },
+        .host_blas_telemetry = captureHostBlasTelemetry(&host),
         .notes = spec.notes,
     };
 }
@@ -437,6 +473,7 @@ fn runMemoryMnistTrainStep(allocator: std.mem.Allocator, spec: manifest.Spec) !R
     }
 
     host.resetCacheTelemetry();
+    resetHostBenchmarkTelemetry(&host);
     var peak_graph_arena_bytes = graph.queryArenaCapacityBytes();
     const timings = try allocator.alloc(u64, spec.measured_iterations);
 
@@ -473,6 +510,7 @@ fn runMemoryMnistTrainStep(allocator: std.mem.Allocator, spec: manifest.Spec) !R
             .final_graph_arena_bytes = @as(u64, @intCast(final_graph_arena_bytes)),
             .peak_scratch_bytes = @as(u64, @intCast(telemetry.peak_scratch_bytes)),
         },
+        .host_blas_telemetry = captureHostBlasTelemetry(&host),
         .notes = spec.notes,
     };
 }
@@ -521,6 +559,7 @@ fn runMnistTrain(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
             optimizer,
         );
     }
+    resetHostBenchmarkTelemetry(&host);
     for (timings) |*timing| {
         timer.reset();
         try oneMnistTrainingStep(
@@ -543,6 +582,7 @@ fn runMnistTrain(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .timings_ns = timings,
         .throughput_items = batch_size,
         .throughput_unit = "samples",
+        .host_blas_telemetry = captureHostBlasTelemetry(&host),
         .notes = spec.notes,
     };
 }
@@ -579,6 +619,7 @@ fn runMnistInfer(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         const output = try model.forward(input);
         output.deinit();
     }
+    resetHostBenchmarkTelemetry(&host);
     for (timings) |*timing| {
         timer.reset();
         const output = try model.forward(input);
@@ -593,6 +634,7 @@ fn runMnistInfer(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .timings_ns = timings,
         .throughput_items = batch_size,
         .throughput_unit = "samples",
+        .host_blas_telemetry = captureHostBlasTelemetry(&host),
         .notes = spec.notes,
     };
 }
@@ -660,6 +702,7 @@ fn runDqnTrain(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
             optimizer,
         );
     }
+    resetHostBenchmarkTelemetry(&host);
     for (timings) |*timing| {
         timer.reset();
         try oneDqnTrainingStep(
@@ -687,6 +730,7 @@ fn runDqnTrain(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .timings_ns = timings,
         .throughput_items = batch_size,
         .throughput_unit = "samples",
+        .host_blas_telemetry = captureHostBlasTelemetry(&host),
         .notes = spec.notes,
     };
 }
@@ -723,6 +767,7 @@ fn runDqnInfer(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         const output = try model.forward(input);
         output.deinit();
     }
+    resetHostBenchmarkTelemetry(&host);
     for (timings) |*timing| {
         timer.reset();
         const output = try model.forward(input);
@@ -737,6 +782,7 @@ fn runDqnInfer(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .timings_ns = timings,
         .throughput_items = batch_size,
         .throughput_unit = "samples",
+        .host_blas_telemetry = captureHostBlasTelemetry(&host),
         .notes = spec.notes,
     };
 }
@@ -797,6 +843,7 @@ fn runGcnTrain(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
             optimizer,
         );
     }
+    resetHostBenchmarkTelemetry(&host);
     for (timings) |*timing| {
         timer.reset();
         try oneGcnTrainingStep(
@@ -820,6 +867,7 @@ fn runGcnTrain(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .timings_ns = timings,
         .throughput_items = node_count,
         .throughput_unit = "nodes",
+        .host_blas_telemetry = captureHostBlasTelemetry(&host),
         .notes = spec.notes,
     };
 }
@@ -870,6 +918,7 @@ fn runGcnInfer(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         const output = try model.forward(input, edge_index);
         output.deinit();
     }
+    resetHostBenchmarkTelemetry(&host);
     for (timings) |*timing| {
         timer.reset();
         const output = try model.forward(input, edge_index);
@@ -884,6 +933,7 @@ fn runGcnInfer(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .timings_ns = timings,
         .throughput_items = node_count,
         .throughput_unit = "nodes",
+        .host_blas_telemetry = captureHostBlasTelemetry(&host),
         .notes = spec.notes,
     };
 }

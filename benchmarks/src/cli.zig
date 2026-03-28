@@ -45,8 +45,13 @@ fn emitAll(
     harness_version: []const u8,
 ) !void {
     for (specs) |spec| {
-        const snapshot = try metadata.collect(allocator, harness_version, spec.thread_count);
         const run_output = try workload.run(allocator, spec);
+        const snapshot = try metadata.collect(
+            allocator,
+            harness_version,
+            spec.thread_count,
+            run_output.host_blas_telemetry,
+        );
         const stats = try result.SummaryStats.fromTimings(
             allocator,
             run_output.timings_ns,

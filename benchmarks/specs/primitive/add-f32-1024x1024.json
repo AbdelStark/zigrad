@@ -1,0 +1,12 @@
+{
+  "id": "primitive.add.f32.1024x1024",
+  "suite": "primitive",
+  "kind": "primitive_add",
+  "dtype": "f32",
+  "warmup_iterations": 3,
+  "measured_iterations": 8,
+  "thread_count": 1,
+  "lhs_shape": [1024, 1024],
+  "rhs_shape": [1024, 1024],
+  "notes": "Contiguous elementwise add with deterministic inputs."
+}

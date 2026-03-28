@@ -13,6 +13,15 @@ fn expectTelemetry(expected: zg.device.HostOpTelemetry, actual: zg.device.HostOp
     try std.testing.expectEqual(expected.bmm_acc_calls, actual.bmm_acc_calls);
 }
 
+fn expectDispatchTelemetry(
+    expected: zg.device.HostDispatchTelemetry,
+    actual: zg.device.HostDispatchTelemetry,
+) !void {
+    try std.testing.expectEqual(expected.direct_bmm_dispatches, actual.direct_bmm_dispatches);
+    try std.testing.expectEqual(expected.fallback_bmm_dispatches, actual.fallback_bmm_dispatches);
+    try std.testing.expectEqual(expected.fallback_bmm_batches, actual.fallback_bmm_batches);
+}
+
 fn countElements(shape: []const usize) usize {
     var total: usize = 1;
     for (shape) |dim| total *= dim;
@@ -101,9 +110,14 @@ test "host BLAS telemetry tracks direct dot matvec and batched matmul dispatch" 
         .bmm_acc_calls = 1,
     }, telemetry);
     try std.testing.expectEqual(@as(u64, 3), telemetry.totalBlasCalls());
+    try expectDispatchTelemetry(.{
+        .direct_bmm_dispatches = 1,
+    }, host.dispatchTelemetry());
 
     host.resetOpTelemetry();
     try expectTelemetry(.{}, host.opTelemetry());
+    host.resetDispatchTelemetry();
+    try expectDispatchTelemetry(.{}, host.dispatchTelemetry());
 }
 
 test "mnist example forward uses three host batched matmul dispatches" {
@@ -139,6 +153,9 @@ test "mnist example forward uses three host batched matmul dispatches" {
         .matmul_calls = 3,
         .bmm_acc_calls = 3,
     }, host.opTelemetry());
+    try expectDispatchTelemetry(.{
+        .direct_bmm_dispatches = 3,
+    }, host.dispatchTelemetry());
 }
 
 test "dqn example forward uses three host batched matmul dispatches" {
@@ -174,6 +191,9 @@ test "dqn example forward uses three host batched matmul dispatches" {
         .matmul_calls = 3,
         .bmm_acc_calls = 3,
     }, host.opTelemetry());
+    try expectDispatchTelemetry(.{
+        .direct_bmm_dispatches = 3,
+    }, host.dispatchTelemetry());
 }
 
 test "gcn example forward uses two host batched matmul dispatches" {
@@ -215,6 +235,9 @@ test "gcn example forward uses two host batched matmul dispatches" {
         .matmul_calls = 2,
         .bmm_acc_calls = 2,
     }, host.opTelemetry());
+    try expectDispatchTelemetry(.{
+        .direct_bmm_dispatches = 2,
+    }, host.dispatchTelemetry());
 }
 
 test "legacy conv2d im2col path uses one batched dispatch across the batch" {
@@ -246,4 +269,47 @@ test "legacy conv2d im2col path uses one batched dispatch across the batch" {
         .matmul_calls = 2,
         .bmm_acc_calls = 1,
     }, host.opTelemetry());
+    try expectDispatchTelemetry(.{
+        .direct_bmm_dispatches = 1,
+    }, host.dispatchTelemetry());
+}
+
+test "nested broadcast matmul reports fallback dispatch telemetry" {
+    const Array = zg.NDArray(f32);
+
+    var host = zg.device.HostDevice.init();
+    defer host.deinit();
+    const device = host.reference();
+
+    var lhs = try Array.from_slice(
+        &.{
+            1,  2,  3,  4,  5,  6,
+            7,  8,  9,  10, 11, 12,
+            13, 14, 15, 16, 17, 18,
+            19, 20, 21, 22, 23, 24,
+        },
+        &.{ 2, 2, 2, 3 },
+        device,
+    );
+    defer lhs.deinit(device);
+    var rhs = try Array.from_slice(
+        &.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 },
+        &.{ 2, 1, 3, 2 },
+        device,
+    );
+    defer rhs.deinit(device);
+
+    host.resetOpTelemetry();
+    host.resetDispatchTelemetry();
+    var output = try lhs.bmm(rhs, device, .{});
+    defer output.deinit(device);
+
+    try std.testing.expectEqualSlices(usize, &.{ 2, 2, 2, 2 }, output.shape.slice());
+    try expectTelemetry(.{
+        .matmul_calls = 4,
+    }, host.opTelemetry());
+    try expectDispatchTelemetry(.{
+        .fallback_bmm_dispatches = 1,
+        .fallback_bmm_batches = 4,
+    }, host.dispatchTelemetry());
 }

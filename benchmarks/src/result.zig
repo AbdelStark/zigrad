@@ -33,6 +33,17 @@ pub const BackendMetadata = struct {
     host_provider: []const u8,
     thread_count: ?u32 = null,
     accelerator: ?[]const u8 = null,
+    host_blas_telemetry: ?HostBlasTelemetry = null,
+};
+
+pub const HostBlasTelemetry = struct {
+    dot_calls: u64 = 0,
+    matvec_calls: u64 = 0,
+    matmul_calls: u64 = 0,
+    bmm_acc_calls: u64 = 0,
+    direct_bmm_dispatches: u64 = 0,
+    fallback_bmm_dispatches: u64 = 0,
+    fallback_bmm_batches: u64 = 0,
 };
 
 pub const SummaryStats = struct {

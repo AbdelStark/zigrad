@@ -57,9 +57,11 @@ The benchmark harness now lives in
 and emits machine-readable JSONL results with hardware and backend metadata,
 plus a comparison tool for base-vs-candidate regression checks. The current
 smoke suite covers deterministic primitive and BLAS workloads, including
-conv-lowering coverage, plus MNIST MLP, CartPole-style DQN, and two-layer GCN
-workloads. Host benchmark/build metadata now records the explicit BLAS
-provider as `accelerate`, `openblas`, or `mkl`:
+conv-lowering coverage and a nested-broadcast matmul fallback case, plus MNIST
+MLP, CartPole-style DQN, and two-layer GCN workloads. Host benchmark/build
+metadata now records the explicit BLAS provider as `accelerate`, `openblas`,
+or `mkl`, and Zig runs also report host BLAS dispatch telemetry so fallback
+usage is visible in the JSONL output:
 
 ```shell
 zig build benchmark
