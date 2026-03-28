@@ -159,7 +159,7 @@ fn parseArgs(allocator: std.mem.Allocator) !Options {
 
 fn printUsage() void {
     std.debug.print(
-        \\Usage: benchmark [--spec-root <path>] [--output <path>] [--group primitive|blas|autograd|memory|model-train|model-infer|models|all] [--spec <path>] [--baseline none|pytorch] [--thread-count <n> ...]
+        \\Usage: benchmark [--spec-root <path>] [--output <path>] [--group primitive|blas|autograd|memory|compiler|model-train|model-infer|models|all] [--spec <path>] [--baseline none|pytorch] [--thread-count <n> ...]
         \\
     , .{});
 }
@@ -182,6 +182,9 @@ pub fn loadSpecs(allocator: std.mem.Allocator, options: Options) ![]const manife
         }
         if (matchesGroup(options.group, "memory")) {
             try appendSuiteSpecs(allocator, &specs, options.spec_root, "memory");
+        }
+        if (matchesGroup(options.group, "compiler")) {
+            try appendSuiteSpecs(allocator, &specs, options.spec_root, "compiler");
         }
         if (matchesGroup(options.group, "model-train")) {
             try appendSuiteSpecs(allocator, &specs, options.spec_root, "model-train");

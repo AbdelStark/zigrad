@@ -71,6 +71,7 @@ benchmarks/
   README.md
   specs/
     primitive/
+    compiler/
     model-train/
     model-infer/
   runners/
@@ -85,8 +86,8 @@ benchmarks/
 ```
 
 `zig build benchmark` will dispatch into benchmark suites. Additional steps such
-as `zig build benchmark-primitive` and `zig build benchmark-models` may be added
-for convenience.
+as `zig build benchmark-primitive`, `zig build benchmark-compiler`, and
+`zig build benchmark-models` may be added for convenience.
 
 ## Result Schema
 
@@ -180,6 +181,8 @@ Regression gating should use broad thresholds first, for example:
 - [x] BLAS dot, matvec, and conv-lowering microbenchmarks with deterministic operands.
 - [x] Autograd dot and matvec backward microbenchmarks.
 - [x] Memory suite for cache high-water mark and graph arena reuse coverage.
+- [x] Compiler suite for repeated eager graph-session capture on maintained
+  reference models.
 - [x] MNIST train and inference benchmarks using deterministic synthetic data.
 - [x] Char-level language model train and inference benchmarks using deterministic synthetic causal windows.
 - [x] DQN benchmark skeleton.
@@ -219,6 +222,54 @@ Regression gating should use broad thresholds first, for example:
 - Should result archives live in the main repo or an external artifact store?
 
 ## Agentic Context
+
+### 2026-03-28 Compiler Capture Benchmark Suite
+
+- Completed:
+  - Extended
+    [`benchmarks/src/manifest.zig`](../../benchmarks/src/manifest.zig),
+    [`benchmarks/src/cli.zig`](../../benchmarks/src/cli.zig),
+    [`benchmarks/src/validate.zig`](../../benchmarks/src/validate.zig),
+    [`benchmarks/src/workload.zig`](../../benchmarks/src/workload.zig), and
+    [`build.zig`](../../build.zig)
+    with a first-class `compiler` suite plus the
+    `zig build benchmark-compiler` entrypoint, so RFC-0001 now benchmarks an
+    executable compiler-facing surface instead of deferring all compiler
+    coverage until the lazy-tensor RFC lands.
+  - Added checked-in compiler capture specs in
+    [`benchmarks/specs/compiler/`](../../benchmarks/specs/compiler/)
+    covering MNIST MLP, char-LM, DQN, and GCN graph-capture workloads, each
+    measuring forward-plus-loss graph construction on persistent model
+    parameters with explicit teardown in the measured loop.
+  - Extended
+    [`benchmarks/runners/pytorch/mnist_mlp.py`](../../benchmarks/runners/pytorch/mnist_mlp.py)
+    so the new compiler kinds have an optional PyTorch baseline path instead of
+    becoming Zig-only artifacts.
+  - Updated
+    [`tests/src/benchmark_smoke_main.zig`](../../tests/src/benchmark_smoke_main.zig),
+    [`README.md`](../../README.md),
+    [`benchmarks/README.md`](../../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md)
+    so the compiler suite is smoke-tested and documented alongside the existing
+    primitive, model, memory, and CUDA-aware benchmark surfaces.
+- Remains:
+  - Extend the compiler suite beyond eager capture into optimization-pass
+    timing and realized execution once RFC-0006 and RFC-0007 land executable
+    graph pipelines.
+  - Decide whether compiler capture rows need dedicated node-count or pass
+    telemetry beyond the current graph-arena and allocator memory fields.
+- Blockers:
+  - This environment has no lazy-tensor or optimizer-pass pipeline yet, so the
+    compiler suite currently stops at eager graph capture plus teardown rather
+    than true optimization or lowering benchmarks.
+- Validation performed:
+  - `zig build test`
+  - `zig build test-benchmark-smoke`
+  - `zig build test-benchmark-baseline-smoke`
+  - `zig build benchmark-compiler`
+  - `zig build benchmark-validate -- --group compiler`
+  - `zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json --baseline pytorch --output .zig-cache/compiler-mnist-capture-baseline.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/compiler-mnist-capture-baseline.jsonl`
 
 ### 2026-03-28 Char-LM Benchmark Coverage
 

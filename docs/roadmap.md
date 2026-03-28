@@ -68,7 +68,7 @@ documents we will implement against.
 
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, external baseline-runner smoke validation, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/MNIST/char-LM/DQN/GCN plus conv-lowering and broadcast-fallback matmul coverage, host thread-sweep/scaling-report workflows, and backend-aware CUDA benchmark request specs with explicit skip/fail semantics plus dedicated smoke coverage are landed; future real-GPU/compiler/interop suites remain. |
+| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, external baseline-runner smoke validation, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/compiler/MNIST/char-LM/DQN/GCN coverage, conv-lowering and broadcast-fallback matmul coverage, host thread-sweep/scaling-report workflows, and backend-aware CUDA benchmark request specs with explicit skip/fail semantics plus dedicated smoke coverage are landed; future real-GPU and interop suites remain. |
 | RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, a provider-sensitive numerical parity suite, opt-in runtime diagnostics hooks, example runtime smoke coverage for hello-world/MNIST/DQN/GCN, and Markdown/JSON provider plus thread-scaling report generators are landed; publication-path smoke validation now covers provider/thread reports and CI emits thread-scaling bundle artifacts, while oneMKL execution and published provider comparison runs remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Runtime selection, diagnostics, CUDA-safe DQN/GCN kernels, backend-dispatched Adam optimizer updates, host-staged loss fallbacks for maintained training workloads, and benchmark-harness integration for checked-in CUDA-targeted specs are landed; real GPU compile/run validation and executed CUDA benchmark suites remain. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
@@ -121,6 +121,41 @@ Every RFC in this folder set must maintain:
 - a section describing what will not be done in the RFC.
 
 ## Agentic Context
+
+### RFC-0001 2026-03-28 Compiler Capture Benchmark Suite
+
+- Completed:
+  - Landed a first-class `compiler` benchmark suite in
+    [`benchmarks/src/manifest.zig`](../benchmarks/src/manifest.zig),
+    [`benchmarks/src/workload.zig`](../benchmarks/src/workload.zig),
+    [`benchmarks/src/cli.zig`](../benchmarks/src/cli.zig), and
+    [`build.zig`](../build.zig), including the `zig build benchmark-compiler`
+    entrypoint and spec validation support.
+  - Added checked-in eager graph-capture specs under
+    [`benchmarks/specs/compiler/`](../benchmarks/specs/compiler/)
+    covering MNIST MLP, char-LM, DQN, and GCN capture workloads.
+  - Extended
+    [`benchmarks/runners/pytorch/mnist_mlp.py`](../benchmarks/runners/pytorch/mnist_mlp.py)
+    so the new compiler kinds participate in the optional PyTorch baseline
+    contract instead of becoming Zig-only rows.
+  - Added compiler-suite smoke coverage in
+    [`tests/src/benchmark_smoke_main.zig`](../tests/src/benchmark_smoke_main.zig)
+    and updated the checked-in benchmark docs to describe the new suite.
+- Remains:
+  - Grow the compiler suite into optimization-pass and realized-execution
+    benchmarks once RFC-0006 and RFC-0007 produce executable graph pipelines.
+  - Add interop suites so RFC-0001 covers the remaining top-level taxonomy.
+- Blockers:
+  - No lazy-tensor or optimizer-pass pipeline exists yet in this environment,
+    so compiler coverage currently stops at eager graph capture plus teardown.
+- Validation:
+  - `zig build test`
+  - `zig build test-benchmark-smoke`
+  - `zig build test-benchmark-baseline-smoke`
+  - `zig build benchmark-compiler`
+  - `zig build benchmark-validate -- --group compiler`
+  - `zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json --baseline pytorch --output .zig-cache/compiler-mnist-capture-baseline.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/compiler-mnist-capture-baseline.jsonl`
 
 ### RFC-0012 2026-03-28 Char-LM Reference Example And Benchmark Slice
 

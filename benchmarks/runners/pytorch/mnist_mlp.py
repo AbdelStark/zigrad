@@ -173,19 +173,19 @@ def shape_metadata(spec: dict):
     input_shape = spec.get("input_shape")
     batch_size = spec.get("batch_size")
 
-    if kind in {"mnist_mlp_train", "mnist_mlp_infer"}:
+    if kind in {"mnist_mlp_train", "mnist_mlp_infer", "compiler_mnist_mlp_capture"}:
         shapes = [{"name": "input", "dims": input_shape}]
         if spec.get("label_shape"):
             shapes.append({"name": "labels", "dims": spec["label_shape"]})
         return shapes
 
-    if kind in {"char_lm_train", "char_lm_infer"}:
+    if kind in {"char_lm_train", "char_lm_infer", "compiler_char_lm_capture"}:
         shapes = [{"name": "input", "dims": input_shape}]
         if spec.get("label_shape"):
             shapes.append({"name": "labels", "dims": spec["label_shape"]})
         return shapes
 
-    if kind == "dqn_cartpole_train":
+    if kind in {"dqn_cartpole_train", "compiler_dqn_cartpole_capture"}:
         return [
             {"name": "state", "dims": input_shape},
             {"name": "next_state", "dims": input_shape},
@@ -278,9 +278,19 @@ def throughput_shape(spec: dict):
         return math.prod(spec["lhs_shape"]), "matrix-elements"
     if kind == "blas_conv2d_im2col":
         return spec["lhs_shape"][0], "samples"
-    if kind in {"mnist_mlp_train", "mnist_mlp_infer", "char_lm_train", "char_lm_infer", "dqn_cartpole_train", "dqn_cartpole_infer"}:
+    if kind in {
+        "mnist_mlp_train",
+        "mnist_mlp_infer",
+        "compiler_mnist_mlp_capture",
+        "char_lm_train",
+        "char_lm_infer",
+        "compiler_char_lm_capture",
+        "dqn_cartpole_train",
+        "dqn_cartpole_infer",
+        "compiler_dqn_cartpole_capture",
+    }:
         return spec["batch_size"], "samples"
-    if kind in {"gcn_train", "gcn_infer"}:
+    if kind in {"gcn_train", "gcn_infer", "compiler_gcn_capture"}:
         return spec["input_shape"][0], "nodes"
     return None, None
 
@@ -311,12 +321,16 @@ def main() -> int:
         "autograd_matvec_backward",
         "mnist_mlp_train",
         "mnist_mlp_infer",
+        "compiler_mnist_mlp_capture",
         "char_lm_train",
         "char_lm_infer",
+        "compiler_char_lm_capture",
         "dqn_cartpole_train",
         "dqn_cartpole_infer",
+        "compiler_dqn_cartpole_capture",
         "gcn_train",
         "gcn_infer",
+        "compiler_gcn_capture",
     }
     if kind not in supported_kinds:
         print(json.dumps(make_record(spec, "skipped", "PyTorch baseline not implemented for this benchmark kind.", None)))
@@ -484,17 +498,17 @@ def main() -> int:
 
             step = autograd_matvec_step
 
-    elif kind in {"mnist_mlp_train", "mnist_mlp_infer"}:
+    elif kind in {"mnist_mlp_train", "mnist_mlp_infer", "compiler_mnist_mlp_capture"}:
         batch_size = spec["batch_size"]
         input_shape = spec["input_shape"]
         model = MnistMLP()
-        optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.01) if kind == "mnist_mlp_train" else None
         inputs = torch.tensor(
             deterministic_vector(math.prod(input_shape), seed + 11),
             dtype=torch.float32,
         ).reshape(*input_shape)
         labels = None
-        if kind == "mnist_mlp_train":
+        if kind in {"mnist_mlp_train", "compiler_mnist_mlp_capture"}:
             labels = torch.tensor(one_hot(batch_size, 10, seed + 17), dtype=torch.float32).reshape(batch_size, 10)
 
         def train_step():
@@ -504,23 +518,34 @@ def main() -> int:
             optimizer.step()
             optimizer.zero_grad(set_to_none=False)
 
+        def capture_step():
+            logits = model(inputs)
+            loss = -(labels * torch.log_softmax(logits, dim=-1)).sum(dim=-1).mean()
+            del loss
+            del logits
+
         def infer_step():
             with torch.no_grad():
                 _ = model(inputs)
 
-        step = train_step if kind == "mnist_mlp_train" else infer_step
+        if kind == "mnist_mlp_train":
+            step = train_step
+        elif kind == "compiler_mnist_mlp_capture":
+            step = capture_step
+        else:
+            step = infer_step
 
-    elif kind in {"char_lm_train", "char_lm_infer"}:
+    elif kind in {"char_lm_train", "char_lm_infer", "compiler_char_lm_capture"}:
         batch_size = spec["batch_size"]
         input_shape = spec["input_shape"]
         context_len = input_shape[1]
         vocab_size = input_shape[2]
         model = CharLM(context_len, vocab_size)
-        optimizer = torch.optim.Adam(model.parameters(), lr=1e-2, betas=(0.9, 0.999), eps=1e-8)
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-2, betas=(0.9, 0.999), eps=1e-8) if kind == "char_lm_train" else None
         input_values, label_values = causal_one_hot_batch(batch_size, context_len, vocab_size, seed + 29)
         inputs = torch.tensor(input_values, dtype=torch.float32).reshape(*input_shape)
         labels = None
-        if kind == "char_lm_train":
+        if kind in {"char_lm_train", "compiler_char_lm_capture"}:
             labels = torch.tensor(label_values, dtype=torch.float32).reshape(batch_size, vocab_size)
 
         def train_step():
@@ -530,23 +555,38 @@ def main() -> int:
             optimizer.step()
             optimizer.zero_grad(set_to_none=False)
 
+        def capture_step():
+            logits = model(inputs)
+            loss = -(labels * torch.log_softmax(logits, dim=-1)).sum(dim=-1).mean()
+            del loss
+            del logits
+
         def infer_step():
             with torch.no_grad():
                 _ = model(inputs)
 
-        step = train_step if kind == "char_lm_train" else infer_step
+        if kind == "char_lm_train":
+            step = train_step
+        elif kind == "compiler_char_lm_capture":
+            step = capture_step
+        else:
+            step = infer_step
 
-    elif kind in {"dqn_cartpole_train", "dqn_cartpole_infer"}:
+    elif kind in {"dqn_cartpole_train", "dqn_cartpole_infer", "compiler_dqn_cartpole_capture"}:
         batch_size = spec["batch_size"]
         input_shape = spec["input_shape"]
         policy = DQNModel()
-        optimizer = torch.optim.Adam(policy.parameters(), lr=1e-4, betas=(0.9, 0.999), eps=1e-8)
+        optimizer = (
+            torch.optim.Adam(policy.parameters(), lr=1e-4, betas=(0.9, 0.999), eps=1e-8)
+            if kind == "dqn_cartpole_train"
+            else None
+        )
         states = torch.tensor(
             deterministic_vector(math.prod(input_shape), seed + 31),
             dtype=torch.float32,
         ).reshape(*input_shape)
 
-        if kind == "dqn_cartpole_train":
+        if kind in {"dqn_cartpole_train", "compiler_dqn_cartpole_capture"}:
             target = DQNModel()
             target.load_state_dict(policy.state_dict())
             next_states = torch.tensor(
@@ -570,7 +610,20 @@ def main() -> int:
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=False)
 
-            step = train_step
+            def capture_step():
+                with torch.no_grad():
+                    next_q = target(next_states)
+                    max_next_q = next_q.max(dim=1, keepdim=True).values
+                    targets = rewards + 0.99 * max_next_q * (1.0 - dones)
+
+                all_q = policy(states)
+                selected_q = all_q.gather(1, actions)
+                loss = F.smooth_l1_loss(selected_q, targets, reduction="mean")
+                del loss
+                del selected_q
+                del all_q
+
+            step = train_step if kind == "dqn_cartpole_train" else capture_step
         else:
 
             def infer_step():
@@ -591,8 +644,12 @@ def main() -> int:
             dtype=torch.float32,
         ).reshape(*input_shape)
         model = GCNModel(feature_count, output_features)
-        if kind == "gcn_train":
-            optimizer = torch.optim.Adam(model.parameters(), lr=0.01, betas=(0.9, 0.999), eps=1e-8)
+        if kind in {"gcn_train", "compiler_gcn_capture"}:
+            optimizer = (
+                torch.optim.Adam(model.parameters(), lr=0.01, betas=(0.9, 0.999), eps=1e-8)
+                if kind == "gcn_train"
+                else None
+            )
             labels = torch.tensor(one_hot(node_count, output_features, seed + 61), dtype=torch.float32).reshape(
                 node_count, output_features
             )
@@ -604,7 +661,13 @@ def main() -> int:
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=False)
 
-            step = train_step
+            def capture_step():
+                logits = model(inputs, edge_index)
+                loss = -(labels * torch.log_softmax(logits, dim=-1)).sum(dim=-1).mean()
+                del loss
+                del logits
+
+            step = train_step if kind == "gcn_train" else capture_step
         else:
 
             def infer_step():

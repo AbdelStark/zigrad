@@ -6,6 +6,7 @@ pub const Suite = enum {
     blas,
     autograd,
     memory,
+    compiler,
     model_train,
     model_infer,
 
@@ -15,6 +16,7 @@ pub const Suite = enum {
             .blas => "blas",
             .autograd => "autograd",
             .memory => "memory",
+            .compiler => "compiler",
             .model_train => "model-train",
             .model_infer => "model-infer",
         };
@@ -31,6 +33,10 @@ pub const Kind = enum {
     autograd_matvec_backward,
     memory_tensor_cache_cycle,
     memory_mnist_train_step,
+    compiler_mnist_mlp_capture,
+    compiler_char_lm_capture,
+    compiler_dqn_cartpole_capture,
+    compiler_gcn_capture,
     mnist_mlp_train,
     mnist_mlp_infer,
     char_lm_train,
@@ -51,6 +57,10 @@ pub const Kind = enum {
             .autograd_matvec_backward => "autograd_matvec_backward",
             .memory_tensor_cache_cycle => "memory_tensor_cache_cycle",
             .memory_mnist_train_step => "memory_mnist_train_step",
+            .compiler_mnist_mlp_capture => "compiler_mnist_mlp_capture",
+            .compiler_char_lm_capture => "compiler_char_lm_capture",
+            .compiler_dqn_cartpole_capture => "compiler_dqn_cartpole_capture",
+            .compiler_gcn_capture => "compiler_gcn_capture",
             .mnist_mlp_train => "mnist_mlp_train",
             .mnist_mlp_infer => "mnist_mlp_infer",
             .char_lm_train => "char_lm_train",
@@ -204,6 +214,23 @@ fn validate(path: []const u8, raw: RawSpec) !Spec {
         .memory_mnist_train_step => {
             try requireBatchedModelShapes(raw, true);
         },
+        .compiler_mnist_mlp_capture => {
+            try requireBatchedModelShapes(raw, true);
+        },
+        .compiler_char_lm_capture => {
+            try requireBatchedModelShapes(raw, true);
+        },
+        .compiler_dqn_cartpole_capture => {
+            try requireBatchedModelShapes(raw, false);
+        },
+        .compiler_gcn_capture => {
+            if (raw.input_shape == null or raw.label_shape == null) {
+                return error.MissingModelShape;
+            }
+            if (raw.input_shape.?[0] != raw.label_shape.?[0]) {
+                return error.InvalidLabelShape;
+            }
+        },
         .mnist_mlp_train => {
             try requireBatchedModelShapes(raw, true);
         },
@@ -266,6 +293,7 @@ fn parseSuite(value: []const u8) !Suite {
     if (std.mem.eql(u8, value, "blas")) return .blas;
     if (std.mem.eql(u8, value, "autograd")) return .autograd;
     if (std.mem.eql(u8, value, "memory")) return .memory;
+    if (std.mem.eql(u8, value, "compiler")) return .compiler;
     if (std.mem.eql(u8, value, "model-train")) return .model_train;
     if (std.mem.eql(u8, value, "model-infer")) return .model_infer;
     return error.UnknownBenchmarkSuite;
@@ -281,6 +309,10 @@ fn parseKind(value: []const u8) !Kind {
     if (std.mem.eql(u8, value, "autograd_matvec_backward")) return .autograd_matvec_backward;
     if (std.mem.eql(u8, value, "memory_tensor_cache_cycle")) return .memory_tensor_cache_cycle;
     if (std.mem.eql(u8, value, "memory_mnist_train_step")) return .memory_mnist_train_step;
+    if (std.mem.eql(u8, value, "compiler_mnist_mlp_capture")) return .compiler_mnist_mlp_capture;
+    if (std.mem.eql(u8, value, "compiler_char_lm_capture")) return .compiler_char_lm_capture;
+    if (std.mem.eql(u8, value, "compiler_dqn_cartpole_capture")) return .compiler_dqn_cartpole_capture;
+    if (std.mem.eql(u8, value, "compiler_gcn_capture")) return .compiler_gcn_capture;
     if (std.mem.eql(u8, value, "mnist_mlp_train")) return .mnist_mlp_train;
     if (std.mem.eql(u8, value, "mnist_mlp_infer")) return .mnist_mlp_infer;
     if (std.mem.eql(u8, value, "char_lm_train")) return .char_lm_train;
@@ -487,6 +519,36 @@ test "load memory benchmark spec from json slice" {
     try std.testing.expectEqual(Kind.memory_tensor_cache_cycle, spec.kind);
     try std.testing.expectEqual(@as(usize, 4), spec.batch_size.?);
     try std.testing.expectEqual(@as(usize, 2), spec.lhs_shape.?.len);
+}
+
+test "load compiler benchmark spec from json slice" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const raw =
+        \\{
+        \\  "id": "compiler.mnist-mlp-capture.synthetic.f32.batch8",
+        \\  "suite": "compiler",
+        \\  "kind": "compiler_mnist_mlp_capture",
+        \\  "dtype": "f32",
+        \\  "warmup_iterations": 1,
+        \\  "measured_iterations": 2,
+        \\  "provenance": {
+        \\    "data_source": "synthetic.splitmix64",
+        \\    "preprocessing": ["reshape inputs", "derive one-hot labels", "capture forward plus loss graph"]
+        \\  },
+        \\  "batch_size": 8,
+        \\  "input_shape": [8, 1, 28, 28],
+        \\  "label_shape": [8, 10]
+        \\}
+    ;
+    const parsed = try std.json.parseFromSliceLeaky(RawSpec, allocator, raw, .{});
+    const spec = try validate("inline-compiler.json", parsed);
+
+    try std.testing.expectEqual(Suite.compiler, spec.suite);
+    try std.testing.expectEqual(Kind.compiler_mnist_mlp_capture, spec.kind);
+    try std.testing.expectEqual(@as(usize, 8), spec.batch_size.?);
+    try std.testing.expectEqual(@as(usize, 28), spec.input_shape.?[2]);
 }
 
 test "load conv2d benchmark spec from json slice" {

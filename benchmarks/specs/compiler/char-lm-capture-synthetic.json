@@ -1,0 +1,23 @@
+{
+  "id": "compiler.char-lm-capture.synthetic.f32.batch32.ctx12.vocab24",
+  "suite": "compiler",
+  "kind": "compiler_char_lm_capture",
+  "dtype": "f32",
+  "warmup_iterations": 1,
+  "measured_iterations": 4,
+  "batch_size": 32,
+  "thread_count": 1,
+  "seed": 81761,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "derive a deterministic token stream",
+      "materialize one-hot causal context windows",
+      "capture forward plus loss graph without backward execution"
+    ]
+  },
+  "input_shape": [32, 12, 24],
+  "label_shape": [32, 24],
+  "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py",
+  "notes": "Synthetic char-level language-model graph-capture benchmark that measures eager forward-plus-loss capture cost without optimizer execution."
+}

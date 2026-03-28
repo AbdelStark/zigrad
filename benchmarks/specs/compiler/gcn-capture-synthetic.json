@@ -1,0 +1,22 @@
+{
+  "id": "compiler.gcn-capture.synthetic.f32.nodes128.features64",
+  "suite": "compiler",
+  "kind": "compiler_gcn_capture",
+  "dtype": "f32",
+  "warmup_iterations": 1,
+  "measured_iterations": 3,
+  "thread_count": 1,
+  "seed": 81761,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "reshape node features to input_shape",
+      "generate deterministic ring-plus-skip edge_index",
+      "capture forward plus loss graph without backward execution"
+    ]
+  },
+  "input_shape": [128, 64],
+  "label_shape": [128, 7],
+  "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py",
+  "notes": "Synthetic two-layer GCN graph-capture benchmark on a deterministic ring-plus-skip graph without optimizer execution."
+}

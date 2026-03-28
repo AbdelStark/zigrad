@@ -85,6 +85,9 @@ pub fn expectedBatchSize(spec: manifest.Spec) ?usize {
         .blas_conv2d_im2col => spec.lhs_shape.?[0],
         .memory_tensor_cache_cycle,
         .memory_mnist_train_step,
+        .compiler_mnist_mlp_capture,
+        .compiler_char_lm_capture,
+        .compiler_dqn_cartpole_capture,
         .mnist_mlp_train,
         .mnist_mlp_infer,
         .char_lm_train,
@@ -120,12 +123,16 @@ pub fn expectedShapeMetadata(
         },
         .memory_tensor_cache_cycle => shapeMetadataFromMemoryBuffer(allocator, spec),
         .memory_mnist_train_step,
+        .compiler_mnist_mlp_capture,
         .mnist_mlp_train,
         .mnist_mlp_infer,
         => shapeMetadataFromMnist(allocator, spec),
+        .compiler_char_lm_capture,
         .char_lm_train,
         .char_lm_infer,
         => shapeMetadataFromCharLm(allocator, spec),
+        .compiler_dqn_cartpole_capture => shapeMetadataFromDqnTrain(allocator, spec),
+        .compiler_gcn_capture => shapeMetadataFromGcn(allocator, spec, spec.input_shape.?[0] * 4, true),
         .dqn_cartpole_train => shapeMetadataFromDqnTrain(allocator, spec),
         .dqn_cartpole_infer => shapeMetadataFromDqnInfer(allocator, spec),
         .gcn_train => shapeMetadataFromGcn(allocator, spec, spec.input_shape.?[0] * 4, true),
@@ -214,6 +221,10 @@ pub fn run(allocator: std.mem.Allocator, spec: manifest.Spec) !RunResult {
         .autograd_matvec_backward => runAutogradMatvecBackward(allocator, spec, &context),
         .memory_tensor_cache_cycle => runMemoryTensorCacheCycle(allocator, spec, &context),
         .memory_mnist_train_step => runMemoryMnistTrainStep(allocator, spec, &context),
+        .compiler_mnist_mlp_capture => runCompilerMnistCapture(allocator, spec, &context),
+        .compiler_char_lm_capture => runCompilerCharLmCapture(allocator, spec, &context),
+        .compiler_dqn_cartpole_capture => runCompilerDqnCapture(allocator, spec, &context),
+        .compiler_gcn_capture => runCompilerGcnCapture(allocator, spec, &context),
         .mnist_mlp_train => runMnistTrain(allocator, spec, &context),
         .mnist_mlp_infer => runMnistInfer(allocator, spec, &context),
         .char_lm_train => runCharLmTrain(allocator, spec, &context),
@@ -697,6 +708,318 @@ fn runMemoryMnistTrainStep(allocator: std.mem.Allocator, spec: manifest.Spec, co
             .peak_scratch_bytes = @as(u64, @intCast(telemetry.peak_scratch_bytes)),
         },
         .host_blas_telemetry = captureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runCompilerMnistCapture(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
+    const batch_size = spec.batch_size.?;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    const host = context.host();
+    const device = context.device();
+
+    var timer = try std.time.Timer.start();
+    var model = try MnistBenchmarkModel(f32).init(allocator, device, &graph, spec.seed);
+    defer model.deinit();
+
+    const input_values = try makeDeterministicSlice(allocator, countElements(spec.input_shape.?), spec.seed +% 101);
+    defer allocator.free(input_values);
+    const label_values = try makeOneHotLabels(allocator, batch_size, spec.label_shape.?[1], spec.seed +% 103);
+    defer allocator.free(label_values);
+
+    const setup_latency_ns = timer.read();
+
+    for (0..spec.warmup_iterations) |_| {
+        try oneCompilerMnistCaptureStep(
+            &graph,
+            device,
+            &model,
+            input_values,
+            spec.input_shape.?,
+            label_values,
+            spec.label_shape.?,
+        );
+    }
+
+    if (host) |value| value.resetCacheTelemetry();
+    maybeResetHostBenchmarkTelemetry(host);
+    var peak_graph_arena_bytes = graph.queryArenaCapacityBytes();
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+
+    for (timings) |*timing| {
+        timer.reset();
+        try oneCompilerMnistCaptureStep(
+            &graph,
+            device,
+            &model,
+            input_values,
+            spec.input_shape.?,
+            label_values,
+            spec.label_shape.?,
+        );
+        timing.* = timer.read();
+        peak_graph_arena_bytes = @max(peak_graph_arena_bytes, graph.queryArenaCapacityBytes());
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromMnist(allocator, spec),
+        .batch_size = batch_size,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = batch_size,
+        .throughput_unit = "samples",
+        .memory = compilerCaptureMemoryStats(host, peak_graph_arena_bytes, graph.queryArenaCapacityBytes()),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runCompilerCharLmCapture(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
+    const batch_size = spec.batch_size.?;
+    const input_shape = spec.input_shape.?;
+    const label_shape = spec.label_shape.?;
+    const context_len = input_shape[1];
+    const vocab_size = input_shape[2];
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    const host = context.host();
+    const device = context.device();
+
+    var timer = try std.time.Timer.start();
+    var model = try CharLmModel(f32).initWithGraphAndSeed(
+        device,
+        context_len,
+        vocab_size,
+        charLmHiddenSize(vocab_size),
+        &graph,
+        spec.seed,
+    );
+    defer model.deinit();
+
+    const token_stream = try makeCharLmTokenStream(allocator, batch_size, context_len, vocab_size, spec.seed +% 107);
+    defer allocator.free(token_stream);
+    const input_values = try makeCharLmInputBatch(allocator, token_stream, batch_size, context_len, vocab_size);
+    defer allocator.free(input_values);
+    const label_values = try makeCharLmLabelBatch(allocator, token_stream, batch_size, context_len, vocab_size);
+    defer allocator.free(label_values);
+
+    const setup_latency_ns = timer.read();
+
+    for (0..spec.warmup_iterations) |_| {
+        try oneCompilerCharLmCaptureStep(
+            &graph,
+            device,
+            &model,
+            input_values,
+            input_shape,
+            label_values,
+            label_shape,
+        );
+    }
+
+    if (host) |value| value.resetCacheTelemetry();
+    maybeResetHostBenchmarkTelemetry(host);
+    var peak_graph_arena_bytes = graph.queryArenaCapacityBytes();
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+
+    for (timings) |*timing| {
+        timer.reset();
+        try oneCompilerCharLmCaptureStep(
+            &graph,
+            device,
+            &model,
+            input_values,
+            input_shape,
+            label_values,
+            label_shape,
+        );
+        timing.* = timer.read();
+        peak_graph_arena_bytes = @max(peak_graph_arena_bytes, graph.queryArenaCapacityBytes());
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromCharLm(allocator, spec),
+        .batch_size = batch_size,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = batch_size,
+        .throughput_unit = "samples",
+        .memory = compilerCaptureMemoryStats(host, peak_graph_arena_bytes, graph.queryArenaCapacityBytes()),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runCompilerDqnCapture(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
+    const batch_size = spec.batch_size.?;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    const host = context.host();
+    const device = context.device();
+
+    var timer = try std.time.Timer.start();
+    var policy = try DqnBenchmarkModel(f32).init(allocator, device, &graph, spec.seed);
+    defer policy.deinit();
+
+    var target = try DqnBenchmarkModel(f32).init(allocator, device, &graph, spec.seed);
+    defer target.deinit();
+    target.setRequiresGrad(false);
+
+    const state_values = try makeDeterministicSlice(allocator, countElements(spec.input_shape.?), spec.seed +% 109);
+    defer allocator.free(state_values);
+    const next_state_values = try makeDeterministicSlice(allocator, countElements(spec.input_shape.?), spec.seed +% 113);
+    defer allocator.free(next_state_values);
+    const action_values = try makeActionIndices(allocator, batch_size, 2, spec.seed +% 127);
+    defer allocator.free(action_values);
+    const action_mask_values = try makeActionMask(allocator, action_values, 2);
+    defer allocator.free(action_mask_values);
+    const reward_values = try makeRewardSlice(allocator, batch_size, spec.seed +% 131);
+    defer allocator.free(reward_values);
+    const done_values = try makeDoneSlice(allocator, batch_size, spec.seed +% 137);
+    defer allocator.free(done_values);
+    const gamma_values = try makeFilledSlice(allocator, batch_size, 0.99);
+    defer allocator.free(gamma_values);
+    const one_values = try makeFilledSlice(allocator, batch_size, 1.0);
+    defer allocator.free(one_values);
+
+    const setup_latency_ns = timer.read();
+
+    for (0..spec.warmup_iterations) |_| {
+        try oneCompilerDqnCaptureStep(
+            &graph,
+            device,
+            &policy,
+            &target,
+            state_values,
+            next_state_values,
+            action_mask_values,
+            reward_values,
+            done_values,
+            gamma_values,
+            one_values,
+            spec.input_shape.?,
+        );
+    }
+
+    if (host) |value| value.resetCacheTelemetry();
+    maybeResetHostBenchmarkTelemetry(host);
+    var peak_graph_arena_bytes = graph.queryArenaCapacityBytes();
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+
+    for (timings) |*timing| {
+        timer.reset();
+        try oneCompilerDqnCaptureStep(
+            &graph,
+            device,
+            &policy,
+            &target,
+            state_values,
+            next_state_values,
+            action_mask_values,
+            reward_values,
+            done_values,
+            gamma_values,
+            one_values,
+            spec.input_shape.?,
+        );
+        timing.* = timer.read();
+        peak_graph_arena_bytes = @max(peak_graph_arena_bytes, graph.queryArenaCapacityBytes());
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromDqnTrain(allocator, spec),
+        .batch_size = batch_size,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = batch_size,
+        .throughput_unit = "samples",
+        .memory = compilerCaptureMemoryStats(host, peak_graph_arena_bytes, graph.queryArenaCapacityBytes()),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runCompilerGcnCapture(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
+    const input_shape = spec.input_shape.?;
+    const label_shape = spec.label_shape.?;
+    const node_count = input_shape[0];
+    const edge_values = try makeGraphEdgeIndex(allocator, node_count, 4);
+    defer allocator.free(edge_values);
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    const host = context.host();
+    const device = context.device();
+
+    var timer = try std.time.Timer.start();
+    var model = try GcnBenchmarkModel(f32).init(
+        allocator,
+        device,
+        &graph,
+        input_shape[1],
+        label_shape[1],
+        spec.seed,
+    );
+    defer model.deinit();
+
+    const input_values = try makeDeterministicSlice(allocator, countElements(input_shape), spec.seed +% 139);
+    defer allocator.free(input_values);
+    const label_values = try makeOneHotLabels(allocator, node_count, label_shape[1], spec.seed +% 149);
+    defer allocator.free(label_values);
+
+    const setup_latency_ns = timer.read();
+
+    for (0..spec.warmup_iterations) |_| {
+        try oneCompilerGcnCaptureStep(
+            &graph,
+            device,
+            &model,
+            input_values,
+            input_shape,
+            label_values,
+            label_shape,
+            edge_values,
+        );
+    }
+
+    if (host) |value| value.resetCacheTelemetry();
+    maybeResetHostBenchmarkTelemetry(host);
+    var peak_graph_arena_bytes = graph.queryArenaCapacityBytes();
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+
+    for (timings) |*timing| {
+        timer.reset();
+        try oneCompilerGcnCaptureStep(
+            &graph,
+            device,
+            &model,
+            input_values,
+            input_shape,
+            label_values,
+            label_shape,
+            edge_values,
+        );
+        timing.* = timer.read();
+        peak_graph_arena_bytes = @max(peak_graph_arena_bytes, graph.queryArenaCapacityBytes());
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromGcn(allocator, spec, edge_values.len / 2, true),
+        .batch_size = null,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = node_count,
+        .throughput_unit = "nodes",
+        .memory = compilerCaptureMemoryStats(host, peak_graph_arena_bytes, graph.queryArenaCapacityBytes()),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
         .notes = spec.notes,
     };
 }
@@ -1320,6 +1643,40 @@ fn oneCharLmTrainingStep(
     model.zero_grad();
 }
 
+fn oneCompilerMnistCaptureStep(
+    graph: *zg.Graph,
+    device: zg.DeviceReference,
+    model: *MnistBenchmarkModel(f32),
+    input_values: []const f32,
+    input_shape: []const usize,
+    label_values: []const f32,
+    label_shape: []const usize,
+) !void {
+    const Tensor = zg.NDTensor(f32);
+    const input = try Tensor.from_slice(device, input_values, input_shape, .{ .graph = graph });
+    const labels = try Tensor.from_slice(device, label_values, label_shape, .{ .graph = graph });
+    const output = try model.forward(input);
+    const loss = try zg.loss.softmax_cross_entropy_loss(f32, output, labels);
+    graph.teardown(&loss.node);
+}
+
+fn oneCompilerCharLmCaptureStep(
+    graph: *zg.Graph,
+    device: zg.DeviceReference,
+    model: *CharLmModel(f32),
+    input_values: []const f32,
+    input_shape: []const usize,
+    label_values: []const f32,
+    label_shape: []const usize,
+) !void {
+    const Tensor = zg.NDTensor(f32);
+    const input = try Tensor.from_slice(device, input_values, input_shape, .{ .graph = graph });
+    const labels = try Tensor.from_slice(device, label_values, label_shape, .{ .graph = graph });
+    const output = try model.forward(input);
+    const loss = try zg.loss.softmax_cross_entropy_loss(f32, output, labels);
+    graph.teardown(&loss.node);
+}
+
 fn oneMemoryTensorCacheCycle(
     allocator: std.mem.Allocator,
     device: zg.DeviceReference,
@@ -1417,6 +1774,52 @@ fn oneDqnTrainingStep(
     policy.zeroGrad();
 }
 
+fn oneCompilerDqnCaptureStep(
+    graph: *zg.Graph,
+    device: zg.DeviceReference,
+    policy: *DqnBenchmarkModel(f32),
+    target: *DqnBenchmarkModel(f32),
+    state_values: []const f32,
+    next_state_values: []const f32,
+    action_mask_values: []const f32,
+    reward_values: []const f32,
+    done_values: []const f32,
+    gamma_values: []const f32,
+    one_values: []const f32,
+    input_shape: []const usize,
+) !void {
+    const Tensor = zg.NDTensor(f32);
+    const batch_size = input_shape[0];
+    const selector_values = [_]f32{ 1.0, 1.0 };
+
+    const states = try Tensor.from_slice(device, state_values, input_shape, .{ .graph = graph });
+    const next_states = try Tensor.from_slice(device, next_state_values, input_shape, .{ .graph = graph });
+    const action_mask = try Tensor.from_slice(device, action_mask_values, &.{ batch_size, 2 }, .{ .graph = graph });
+    const rewards = try Tensor.from_slice(device, reward_values, &.{ batch_size, 1 }, .{ .graph = graph });
+    const dones = try Tensor.from_slice(device, done_values, &.{ batch_size, 1 }, .{ .graph = graph });
+    const gamma = try Tensor.from_slice(device, gamma_values, &.{ batch_size, 1 }, .{ .graph = graph });
+    const ones = try Tensor.from_slice(device, one_values, &.{ batch_size, 1 }, .{ .graph = graph });
+    const selector = try Tensor.from_slice(device, &selector_values, &.{ 2, 1 }, .{ .graph = graph });
+
+    const previous_grad_state = zg.runtime.grad_enabled;
+    zg.runtime.grad_enabled = false;
+    defer zg.runtime.grad_enabled = previous_grad_state;
+
+    const next_q_values = try target.forward(next_states);
+    const max_next_q_values = try next_q_values.max_along(.{ .dim = 1, .keep_dims = true });
+    const discounted = try max_next_q_values.mul(gamma);
+    const not_done = try ones.sub(dones);
+    const masked = try discounted.mul(not_done);
+    const targets = try rewards.add(masked);
+
+    zg.runtime.grad_enabled = true;
+    const all_q_values = try policy.forward(states);
+    const masked_q_values = try all_q_values.mul(action_mask);
+    const selected_q_values = try masked_q_values.bmm(selector, .{});
+    const loss = try zg.loss.smooth_l1_loss(f32, selected_q_values, targets, 1.0);
+    graph.teardown(&loss.node);
+}
+
 fn oneGcnTrainingStep(
     graph: *zg.Graph,
     device: zg.DeviceReference,
@@ -1448,6 +1851,29 @@ fn oneGcnTrainingStep(
     try loss.backward();
     try optimizer.step();
     model.zeroGrad();
+}
+
+fn oneCompilerGcnCaptureStep(
+    graph: *zg.Graph,
+    device: zg.DeviceReference,
+    model: *GcnBenchmarkModel(f32),
+    input_values: []const f32,
+    input_shape: []const usize,
+    label_values: []const f32,
+    label_shape: []const usize,
+    edge_values: []const usize,
+) !void {
+    const Tensor = zg.NDTensor(f32);
+
+    const input = try Tensor.from_slice(device, input_values, input_shape, .{ .graph = graph });
+    const labels = try Tensor.from_slice(device, label_values, label_shape, .{ .graph = graph });
+    const edge_index = try zg.NDTensor(usize).from_slice(device, edge_values, &.{ 2, edge_values.len / 2 }, .{
+        .graph = graph,
+    });
+
+    const output = try model.forward(input, edge_index);
+    const loss = try zg.loss.softmax_cross_entropy_loss(f32, output, labels);
+    graph.teardown(&loss.node);
 }
 
 fn prepareAutogradDotOperands(
@@ -1604,6 +2030,19 @@ fn makeActionIndices(
     const values = try allocator.alloc(usize, batch_size);
     for (values, 0..) |*value, row| {
         value.* = @as(usize, @intCast(splitmix64(seed +% @as(u64, row)) % action_count));
+    }
+    return values;
+}
+
+fn makeActionMask(
+    allocator: std.mem.Allocator,
+    action_values: []const usize,
+    action_count: usize,
+) ![]f32 {
+    const values = try allocator.alloc(f32, action_values.len * action_count);
+    @memset(values, 0);
+    for (action_values, 0..) |action, row| {
+        values[(row * action_count) + action] = 1.0;
     }
     return values;
 }
@@ -1800,6 +2239,26 @@ fn shapeMetadataFromGcn(
 
 fn allocDims(allocator: std.mem.Allocator, dims: []const usize) ![]const usize {
     return try allocator.dupe(usize, dims);
+}
+
+fn compilerCaptureMemoryStats(
+    host: ?*const zg.device.HostDevice,
+    peak_graph_arena_bytes: usize,
+    final_graph_arena_bytes: usize,
+) result.MemoryStats {
+    var stats = result.MemoryStats{
+        .peak_graph_arena_bytes = @as(u64, @intCast(peak_graph_arena_bytes)),
+        .final_graph_arena_bytes = @as(u64, @intCast(final_graph_arena_bytes)),
+    };
+
+    if (host) |value| {
+        const telemetry = value.cacheTelemetry();
+        stats.peak_live_bytes = @as(u64, @intCast(telemetry.peak_live_bytes));
+        stats.final_live_bytes = @as(u64, @intCast(telemetry.live_bytes));
+        stats.peak_scratch_bytes = @as(u64, @intCast(telemetry.peak_scratch_bytes));
+    }
+
+    return stats;
 }
 
 fn charLmHiddenSize(vocab_size: usize) usize {
@@ -2013,6 +2472,144 @@ test "run memory mnist training benchmark" {
     try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
     try std.testing.expect(output.memory != null);
     try std.testing.expect(output.memory.?.peak_live_bytes.? >= output.memory.?.final_live_bytes.?);
+    try std.testing.expect(output.memory.?.peak_graph_arena_bytes.? > 0);
+}
+
+test "run compiler mnist capture benchmark" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const input_shape = [_]usize{ 4, 1, 28, 28 };
+    const label_shape = [_]usize{ 4, 10 };
+    const spec: manifest.Spec = .{
+        .id = "test.compiler.mnist.capture",
+        .suite = .compiler,
+        .kind = .compiler_mnist_mlp_capture,
+        .dtype = .f32,
+        .warmup_iterations = 0,
+        .measured_iterations = 1,
+        .batch_size = 4,
+        .thread_count = 1,
+        .seed = 1,
+        .input_shape = input_shape[0..],
+        .label_shape = label_shape[0..],
+        .provenance = inlineProvenance(&.{
+            "reshape inputs to input_shape",
+            "derive one-hot labels from deterministic class pattern",
+            "capture forward plus loss graph without backward execution",
+        }),
+        .path = "inline",
+    };
+
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.ok, run_result.status);
+    const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
+    try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
+    try std.testing.expectEqual(@as(usize, 2), output.shapes.len);
+    try std.testing.expect(output.memory != null);
+    try std.testing.expect(output.memory.?.peak_graph_arena_bytes.? > 0);
+}
+
+test "run compiler char lm capture benchmark" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const input_shape = [_]usize{ 8, 12, 24 };
+    const label_shape = [_]usize{ 8, 24 };
+    const spec: manifest.Spec = .{
+        .id = "test.compiler.char-lm.capture",
+        .suite = .compiler,
+        .kind = .compiler_char_lm_capture,
+        .dtype = .f32,
+        .warmup_iterations = 0,
+        .measured_iterations = 1,
+        .batch_size = 8,
+        .thread_count = 1,
+        .seed = 1,
+        .input_shape = input_shape[0..],
+        .label_shape = label_shape[0..],
+        .provenance = inlineProvenance(&.{
+            "derive a deterministic token stream",
+            "materialize one-hot causal context windows",
+            "capture forward plus loss graph without backward execution",
+        }),
+        .path = "inline",
+    };
+
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.ok, run_result.status);
+    const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
+    try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
+    try std.testing.expectEqual(@as(usize, 2), output.shapes.len);
+    try std.testing.expect(output.memory != null);
+    try std.testing.expect(output.memory.?.peak_graph_arena_bytes.? > 0);
+}
+
+test "run compiler dqn capture benchmark" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const input_shape = [_]usize{ 8, 4 };
+    const spec: manifest.Spec = .{
+        .id = "test.compiler.dqn.capture",
+        .suite = .compiler,
+        .kind = .compiler_dqn_cartpole_capture,
+        .dtype = .f32,
+        .warmup_iterations = 0,
+        .measured_iterations = 1,
+        .batch_size = 8,
+        .thread_count = 1,
+        .seed = 1,
+        .input_shape = input_shape[0..],
+        .provenance = inlineProvenance(&.{
+            "reshape states to input_shape",
+            "derive deterministic transitions and targets",
+            "capture Q-learning loss graph without backward execution",
+        }),
+        .path = "inline",
+    };
+
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.ok, run_result.status);
+    const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
+    try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
+    try std.testing.expectEqual(@as(usize, 5), output.shapes.len);
+    try std.testing.expect(output.memory != null);
+    try std.testing.expect(output.memory.?.peak_graph_arena_bytes.? > 0);
+}
+
+test "run compiler gcn capture benchmark" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const input_shape = [_]usize{ 16, 8 };
+    const label_shape = [_]usize{ 16, 7 };
+    const spec: manifest.Spec = .{
+        .id = "test.compiler.gcn.capture",
+        .suite = .compiler,
+        .kind = .compiler_gcn_capture,
+        .dtype = .f32,
+        .warmup_iterations = 0,
+        .measured_iterations = 1,
+        .thread_count = 1,
+        .seed = 1,
+        .input_shape = input_shape[0..],
+        .label_shape = label_shape[0..],
+        .provenance = inlineProvenance(&.{
+            "reshape node features to input_shape",
+            "generate deterministic ring-plus-skip edge_index",
+            "capture forward plus loss graph without backward execution",
+        }),
+        .path = "inline",
+    };
+
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.ok, run_result.status);
+    const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
+    try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
+    try std.testing.expectEqual(@as(usize, 3), output.shapes.len);
+    try std.testing.expect(output.batch_size == null);
+    try std.testing.expect(output.memory != null);
     try std.testing.expect(output.memory.?.peak_graph_arena_bytes.? > 0);
 }
 

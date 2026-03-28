@@ -357,6 +357,14 @@ pub fn build(b: *Build) !void {
     const benchmark_memory_step = b.step("benchmark-memory", "Run memory benchmark specs");
     benchmark_memory_step.dependOn(&run_benchmark_memory.step);
 
+    const run_benchmark_compiler = b.addRunArtifact(benchmark_exe);
+    run_benchmark_compiler.addArgs(&.{ "--group", "compiler", "--output", "benchmarks/results/compiler.jsonl" });
+    if (b.args) |args| {
+        run_benchmark_compiler.addArgs(args);
+    }
+    const benchmark_compiler_step = b.step("benchmark-compiler", "Run compiler benchmark specs");
+    benchmark_compiler_step.dependOn(&run_benchmark_compiler.step);
+
     const run_benchmark_models = b.addRunArtifact(benchmark_exe);
     run_benchmark_models.addArgs(&.{ "--group", "models", "--output", "benchmarks/results/models.jsonl" });
     if (b.args) |args| {

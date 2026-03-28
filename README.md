@@ -62,10 +62,13 @@ discoverable, and captured host thread-environment hints alongside backend
 telemetry. The current smoke suite covers deterministic primitive and BLAS
 workloads, including conv-lowering coverage and a nested-broadcast matmul
 fallback case, plus MNIST MLP, a char-level causal language model,
-CartPole-style DQN, and two-layer GCN workloads. Host benchmark/build metadata
-now records the explicit BLAS provider as `accelerate`, `openblas`, or `mkl`,
-and Zig runs also report host BLAS dispatch telemetry so fallback usage is
-visible in the JSONL output:
+CartPole-style DQN, and two-layer GCN workloads. The harness now also includes
+a dedicated `compiler` suite for repeated eager graph-session capture on the
+same maintained families, measuring forward-plus-loss graph construction and
+teardown separately from model setup. Host benchmark/build metadata now records
+the explicit BLAS provider as `accelerate`, `openblas`, or `mkl`, and Zig runs
+also report host BLAS dispatch telemetry so fallback usage is visible in the
+JSONL output:
 
 ```shell
 zig build benchmark
@@ -73,7 +76,9 @@ zig build test-provider-parity
 zig build test-example-smoke
 zig build benchmark-primitive
 zig build benchmark-blas
+zig build benchmark-autograd
 zig build benchmark-memory
+zig build benchmark-compiler
 zig build benchmark-models
 zig build benchmark-validate
 zig build test-benchmark-smoke
@@ -96,6 +101,20 @@ When a spec declares a baseline runner, the harness now treats that runner as
 part of the JSONL contract: skipped baselines stay explicit, and launcher,
 exit-code, or malformed-output failures produce structured `failed` records
 instead of silently dropping the baseline row.
+
+Compiler capture specs such as
+[`benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json`](./benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json)
+and
+[`benchmarks/specs/compiler/gcn-capture-synthetic.json`](./benchmarks/specs/compiler/gcn-capture-synthetic.json)
+reuse persistent model parameters while timing only forward-plus-loss graph
+construction plus explicit teardown, which gives RFC-0001 a first executable
+compiler-facing benchmark surface before RFC-0006 lazy tensors land:
+
+```shell
+zig build benchmark-compiler
+zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json --baseline pytorch --output .zig-cache/zigrad-compiler-capture.jsonl
+zig build benchmark-validate -- --input .zig-cache/zigrad-compiler-capture.jsonl
+```
 
 Specs can now target a backend directly through a checked-in `device` field.
 Host remains the default; CUDA-targeted specs such as

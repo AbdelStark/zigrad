@@ -14,6 +14,7 @@ zig build benchmark-primitive
 zig build benchmark-blas
 zig build benchmark-autograd
 zig build benchmark-memory
+zig build benchmark-compiler
 zig build benchmark-models
 zig build benchmark-validate
 zig build test-benchmark-smoke
@@ -43,6 +44,7 @@ You can also pass runtime arguments through the benchmark executable:
 zig build benchmark -- --baseline pytorch
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/char-lm-synthetic.json
+zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json
 zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2 --thread-count 4
 ```
@@ -177,6 +179,11 @@ emits both a machine-readable manifest and a Markdown summary for humans.
 - `memory`
   - host tensor cache allocation/free cycle high-water mark
   - synthetic MNIST training-step cache and graph-arena high-water mark
+- `compiler`
+  - synthetic MNIST-style forward-plus-loss graph capture
+  - synthetic char-level causal language model forward-plus-loss graph capture
+  - synthetic CartPole-shaped DQN loss graph capture
+  - synthetic two-layer GCN forward-plus-loss graph capture on a deterministic graph
 - `model-train`
   - synthetic MNIST-style MLP training step
   - synthetic char-level causal language model training step
@@ -195,6 +202,10 @@ deterministic synthetic inputs, transitions, labels, and graphs so the suite
 runs from a clean checkout without dataset downloads or simulator setup. The
 char-LM workloads mirror [`examples/char-lm/`](../examples/char-lm/) with
 one-hot causal windows and next-token labels.
+The compiler suite measures repeated eager graph-session capture on persistent
+reference-model parameters, pairing each capture step with explicit graph
+teardown so setup cost stays separate from measured forward-plus-loss graph
+construction.
 
 ## Spec Format
 
@@ -203,7 +214,7 @@ Benchmark specs live under [`benchmarks/specs/`](./specs/) as JSON files.
 Common fields:
 
 - `id`: stable benchmark identifier
-- `suite`: `primitive`, `blas`, `autograd`, `memory`, `model-train`, or `model-infer`
+- `suite`: `primitive`, `blas`, `autograd`, `memory`, `compiler`, `model-train`, or `model-infer`
 - `kind`: workload selector
 - `dtype`: currently `f32`
 - `warmup_iterations`
@@ -224,6 +235,8 @@ Workload-specific fields:
 - `lhs_shape`, `rhs_shape`, `stride`, `padding`, and `dilation` for BLAS
   conv2d im2col lowering workloads
 - `lhs_shape` plus `batch_size` for memory tensor-cache cycle workloads
+- `batch_size`, `input_shape`, and `label_shape` for compiler capture workloads
+  that build forward-plus-loss graphs without running optimizer updates
 - `batch_size`, `input_shape`, `label_shape` for batched model workloads
 - `input_shape`, optional `label_shape`, and derived synthetic graph topology
   for GCN workloads

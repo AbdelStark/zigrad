@@ -65,6 +65,16 @@ Character-language-model workloads use:
 - `label_shape = [batch, vocab]` for one-hot next-token targets on training
   specs
 
+Compiler capture workloads should mirror the maintained training families while
+keeping the measured loop focused on forward-plus-loss graph construction:
+
+- use the same `input_shape` / `label_shape` contract as the corresponding
+  training benchmark when labels are part of the captured loss
+- keep model initialization and deterministic input generation in setup, not in
+  measured iterations
+- explicitly document whether the capture slice stops before backward or
+  optimizer execution
+
 For conv-lowering benchmarks, encode the input tensor in `lhs_shape`, the
 weights in `rhs_shape`, and the lowering parameters in `stride`, `padding`, and
 `dilation`.
@@ -87,6 +97,7 @@ zig build benchmark-validate
 zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json
 zig build benchmark -- --spec benchmarks/specs/blas/dot-f32-262144.json
 zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json
+zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/char-lm-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json
 zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2
@@ -101,6 +112,7 @@ zig build benchmark-primitive
 zig build benchmark-blas
 zig build benchmark-autograd
 zig build benchmark-memory
+zig build benchmark-compiler
 zig build benchmark-models
 zig build benchmark
 zig build test-benchmark-smoke

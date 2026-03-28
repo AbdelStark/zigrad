@@ -197,7 +197,7 @@ fn parseArgs(allocator: std.mem.Allocator) !Options {
 
 fn printUsage() void {
     std.debug.print(
-        \\Usage: benchmark-validate [--spec-root <path>] [--group primitive|blas|autograd|memory|model-train|model-infer|models|all] [--spec <path>] [--input <path> ...] [--json-output <path>] [--report-output <path>]
+        \\Usage: benchmark-validate [--spec-root <path>] [--group primitive|blas|autograd|memory|compiler|model-train|model-infer|models|all] [--spec <path>] [--input <path> ...] [--json-output <path>] [--report-output <path>]
         \\
     , .{});
 }

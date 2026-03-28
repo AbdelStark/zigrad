@@ -1,0 +1,23 @@
+{
+  "id": "compiler.mnist-mlp-capture.synthetic.f32.batch64",
+  "suite": "compiler",
+  "kind": "compiler_mnist_mlp_capture",
+  "dtype": "f32",
+  "warmup_iterations": 1,
+  "measured_iterations": 4,
+  "batch_size": 64,
+  "thread_count": 1,
+  "seed": 81761,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "reshape inputs to input_shape",
+      "derive one-hot labels from deterministic class pattern",
+      "capture forward plus loss graph without backward execution"
+    ]
+  },
+  "input_shape": [64, 1, 28, 28],
+  "label_shape": [64, 10],
+  "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py",
+  "notes": "Synthetic MNIST-shaped graph-capture benchmark that measures eager forward-plus-loss capture cost without optimizer execution."
+}
