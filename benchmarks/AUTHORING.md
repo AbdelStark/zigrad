@@ -49,6 +49,11 @@ Required fields:
 - `provenance.data_source`
 - `provenance.preprocessing`
 
+Optional but contract-relevant fields:
+
+- `device`, which defaults to `host` and may be set to `cuda` or `cuda:<index>`
+  for CUDA-targeted specs
+
 Shape and batch fields depend on the workload kind. The manifest validator
 should reject incomplete specs with clear errors. Batched workloads should make
 their leading dimension explicit through `batch_size`; graph workloads may omit
@@ -76,6 +81,7 @@ zig build benchmark-validate
 zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json
 zig build benchmark -- --spec benchmarks/specs/blas/dot-f32-262144.json
 zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json
+zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json
 zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2
 zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json --output .zig-cache/zigrad-benchmark-validate.jsonl
 zig build benchmark-validate -- --input .zig-cache/zigrad-benchmark-validate.jsonl
@@ -91,6 +97,7 @@ zig build benchmark-memory
 zig build benchmark-models
 zig build benchmark
 zig build test-benchmark-smoke
+zig build test-benchmark-cuda-request-smoke
 zig build test-benchmark-baseline-smoke
 zig build test-benchmark-publication-smoke
 ```
@@ -109,6 +116,20 @@ When the change touches an external baseline runner or `pytorch_runner`
 coverage, also rerun `zig build test-benchmark-baseline-smoke` so baseline
 launch failures and malformed output still degrade into explicit `failed`
 records instead of silently disappearing from the JSONL artifact.
+When the change adds or modifies CUDA-targeted specs, also rerun
+`zig build test-benchmark-cuda-request-smoke` so non-CUDA environments keep
+emitting explicit schema-valid `skipped` rows and successful CUDA runs still
+surface structured `backend.cuda` metadata.
+
+CUDA-targeted specs should preserve graceful degradation:
+
+- non-CUDA builds or hosts with no CUDA device should emit explicit `skipped`
+  Zig records rather than aborting the harness
+- successful CUDA runs should populate `backend.device = "cuda"`,
+  `backend.accelerator`, and `backend.cuda`
+- host-only suites such as `memory` should skip clearly when pointed at CUDA
+- PyTorch baselines for CUDA-targeted specs should emit explicit `skipped`
+  rows until a real CUDA baseline path exists
 
 ## Regression Comparison
 

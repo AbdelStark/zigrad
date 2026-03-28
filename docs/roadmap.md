@@ -68,9 +68,9 @@ documents we will implement against.
 
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, external baseline-runner smoke validation, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/MNIST/DQN/GCN plus conv-lowering and broadcast-fallback matmul coverage, and host thread-sweep/scaling-report workflows are landed; compare/provider/thread publication artifacts plus publication-bundle manifests/summaries now have dedicated smoke validation, while future CUDA/compiler/interop suites remain. |
+| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, external baseline-runner smoke validation, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/MNIST/DQN/GCN plus conv-lowering and broadcast-fallback matmul coverage, host thread-sweep/scaling-report workflows, and backend-aware CUDA benchmark request specs with explicit skip/fail semantics plus dedicated smoke coverage are landed; future real-GPU/compiler/interop suites remain. |
 | RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, a provider-sensitive numerical parity suite, opt-in runtime diagnostics hooks, example runtime smoke coverage for hello-world/MNIST/DQN/GCN, and Markdown/JSON provider plus thread-scaling report generators are landed; publication-path smoke validation now covers provider/thread reports and CI emits thread-scaling bundle artifacts, while oneMKL execution and published provider comparison runs remain. |
-| RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Runtime selection, diagnostics, CUDA-safe DQN/GCN kernels, and backend-dispatched Adam optimizer updates are landed; real GPU compile/run validation and CUDA benchmark suites remain. |
+| RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Runtime selection, diagnostics, CUDA-safe DQN/GCN kernels, backend-dispatched Adam optimizer updates, and benchmark-harness integration for checked-in CUDA-targeted specs are landed; real GPU compile/run validation and executed CUDA benchmark suites remain. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
 | RFC-0005 | ggml/GGUF Interop | `Planned` | P1 | RFC-0001, RFC-0012 | Critical for LLM examples and inference compatibility. |
 | RFC-0006 | Lazy Tensors | `Planned` | P1 | RFC-0001, RFC-0002, RFC-0003 | Introduces capture without breaking eager execution. |
@@ -121,6 +121,66 @@ Every RFC in this folder set must maintain:
 - a section describing what will not be done in the RFC.
 
 ## Agentic Context
+
+### RFC-0001 2026-03-28 Backend-Aware CUDA Benchmark Requests
+
+- Completed:
+  - Extended the benchmark manifest and result schema so checked-in specs can
+    declare `device: "cuda[:index]"`, and benchmark JSONL rows now carry
+    backend-aware CUDA metadata when a CUDA run succeeds.
+  - Updated the benchmark workload and CLI paths so CUDA-targeted Zig specs
+    emit explicit `skipped` or `failed` records instead of aborting the
+    harness when CUDA is unavailable or unsupported, while successful runs keep
+    full schema validation.
+  - Added checked-in CUDA-targeted model specs plus
+    [`tests/src/benchmark_cuda_request_smoke_main.zig`](../tests/src/benchmark_cuda_request_smoke_main.zig)
+    and the `zig build test-benchmark-cuda-request-smoke` build step, so the
+    backend-aware contract is now smoke-tested end to end.
+  - Extended the PyTorch baseline path so CUDA-targeted specs produce explicit
+    skipped baseline rows instead of silently omitting the runner record.
+- Remains:
+  - Execute the checked-in CUDA specs on a real toolkit/device host and publish
+    the first non-skipped CUDA benchmark artifacts.
+  - Extend the same backend-aware benchmark contract to future compiler and
+    interop suites as they become executable.
+- Blockers:
+  - This environment still has no CUDA toolkit or CUDA device available, so
+    the new backend-aware benchmark path validated through explicit skip
+    semantics rather than real accelerator execution.
+- Validation:
+  - `zig build test-benchmark-cuda-request-smoke`
+  - `zig build test-benchmark-smoke`
+  - `zig build test-benchmark-baseline-smoke`
+  - `zig build test-benchmark-publication-smoke`
+  - `zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json --output .zig-cache/benchmark-cuda-spec.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/benchmark-cuda-spec.jsonl`
+  - `zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json --baseline pytorch --output .zig-cache/benchmark-cuda-pytorch.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/benchmark-cuda-pytorch.jsonl`
+  - `zig build test`
+
+### RFC-0003 2026-03-28 Benchmark Harness CUDA Integration
+
+- Completed:
+  - Wired RFC-0003’s runtime-device selection and CUDA diagnostics into the
+    RFC-0001 benchmark harness, so checked-in CUDA-targeted specs can now be
+    represented and validated without a separate out-of-band benchmark runner.
+  - Successful CUDA benchmark records now carry structured accelerator metadata
+    while non-CUDA builds degrade into explicit schema-valid `skipped` rows
+    instead of terminating the harness.
+- Remains:
+  - Run the new CUDA-targeted benchmark specs on a GPU-capable host and start
+    collecting real model-train/model-infer CUDA results.
+  - Extend the same benchmark integration to future CUDA-specific primitive or
+    memory suites once those workloads are validated on hardware.
+- Blockers:
+  - No local CUDA toolkit or device was available in this run, so the harness
+    integration validated only the non-CUDA degradation path plus contract
+    coverage.
+- Validation:
+  - `zig build test-benchmark-cuda-request-smoke`
+  - `zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json --output .zig-cache/benchmark-cuda-spec.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/benchmark-cuda-spec.jsonl`
+  - `zig build test`
 
 ### RFC-0003 2026-03-28 Backend-Dispatched Adam Updates
 

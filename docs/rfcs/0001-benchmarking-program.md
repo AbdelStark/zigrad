@@ -190,6 +190,7 @@ Regression gating should use broad thresholds first, for example:
 - [x] JSON result comparison utility.
 - [x] Benchmark contract validator for committed specs and emitted JSONL artifacts.
 - [x] CI smoke suite.
+- [x] Backend-aware CUDA benchmark request smoke validation.
 - [x] External baseline-runner contract smoke validation.
 - [x] Published benchmark authoring guide.
 - [x] Thread-sweep execution plus Markdown/JSON scaling reports for host runs.
@@ -217,6 +218,59 @@ Regression gating should use broad thresholds first, for example:
 - Should result archives live in the main repo or an external artifact store?
 
 ## Agentic Context
+
+### 2026-03-28 Backend-Aware CUDA Benchmark Requests
+
+- Completed:
+  - Extended
+    [`benchmarks/src/manifest.zig`](../../benchmarks/src/manifest.zig),
+    [`benchmarks/src/result.zig`](../../benchmarks/src/result.zig),
+    [`benchmarks/src/metadata.zig`](../../benchmarks/src/metadata.zig),
+    [`benchmarks/src/workload.zig`](../../benchmarks/src/workload.zig),
+    [`benchmarks/src/cli.zig`](../../benchmarks/src/cli.zig), and
+    [`benchmarks/src/validate.zig`](../../benchmarks/src/validate.zig)
+    so checked-in benchmark specs can declare a target device, CUDA-targeted
+    Zig runs emit explicit `skipped` or `failed` records instead of aborting
+    the harness, and successful CUDA runs carry structured `backend.cuda`
+    metadata in the JSONL contract.
+  - Added checked-in CUDA-targeted model specs in
+    [`benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json`](../../benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json)
+    and
+    [`benchmarks/specs/model-train/dqn-cartpole-synthetic-cuda.json`](../../benchmarks/specs/model-train/dqn-cartpole-synthetic-cuda.json)
+    so RFC-0001 now has concrete backend-aware benchmark surfaces for model
+    inference and training.
+  - Added
+    [`tests/src/benchmark_cuda_request_smoke_main.zig`](../../tests/src/benchmark_cuda_request_smoke_main.zig)
+    plus `zig build test-benchmark-cuda-request-smoke` in
+    [`build.zig`](../../build.zig),
+    and updated
+    [`README.md`](../../README.md),
+    [`benchmarks/README.md`](../../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md),
+    so the backend-aware contract and CUDA degradation path are documented and
+    smoke-tested end to end.
+  - Extended the external PyTorch baseline contract so CUDA-targeted specs now
+    emit explicit skipped baseline rows instead of silently omitting the
+    non-Zig runner record.
+- Remains:
+  - Execute the new CUDA-targeted specs on a real toolkit/device host and
+    publish the first non-skipped CUDA benchmark artifacts.
+  - Extend the same device-aware benchmark contract to future compiler and
+    interop suites as those workloads become executable.
+- Blockers:
+  - This environment still has no CUDA toolkit or CUDA device available, so
+    the new RFC-0001 CUDA benchmark slice validated through explicit skip
+    semantics and JSONL contract checks rather than real accelerator timings.
+- Validation performed:
+  - `zig build test-benchmark-cuda-request-smoke`
+  - `zig build test-benchmark-smoke`
+  - `zig build test-benchmark-baseline-smoke`
+  - `zig build test-benchmark-publication-smoke`
+  - `zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json --output .zig-cache/benchmark-cuda-spec.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/benchmark-cuda-spec.jsonl`
+  - `zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json --baseline pytorch --output .zig-cache/benchmark-cuda-pytorch.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/benchmark-cuda-pytorch.jsonl`
+  - `zig build test`
 
 ### 2026-03-28 Benchmark Publication Bundle
 

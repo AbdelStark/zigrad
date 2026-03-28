@@ -55,8 +55,21 @@ pub const BackendMetadata = struct {
     host_provider: []const u8,
     thread_count: ?u32 = null,
     accelerator: ?[]const u8 = null,
+    cuda: ?CudaMetadata = null,
     thread_environment: ?ThreadEnvironment = null,
     host_blas_telemetry: ?HostBlasTelemetry = null,
+};
+
+pub const CudaMetadata = struct {
+    device_count: u32,
+    device_index: u32,
+    device_name: []const u8,
+    compute_capability_major: usize,
+    compute_capability_minor: usize,
+    multiprocessor_count: usize,
+    total_global_memory_bytes: usize,
+    driver_version: []const u8,
+    runtime_version: []const u8,
 };
 
 pub const HostBlasTelemetry = struct {

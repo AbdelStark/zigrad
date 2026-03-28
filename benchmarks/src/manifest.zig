@@ -69,10 +69,48 @@ pub const DType = enum {
     }
 };
 
+pub const DeviceKind = enum {
+    host,
+    cuda,
+
+    pub fn asString(self: DeviceKind) []const u8 {
+        return switch (self) {
+            .host => "host",
+            .cuda => "cuda",
+        };
+    }
+};
+
+pub const DeviceRequest = struct {
+    kind: DeviceKind = .host,
+    cuda_device_index: u32 = 0,
+
+    pub fn parse(value: ?[]const u8) !DeviceRequest {
+        const trimmed = std.mem.trim(u8, value orelse return .{}, " \t\r\n");
+        if (trimmed.len == 0) return .{};
+
+        if (std.ascii.eqlIgnoreCase(trimmed, "host") or std.ascii.eqlIgnoreCase(trimmed, "cpu")) {
+            return .{ .kind = .host };
+        }
+        if (std.ascii.eqlIgnoreCase(trimmed, "cuda")) {
+            return .{ .kind = .cuda, .cuda_device_index = 0 };
+        }
+        if (trimmed.len > 5 and std.ascii.eqlIgnoreCase(trimmed[0..5], "cuda:")) {
+            return .{
+                .kind = .cuda,
+                .cuda_device_index = std.fmt.parseInt(u32, trimmed[5..], 10) catch return error.InvalidBenchmarkDevice,
+            };
+        }
+
+        return error.InvalidBenchmarkDevice;
+    }
+};
+
 pub const Spec = struct {
     id: []const u8,
     suite: Suite,
     kind: Kind,
+    device: DeviceRequest = .{},
     dtype: DType,
     warmup_iterations: u32 = 5,
     measured_iterations: u32 = 20,
@@ -102,6 +140,7 @@ const RawSpec = struct {
     id: []const u8,
     suite: []const u8,
     kind: []const u8,
+    device: ?[]const u8 = null,
     dtype: []const u8 = "f32",
     warmup_iterations: u32 = 5,
     measured_iterations: u32 = 20,
@@ -133,6 +172,7 @@ pub fn loadFromFile(allocator: std.mem.Allocator, path: []const u8) !Spec {
 fn validate(path: []const u8, raw: RawSpec) !Spec {
     const suite = try parseSuite(raw.suite);
     const kind = try parseKind(raw.kind);
+    const device = try DeviceRequest.parse(raw.device);
     const dtype = try parseDType(raw.dtype);
     const provenance = try validateProvenance(raw.provenance orelse return error.MissingBenchmarkProvenance);
 
@@ -189,6 +229,7 @@ fn validate(path: []const u8, raw: RawSpec) !Spec {
         .id = raw.id,
         .suite = suite,
         .kind = kind,
+        .device = device,
         .dtype = dtype,
         .warmup_iterations = raw.warmup_iterations,
         .measured_iterations = raw.measured_iterations,
@@ -458,4 +499,24 @@ test "benchmark spec requires explicit provenance" {
     const parsed = try std.json.parseFromSliceLeaky(RawSpec, allocator, raw, .{});
 
     try std.testing.expectError(error.MissingBenchmarkProvenance, validate("inline-missing-provenance.json", parsed));
+}
+
+test "device request parsing accepts host aliases and cuda indices" {
+    try std.testing.expectEqualDeep(DeviceRequest{}, try DeviceRequest.parse(null));
+    try std.testing.expectEqualDeep(DeviceRequest{}, try DeviceRequest.parse("host"));
+    try std.testing.expectEqualDeep(DeviceRequest{}, try DeviceRequest.parse("cpu"));
+    try std.testing.expectEqualDeep(
+        DeviceRequest{ .kind = .cuda, .cuda_device_index = 0 },
+        try DeviceRequest.parse("cuda"),
+    );
+    try std.testing.expectEqualDeep(
+        DeviceRequest{ .kind = .cuda, .cuda_device_index = 2 },
+        try DeviceRequest.parse("cuda:2"),
+    );
+}
+
+test "device request parsing rejects invalid selectors" {
+    try std.testing.expectError(error.InvalidBenchmarkDevice, DeviceRequest.parse("rocm"));
+    try std.testing.expectError(error.InvalidBenchmarkDevice, DeviceRequest.parse("cuda:"));
+    try std.testing.expectError(error.InvalidBenchmarkDevice, DeviceRequest.parse("cuda:x"));
 }

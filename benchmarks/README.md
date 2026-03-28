@@ -17,6 +17,7 @@ zig build benchmark-memory
 zig build benchmark-models
 zig build benchmark-validate
 zig build test-benchmark-smoke
+zig build test-benchmark-cuda-request-smoke
 zig build test-benchmark-baseline-smoke
 zig build test-benchmark-publication-smoke
 zig build benchmark-publication-bundle -- --candidate-jsonl benchmarks/results/latest.jsonl --summary-output benchmarks/results/publication-summary.md --manifest-output benchmarks/results/publication-manifest.json
@@ -41,6 +42,7 @@ You can also pass runtime arguments through the benchmark executable:
 ```sh
 zig build benchmark -- --baseline pytorch
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic.json
+zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json
 zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2 --thread-count 4
 ```
 
@@ -67,6 +69,7 @@ zig build benchmark-validate
 zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json --output .zig-cache/zigrad-benchmark-validate.jsonl
 zig build benchmark-validate -- --input .zig-cache/zigrad-benchmark-validate.jsonl
 zig build test-benchmark-smoke
+zig build test-benchmark-cuda-request-smoke
 zig build test-benchmark-baseline-smoke
 zig build test-benchmark-publication-smoke
 ```
@@ -77,6 +80,9 @@ against the referenced checked-in spec, checks summary-stat invariants, and
 rejects duplicate result identities within a file. `test-benchmark-smoke`
 drives one representative checked-in spec per suite through the real benchmark
 harness and then runs the validator on the generated artifact.
+`test-benchmark-cuda-request-smoke` exercises checked-in CUDA-targeted specs
+through the real harness and requires non-CUDA hosts to emit explicit
+schema-valid `skipped` records instead of aborting.
 `test-benchmark-baseline-smoke` covers the external baseline-runner contract by
 requiring successful baseline emission to stay schema-valid while malformed or
 missing runners degrade into explicit `failed` records instead of disappearing.
@@ -173,9 +179,11 @@ emits both a machine-readable manifest and a Markdown summary for humans.
 - `model-train`
   - synthetic MNIST-style MLP training step
   - synthetic CartPole-shaped DQN training step
+  - CUDA-targeted synthetic CartPole-shaped DQN training step spec
   - synthetic two-layer GCN training step on a deterministic graph
 - `model-infer`
   - synthetic MNIST-style MLP inference step
+  - CUDA-targeted synthetic MNIST-style MLP inference step spec
   - synthetic CartPole-shaped DQN inference step
   - synthetic two-layer GCN inference step on a deterministic graph
 
@@ -196,6 +204,8 @@ Common fields:
 - `warmup_iterations`
 - `measured_iterations`
 - `thread_count`
+- `device` (optional, defaults to `host`; use `cuda` or `cuda:<index>` for
+  CUDA-targeted specs)
 - `seed`
 - `provenance`:
   - `data_source`: explicit workload input origin such as `synthetic.splitmix64`
@@ -213,6 +223,14 @@ Workload-specific fields:
 - `input_shape`, optional `label_shape`, and derived synthetic graph topology
   for GCN workloads
 - `pytorch_runner` for optional baseline execution
+
+CUDA-targeted specs are part of the committed benchmark contract. On a build
+without CUDA support, or on a host with no CUDA device, the Zig runner emits
+an explicit `skipped` record for those specs instead of failing the whole
+harness. Successful CUDA runs carry structured device metadata in
+`backend.cuda`. The `memory` suite remains host-only for now, and PyTorch
+baseline rows for CUDA-targeted specs currently emit explicit `skipped`
+records.
 
 The harness also accepts repeated `--thread-count <n>` CLI overrides. When
 present, it duplicates each selected spec across the requested thread counts

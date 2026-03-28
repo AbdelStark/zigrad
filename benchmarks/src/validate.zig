@@ -407,6 +407,24 @@ fn validateRecordContract(
     if (record_entry.system.cpu_logical_cores == 0) {
         try appendIssueFmt(allocator, issues, .result, path, record_entry.benchmark_id, record_entry.runner, record_entry.backend.thread_count, "system cpu_logical_cores must be greater than zero", .{});
     }
+    if (std.mem.eql(u8, record_entry.backend.device, "cuda")) {
+        if (record_entry.backend.accelerator == null or trimmedLen(record_entry.backend.accelerator.?) == 0) {
+            try appendIssueFmt(allocator, issues, .result, path, record_entry.benchmark_id, record_entry.runner, record_entry.backend.thread_count, "cuda records must include an accelerator label", .{});
+        }
+        if (record_entry.status == .ok and record_entry.backend.cuda == null) {
+            try appendIssueFmt(allocator, issues, .result, path, record_entry.benchmark_id, record_entry.runner, record_entry.backend.thread_count, "ok cuda records must include CUDA device metadata", .{});
+        }
+        if (record_entry.backend.cuda) |cuda| {
+            if (trimmedLen(cuda.device_name) == 0) {
+                try appendIssueFmt(allocator, issues, .result, path, record_entry.benchmark_id, record_entry.runner, record_entry.backend.thread_count, "cuda device_name is empty", .{});
+            }
+            if (trimmedLen(cuda.driver_version) == 0 or trimmedLen(cuda.runtime_version) == 0) {
+                try appendIssueFmt(allocator, issues, .result, path, record_entry.benchmark_id, record_entry.runner, record_entry.backend.thread_count, "cuda version metadata is empty", .{});
+            }
+        }
+    } else if (record_entry.backend.cuda != null) {
+        try appendIssueFmt(allocator, issues, .result, path, record_entry.benchmark_id, record_entry.runner, record_entry.backend.thread_count, "non-cuda records must not include CUDA device metadata", .{});
+    }
 
     if (record_entry.status == .ok) {
         if (record_entry.stats == null) {
@@ -509,6 +527,52 @@ fn validateRecordAgainstSpec(
     }
     if (!provenanceMatches(record_entry.provenance, spec.provenance)) {
         try appendIssueFmt(allocator, issues, .result, path, record_entry.benchmark_id, record_entry.runner, record_entry.backend.thread_count, "record provenance does not match referenced spec", .{});
+    }
+    if (std.mem.eql(u8, record_entry.runner, "zig")) {
+        const expected_device = spec.device.kind.asString();
+        if (!std.mem.eql(u8, record_entry.backend.device, expected_device)) {
+            try appendIssueFmt(
+                allocator,
+                issues,
+                .result,
+                path,
+                record_entry.benchmark_id,
+                record_entry.runner,
+                record_entry.backend.thread_count,
+                "backend device does not match referenced spec (`{s}` vs `{s}`)",
+                .{ record_entry.backend.device, expected_device },
+            );
+        }
+
+        switch (spec.device.kind) {
+            .host => {
+                if (record_entry.backend.accelerator != null) {
+                    try appendIssueFmt(allocator, issues, .result, path, record_entry.benchmark_id, record_entry.runner, record_entry.backend.thread_count, "host zig records must not include accelerator labels", .{});
+                }
+            },
+            .cuda => {
+                const expected_accelerator = try std.fmt.allocPrint(
+                    allocator,
+                    "cuda:{d}",
+                    .{spec.device.cuda_device_index},
+                );
+                if (record_entry.backend.accelerator == null or
+                    !std.mem.eql(u8, record_entry.backend.accelerator.?, expected_accelerator))
+                {
+                    try appendIssueFmt(
+                        allocator,
+                        issues,
+                        .result,
+                        path,
+                        record_entry.benchmark_id,
+                        record_entry.runner,
+                        record_entry.backend.thread_count,
+                        "backend accelerator does not match referenced spec (`{s}` vs `{s}`)",
+                        .{ record_entry.backend.accelerator orelse "none", expected_accelerator },
+                    );
+                }
+            },
+        }
     }
 
     const expected_batch_size = workload.expectedBatchSize(spec);

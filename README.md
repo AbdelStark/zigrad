@@ -76,6 +76,7 @@ zig build benchmark-memory
 zig build benchmark-models
 zig build benchmark-validate
 zig build test-benchmark-smoke
+zig build test-benchmark-cuda-request-smoke
 zig build test-benchmark-baseline-smoke
 zig build test-benchmark-publication-smoke
 zig build benchmark-publication-bundle -- --candidate-jsonl benchmarks/results/latest.jsonl --summary-output benchmarks/results/publication-summary.md --manifest-output benchmarks/results/publication-manifest.json
@@ -94,6 +95,25 @@ When a spec declares a baseline runner, the harness now treats that runner as
 part of the JSONL contract: skipped baselines stay explicit, and launcher,
 exit-code, or malformed-output failures produce structured `failed` records
 instead of silently dropping the baseline row.
+
+Specs can now target a backend directly through a checked-in `device` field.
+Host remains the default; CUDA-targeted specs such as
+[`benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json`](./benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json)
+and
+[`benchmarks/specs/model-train/dqn-cartpole-synthetic-cuda.json`](./benchmarks/specs/model-train/dqn-cartpole-synthetic-cuda.json)
+emit explicit `skipped` Zig records on non-CUDA builds or hosts instead of
+aborting the harness, and successful CUDA runs include structured device
+metadata under `backend.cuda`:
+
+```shell
+zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json --output .zig-cache/zigrad-benchmark-cuda.jsonl
+zig build benchmark-validate -- --input .zig-cache/zigrad-benchmark-cuda.jsonl
+```
+
+`zig build test-benchmark-cuda-request-smoke` keeps that backend-aware contract
+validated end to end. The `memory` suite remains host-only for now, and
+PyTorch baseline rows for CUDA-targeted specs degrade into explicit `skipped`
+records until a real CUDA PyTorch baseline path is wired in.
 
 The harness now includes a dedicated contract validator. With no extra flags it
 validates the committed spec tree; with `--input` it validates emitted JSONL
@@ -132,6 +152,8 @@ through the real benchmark harness and fails if the validator detects contract
 drift in the emitted JSONL artifact. `zig build
 test-benchmark-baseline-smoke` extends that to the external baseline interface
 by smoke-testing successful, malformed, and missing-runner cases. `zig build
+test-benchmark-cuda-request-smoke` validates backend-aware CUDA request specs,
+including explicit skip semantics on non-CUDA builds. `zig build
 test-benchmark-publication-smoke` extends that coverage to the publication
 surface by generating compare, provider-report, thread-report, and publication
 bundle artifacts from smoke-scale inputs and rejecting empty or structurally

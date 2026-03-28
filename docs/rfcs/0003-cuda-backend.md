@@ -119,7 +119,8 @@ support:
 
 ### Workstream D: Observability and Validation
 
-- benchmark coverage through RFC-0001,
+- benchmark coverage through RFC-0001, including backend-aware checked-in CUDA
+  benchmark specs and explicit non-CUDA skip semantics,
 - profiling hooks for kernel and transfer timing,
 - integration tests on representative examples.
 
@@ -153,6 +154,45 @@ support:
 - Kernel autotuning or TVM-assisted generation later in the roadmap.
 
 ## Agentic Context
+
+### 2026-03-28 Benchmark Harness CUDA Integration
+
+- Completed:
+  - Extended the RFC-0001 benchmark harness through
+    [`benchmarks/src/manifest.zig`](../../benchmarks/src/manifest.zig),
+    [`benchmarks/src/result.zig`](../../benchmarks/src/result.zig),
+    [`benchmarks/src/metadata.zig`](../../benchmarks/src/metadata.zig),
+    [`benchmarks/src/workload.zig`](../../benchmarks/src/workload.zig),
+    [`benchmarks/src/cli.zig`](../../benchmarks/src/cli.zig), and
+    [`benchmarks/src/validate.zig`](../../benchmarks/src/validate.zig)
+    so checked-in benchmark specs can target `cuda[:index]`, successful CUDA
+    runs surface structured device metadata, and non-CUDA environments emit
+    explicit schema-valid `skipped` rows instead of aborting the harness.
+  - Added checked-in CUDA-targeted model benchmark specs in
+    [`benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json`](../../benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json)
+    and
+    [`benchmarks/specs/model-train/dqn-cartpole-synthetic-cuda.json`](../../benchmarks/specs/model-train/dqn-cartpole-synthetic-cuda.json),
+    plus
+    [`tests/src/benchmark_cuda_request_smoke_main.zig`](../../tests/src/benchmark_cuda_request_smoke_main.zig)
+    and `zig build test-benchmark-cuda-request-smoke`,
+    so RFC-0003 now has a validated benchmark-contract surface even before real
+    GPU hardware is available.
+- Remains:
+  - Execute the new CUDA-targeted benchmark specs on a real toolkit/device host
+    and collect the first non-skipped CUDA model-train/model-infer artifacts.
+  - Extend the same harness integration to future CUDA-specific primitive and
+    memory suites once those workloads are validated on hardware.
+- Blockers:
+  - This macOS host still had no CUDA toolkit or CUDA device available, so the
+    new benchmark slice validated only the explicit skip path and JSONL
+    contract checks rather than real CUDA execution.
+- Validation performed:
+  - `zig build test-benchmark-cuda-request-smoke`
+  - `zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json --output .zig-cache/benchmark-cuda-spec.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/benchmark-cuda-spec.jsonl`
+  - `zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json --baseline pytorch --output .zig-cache/benchmark-cuda-pytorch.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/benchmark-cuda-pytorch.jsonl`
+  - `zig build test`
 
 ### 2026-03-28 Backend-Dispatched Adam Updates
 

@@ -1,0 +1,21 @@
+{
+  "id": "model-infer.mnist-mlp.synthetic.cuda.f32.batch64",
+  "suite": "model-infer",
+  "kind": "mnist_mlp_infer",
+  "device": "cuda:0",
+  "dtype": "f32",
+  "warmup_iterations": 3,
+  "measured_iterations": 10,
+  "batch_size": 64,
+  "thread_count": 1,
+  "seed": 81761,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "reshape inputs to input_shape"
+    ]
+  },
+  "input_shape": [64, 1, 28, 28],
+  "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py",
+  "notes": "Synthetic MNIST-shaped forward-pass benchmark targeting CUDA runtime execution."
+}

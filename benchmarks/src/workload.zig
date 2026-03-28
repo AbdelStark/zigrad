@@ -1,6 +1,7 @@
 const std = @import("std");
 const zg = @import("zigrad");
 const manifest = @import("manifest.zig");
+const metadata = @import("metadata.zig");
 const result = @import("result.zig");
 const DqnBenchmarkModel = @import("dqn_bench_model.zig").DqnBenchmarkModel;
 const GcnBenchmarkModel = @import("gcn_bench_model.zig").GcnBenchmarkModel;
@@ -18,6 +19,64 @@ pub const RunOutput = struct {
     memory: ?result.MemoryStats = null,
     host_blas_telemetry: ?result.HostBlasTelemetry = null,
     notes: ?[]const u8 = null,
+};
+
+pub const RunResult = struct {
+    status: result.Status,
+    backend: result.BackendMetadata,
+    output: ?RunOutput = null,
+    notes: ?[]const u8 = null,
+};
+
+const RunContext = struct {
+    runtime_device: zg.device.RuntimeDevice,
+    thread_count: ?u32,
+
+    fn init(spec: manifest.Spec) anyerror!RunContext {
+        var runtime_device = try zg.device.initRuntimeDevice(.{
+            .kind = switch (spec.device.kind) {
+                .host => .host,
+                .cuda => .cuda,
+            },
+            .cuda_device_index = spec.device.cuda_device_index,
+        }, .{
+            .allow_cuda = true,
+        });
+        errdefer runtime_device.deinit();
+
+        return .{
+            .runtime_device = runtime_device,
+            .thread_count = spec.thread_count,
+        };
+    }
+
+    fn deinit(self: *RunContext) void {
+        self.runtime_device.deinit();
+    }
+
+    fn host(self: *RunContext) ?*zg.device.HostDevice {
+        return switch (self.runtime_device.kind) {
+            .host => if (self.runtime_device.host) |*value| value else null,
+            .cuda => null,
+        };
+    }
+
+    fn device(self: *RunContext) zg.DeviceReference {
+        return self.runtime_device.reference();
+    }
+
+    fn backend(
+        self: *RunContext,
+        allocator: std.mem.Allocator,
+        host_blas_telemetry: ?result.HostBlasTelemetry,
+    ) !result.BackendMetadata {
+        return metadata.runtimeBackend(
+            allocator,
+            &self.runtime_device,
+            self.thread_count,
+            host_blas_telemetry,
+        );
+    }
 };
 
 pub fn expectedBatchSize(spec: manifest.Spec) ?usize {
@@ -99,33 +158,112 @@ fn captureHostBlasTelemetry(host: *const zg.device.HostDevice) result.HostBlasTe
     };
 }
 
-pub fn run(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+fn maybeResetHostBenchmarkTelemetry(host: ?*zg.device.HostDevice) void {
+    if (host) |value| resetHostBenchmarkTelemetry(value);
+}
+
+fn maybeCaptureHostBlasTelemetry(host: ?*zg.device.HostDevice) ?result.HostBlasTelemetry {
+    if (host) |value| return captureHostBlasTelemetry(value);
+    return null;
+}
+
+pub fn run(allocator: std.mem.Allocator, spec: manifest.Spec) !RunResult {
     applyThreadCount(spec.thread_count);
 
-    return switch (spec.kind) {
-        .primitive_add => runPrimitiveAdd(allocator, spec),
-        .primitive_matmul => runPrimitiveMatmul(allocator, spec),
-        .blas_dot => runBlasDot(allocator, spec),
-        .blas_matvec => runBlasMatvec(allocator, spec),
-        .blas_conv2d_im2col => runBlasConv2dIm2col(allocator, spec),
-        .autograd_dot_backward => runAutogradDotBackward(allocator, spec),
-        .autograd_matvec_backward => runAutogradMatvecBackward(allocator, spec),
-        .memory_tensor_cache_cycle => runMemoryTensorCacheCycle(allocator, spec),
-        .memory_mnist_train_step => runMemoryMnistTrainStep(allocator, spec),
-        .mnist_mlp_train => runMnistTrain(allocator, spec),
-        .mnist_mlp_infer => runMnistInfer(allocator, spec),
-        .dqn_cartpole_train => runDqnTrain(allocator, spec),
-        .dqn_cartpole_infer => runDqnInfer(allocator, spec),
-        .gcn_train => runGcnTrain(allocator, spec),
-        .gcn_infer => runGcnInfer(allocator, spec),
+    if (spec.device.kind != .host and spec.suite == .memory) {
+        return .{
+            .status = .skipped,
+            .backend = try metadata.requestedBackend(allocator, spec.device, spec.thread_count),
+            .notes = try std.fmt.allocPrint(
+                allocator,
+                "Benchmark suite `{s}` currently supports only host execution.",
+                .{spec.suite.asString()},
+            ),
+        };
+    }
+
+    var context = RunContext.init(spec) catch |err| {
+        const backend = try metadata.requestedBackend(allocator, spec.device, spec.thread_count);
+        return .{
+            .status = switch (err) {
+                error.CudaUnsupported,
+                error.CudaNotEnabled,
+                error.CudaUnavailable,
+                => .skipped,
+                else => .failed,
+            },
+            .backend = backend,
+            .notes = try runtimeInitFailureNote(allocator, spec, err),
+        };
+    };
+    defer context.deinit();
+
+    const output = switch (spec.kind) {
+        .primitive_add => runPrimitiveAdd(allocator, spec, &context),
+        .primitive_matmul => runPrimitiveMatmul(allocator, spec, &context),
+        .blas_dot => runBlasDot(allocator, spec, &context),
+        .blas_matvec => runBlasMatvec(allocator, spec, &context),
+        .blas_conv2d_im2col => runBlasConv2dIm2col(allocator, spec, &context),
+        .autograd_dot_backward => runAutogradDotBackward(allocator, spec, &context),
+        .autograd_matvec_backward => runAutogradMatvecBackward(allocator, spec, &context),
+        .memory_tensor_cache_cycle => runMemoryTensorCacheCycle(allocator, spec, &context),
+        .memory_mnist_train_step => runMemoryMnistTrainStep(allocator, spec, &context),
+        .mnist_mlp_train => runMnistTrain(allocator, spec, &context),
+        .mnist_mlp_infer => runMnistInfer(allocator, spec, &context),
+        .dqn_cartpole_train => runDqnTrain(allocator, spec, &context),
+        .dqn_cartpole_infer => runDqnInfer(allocator, spec, &context),
+        .gcn_train => runGcnTrain(allocator, spec, &context),
+        .gcn_infer => runGcnInfer(allocator, spec, &context),
+    } catch |err| {
+        return .{
+            .status = .failed,
+            .backend = try context.backend(allocator, null),
+            .notes = try std.fmt.allocPrint(
+                allocator,
+                "Benchmark execution failed: {s}",
+                .{@errorName(err)},
+            ),
+        };
+    };
+
+    return .{
+        .status = .ok,
+        .backend = try context.backend(allocator, output.host_blas_telemetry),
+        .output = output,
+        .notes = output.notes,
     };
 }
 
-fn runBlasDot(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+fn runtimeInitFailureNote(
+    allocator: std.mem.Allocator,
+    spec: manifest.Spec,
+    err: anyerror,
+) ![]const u8 {
+    return switch (err) {
+        error.CudaUnsupported => try std.fmt.allocPrint(
+            allocator,
+            "Benchmark device `{s}` is not supported by this workload.",
+            .{spec.device.kind.asString()},
+        ),
+        error.CudaNotEnabled => "CUDA benchmarks require a build compiled with -Denable_cuda=true.",
+        error.CudaUnavailable => "CUDA benchmarks were requested, but no CUDA devices were detected.",
+        error.InvalidCudaDeviceIndex => try std.fmt.allocPrint(
+            allocator,
+            "CUDA device {d} was requested, but it is not available on this machine.",
+            .{spec.device.cuda_device_index},
+        ),
+        else => try std.fmt.allocPrint(
+            allocator,
+            "Benchmark runtime initialization failed: {s}",
+            .{@errorName(err)},
+        ),
+    };
+}
+
+fn runBlasDot(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const Array = zg.NDArray(f32);
-    var host = zg.device.HostDevice.init();
-    defer host.deinit();
-    const device = host.reference();
+    const host = context.host();
+    const device = context.device();
 
     const lhs_data = try makeDeterministicSlice(allocator, countElements(spec.lhs_shape.?), spec.seed);
     defer allocator.free(lhs_data);
@@ -144,7 +282,7 @@ fn runBlasDot(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         var output = try lhs.dot(rhs, device);
         output.deinit(device);
     }
-    resetHostBenchmarkTelemetry(&host);
+    maybeResetHostBenchmarkTelemetry(host);
     for (timings) |*timing| {
         timer.reset();
         var output = try lhs.dot(rhs, device);
@@ -159,16 +297,15 @@ fn runBlasDot(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .timings_ns = timings,
         .throughput_items = countElements(spec.lhs_shape.?),
         .throughput_unit = "elements",
-        .host_blas_telemetry = captureHostBlasTelemetry(&host),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
         .notes = spec.notes,
     };
 }
 
-fn runBlasMatvec(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+fn runBlasMatvec(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const Array = zg.NDArray(f32);
-    var host = zg.device.HostDevice.init();
-    defer host.deinit();
-    const device = host.reference();
+    const host = context.host();
+    const device = context.device();
 
     const matrix_data = try makeDeterministicSlice(allocator, countElements(spec.lhs_shape.?), spec.seed);
     defer allocator.free(matrix_data);
@@ -187,7 +324,7 @@ fn runBlasMatvec(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         var output = try matrix.matvec(vector, device, .{});
         output.deinit(device);
     }
-    resetHostBenchmarkTelemetry(&host);
+    maybeResetHostBenchmarkTelemetry(host);
     for (timings) |*timing| {
         timer.reset();
         var output = try matrix.matvec(vector, device, .{});
@@ -202,16 +339,15 @@ fn runBlasMatvec(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .timings_ns = timings,
         .throughput_items = countElements(spec.lhs_shape.?),
         .throughput_unit = "matrix-elements",
-        .host_blas_telemetry = captureHostBlasTelemetry(&host),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
         .notes = spec.notes,
     };
 }
 
-fn runBlasConv2dIm2col(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+fn runBlasConv2dIm2col(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const Array = zg.NDArray(f32);
-    var host = zg.device.HostDevice.init();
-    defer host.deinit();
-    const device = host.reference();
+    const host = context.host();
+    const device = context.device();
 
     const input_values = try makeDeterministicSlice(allocator, countElements(spec.lhs_shape.?), spec.seed);
     defer allocator.free(input_values);
@@ -240,7 +376,7 @@ fn runBlasConv2dIm2col(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOu
         }, device);
         output.deinit(device);
     }
-    resetHostBenchmarkTelemetry(&host);
+    maybeResetHostBenchmarkTelemetry(host);
     for (timings) |*timing| {
         timer.reset();
         var output = try zg.conv_utils.conv2dForwardIm2col(f32, input, weights, null, .{
@@ -259,15 +395,14 @@ fn runBlasConv2dIm2col(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOu
         .timings_ns = timings,
         .throughput_items = spec.lhs_shape.?[0],
         .throughput_unit = "samples",
-        .host_blas_telemetry = captureHostBlasTelemetry(&host),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
         .notes = spec.notes,
     };
 }
 
-fn runAutogradDotBackward(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
-    var host = zg.device.HostDevice.init();
-    defer host.deinit();
-    const device = host.reference();
+fn runAutogradDotBackward(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
+    const host = context.host();
+    const device = context.device();
 
     const lhs_data = try makeDeterministicSlice(allocator, countElements(spec.lhs_shape.?), spec.seed);
     defer allocator.free(lhs_data);
@@ -282,7 +417,7 @@ fn runAutogradDotBackward(allocator: std.mem.Allocator, spec: manifest.Spec) !Ru
     for (0..spec.warmup_iterations) |_| {
         try oneAutogradDotBackwardStep(allocator, device, lhs_data, rhs_data, spec.lhs_shape.?, spec.rhs_shape.?);
     }
-    resetHostBenchmarkTelemetry(&host);
+    maybeResetHostBenchmarkTelemetry(host);
     for (timings) |*timing| {
         timer.reset();
         try oneAutogradDotBackwardStep(allocator, device, lhs_data, rhs_data, spec.lhs_shape.?, spec.rhs_shape.?);
@@ -296,15 +431,14 @@ fn runAutogradDotBackward(allocator: std.mem.Allocator, spec: manifest.Spec) !Ru
         .timings_ns = timings,
         .throughput_items = countElements(spec.lhs_shape.?),
         .throughput_unit = "elements",
-        .host_blas_telemetry = captureHostBlasTelemetry(&host),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
         .notes = spec.notes,
     };
 }
 
-fn runAutogradMatvecBackward(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
-    var host = zg.device.HostDevice.init();
-    defer host.deinit();
-    const device = host.reference();
+fn runAutogradMatvecBackward(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
+    const host = context.host();
+    const device = context.device();
 
     const matrix_data = try makeDeterministicSlice(allocator, countElements(spec.lhs_shape.?), spec.seed);
     defer allocator.free(matrix_data);
@@ -319,7 +453,7 @@ fn runAutogradMatvecBackward(allocator: std.mem.Allocator, spec: manifest.Spec) 
     for (0..spec.warmup_iterations) |_| {
         try oneAutogradMatvecBackwardStep(allocator, device, matrix_data, vector_data, spec.lhs_shape.?, spec.rhs_shape.?);
     }
-    resetHostBenchmarkTelemetry(&host);
+    maybeResetHostBenchmarkTelemetry(host);
     for (timings) |*timing| {
         timer.reset();
         try oneAutogradMatvecBackwardStep(allocator, device, matrix_data, vector_data, spec.lhs_shape.?, spec.rhs_shape.?);
@@ -333,19 +467,18 @@ fn runAutogradMatvecBackward(allocator: std.mem.Allocator, spec: manifest.Spec) 
         .timings_ns = timings,
         .throughput_items = countElements(spec.lhs_shape.?),
         .throughput_unit = "matrix-elements",
-        .host_blas_telemetry = captureHostBlasTelemetry(&host),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
         .notes = spec.notes,
     };
 }
 
-fn runPrimitiveAdd(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+fn runPrimitiveAdd(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const Tensor = zg.NDTensor(f32);
     var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
     defer graph.deinit();
 
-    var host = zg.device.HostDevice.init();
-    defer host.deinit();
-    const device = host.reference();
+    const host = context.host();
+    const device = context.device();
 
     const lhs_data = try makeDeterministicSlice(allocator, countElements(spec.lhs_shape.?), spec.seed);
     defer allocator.free(lhs_data);
@@ -364,7 +497,7 @@ fn runPrimitiveAdd(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput
         const output = try lhs.add(rhs);
         output.deinit();
     }
-    resetHostBenchmarkTelemetry(&host);
+    maybeResetHostBenchmarkTelemetry(host);
     for (timings) |*timing| {
         timer.reset();
         const output = try lhs.add(rhs);
@@ -379,19 +512,18 @@ fn runPrimitiveAdd(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput
         .timings_ns = timings,
         .throughput_items = countElements(spec.lhs_shape.?),
         .throughput_unit = "elements",
-        .host_blas_telemetry = captureHostBlasTelemetry(&host),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
         .notes = spec.notes,
     };
 }
 
-fn runPrimitiveMatmul(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+fn runPrimitiveMatmul(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const Tensor = zg.NDTensor(f32);
     var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
     defer graph.deinit();
 
-    var host = zg.device.HostDevice.init();
-    defer host.deinit();
-    const device = host.reference();
+    const host = context.host();
+    const device = context.device();
 
     const lhs_data = try makeDeterministicSlice(allocator, countElements(spec.lhs_shape.?), spec.seed);
     defer allocator.free(lhs_data);
@@ -410,7 +542,7 @@ fn runPrimitiveMatmul(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOut
         const output = try lhs.bmm(rhs, .{});
         output.deinit();
     }
-    resetHostBenchmarkTelemetry(&host);
+    maybeResetHostBenchmarkTelemetry(host);
     for (timings) |*timing| {
         timer.reset();
         const output = try lhs.bmm(rhs, .{});
@@ -425,18 +557,17 @@ fn runPrimitiveMatmul(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOut
         .timings_ns = timings,
         .throughput_items = spec.batch_size,
         .throughput_unit = null,
-        .host_blas_telemetry = captureHostBlasTelemetry(&host),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
         .notes = spec.notes,
     };
 }
 
-fn runMemoryTensorCacheCycle(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+fn runMemoryTensorCacheCycle(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const buffer_shape = spec.lhs_shape.?;
     const retained_buffers = spec.batch_size.?;
 
-    var host = zg.device.HostDevice.init();
-    defer host.deinit();
-    const device = host.reference();
+    const host = context.host() orelse unreachable;
+    const device = context.device();
 
     const buffer_values = try makeDeterministicSlice(allocator, countElements(buffer_shape), spec.seed);
     defer allocator.free(buffer_values);
@@ -449,7 +580,7 @@ fn runMemoryTensorCacheCycle(allocator: std.mem.Allocator, spec: manifest.Spec) 
     }
 
     host.resetCacheTelemetry();
-    resetHostBenchmarkTelemetry(&host);
+    resetHostBenchmarkTelemetry(host);
 
     const timings = try allocator.alloc(u64, spec.measured_iterations);
     for (timings) |*timing| {
@@ -472,20 +603,19 @@ fn runMemoryTensorCacheCycle(allocator: std.mem.Allocator, spec: manifest.Spec) 
             .final_live_bytes = @as(u64, @intCast(telemetry.live_bytes)),
             .peak_scratch_bytes = @as(u64, @intCast(telemetry.peak_scratch_bytes)),
         },
-        .host_blas_telemetry = captureHostBlasTelemetry(&host),
+        .host_blas_telemetry = captureHostBlasTelemetry(host),
         .notes = spec.notes,
     };
 }
 
-fn runMemoryMnistTrainStep(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+fn runMemoryMnistTrainStep(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const batch_size = spec.batch_size.?;
 
     var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
     defer graph.deinit();
 
-    var host = zg.device.HostDevice.init();
-    defer host.deinit();
-    const device = host.reference();
+    const host = context.host() orelse unreachable;
+    const device = context.device();
 
     var timer = try std.time.Timer.start();
     var model = try MnistBenchmarkModel(f32).init(allocator, device, &graph, spec.seed);
@@ -521,7 +651,7 @@ fn runMemoryMnistTrainStep(allocator: std.mem.Allocator, spec: manifest.Spec) !R
     }
 
     host.resetCacheTelemetry();
-    resetHostBenchmarkTelemetry(&host);
+    resetHostBenchmarkTelemetry(host);
     var peak_graph_arena_bytes = graph.queryArenaCapacityBytes();
     const timings = try allocator.alloc(u64, spec.measured_iterations);
 
@@ -558,20 +688,19 @@ fn runMemoryMnistTrainStep(allocator: std.mem.Allocator, spec: manifest.Spec) !R
             .final_graph_arena_bytes = @as(u64, @intCast(final_graph_arena_bytes)),
             .peak_scratch_bytes = @as(u64, @intCast(telemetry.peak_scratch_bytes)),
         },
-        .host_blas_telemetry = captureHostBlasTelemetry(&host),
+        .host_blas_telemetry = captureHostBlasTelemetry(host),
         .notes = spec.notes,
     };
 }
 
-fn runMnistTrain(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+fn runMnistTrain(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const batch_size = spec.batch_size.?;
 
     var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
     defer graph.deinit();
 
-    var host = zg.device.HostDevice.init();
-    defer host.deinit();
-    const device = host.reference();
+    const host = context.host();
+    const device = context.device();
 
     var timer = try std.time.Timer.start();
     var model = try MnistBenchmarkModel(f32).init(allocator, device, &graph, spec.seed);
@@ -607,7 +736,7 @@ fn runMnistTrain(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
             optimizer,
         );
     }
-    resetHostBenchmarkTelemetry(&host);
+    maybeResetHostBenchmarkTelemetry(host);
     for (timings) |*timing| {
         timer.reset();
         try oneMnistTrainingStep(
@@ -630,21 +759,20 @@ fn runMnistTrain(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .timings_ns = timings,
         .throughput_items = batch_size,
         .throughput_unit = "samples",
-        .host_blas_telemetry = captureHostBlasTelemetry(&host),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
         .notes = spec.notes,
     };
 }
 
-fn runMnistInfer(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+fn runMnistInfer(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const Tensor = zg.NDTensor(f32);
     const batch_size = spec.batch_size.?;
 
     var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
     defer graph.deinit();
 
-    var host = zg.device.HostDevice.init();
-    defer host.deinit();
-    const device = host.reference();
+    const host = context.host();
+    const device = context.device();
 
     var timer = try std.time.Timer.start();
     var model = try MnistBenchmarkModel(f32).init(allocator, device, &graph, spec.seed);
@@ -667,7 +795,7 @@ fn runMnistInfer(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         const output = try model.forward(input);
         output.deinit();
     }
-    resetHostBenchmarkTelemetry(&host);
+    maybeResetHostBenchmarkTelemetry(host);
     for (timings) |*timing| {
         timer.reset();
         const output = try model.forward(input);
@@ -682,20 +810,19 @@ fn runMnistInfer(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .timings_ns = timings,
         .throughput_items = batch_size,
         .throughput_unit = "samples",
-        .host_blas_telemetry = captureHostBlasTelemetry(&host),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
         .notes = spec.notes,
     };
 }
 
-fn runDqnTrain(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+fn runDqnTrain(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const batch_size = spec.batch_size.?;
 
     var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
     defer graph.deinit();
 
-    var host = zg.device.HostDevice.init();
-    defer host.deinit();
-    const device = host.reference();
+    const host = context.host();
+    const device = context.device();
 
     var timer = try std.time.Timer.start();
     var policy = try DqnBenchmarkModel(f32).init(allocator, device, &graph, spec.seed);
@@ -750,7 +877,7 @@ fn runDqnTrain(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
             optimizer,
         );
     }
-    resetHostBenchmarkTelemetry(&host);
+    maybeResetHostBenchmarkTelemetry(host);
     for (timings) |*timing| {
         timer.reset();
         try oneDqnTrainingStep(
@@ -778,21 +905,20 @@ fn runDqnTrain(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .timings_ns = timings,
         .throughput_items = batch_size,
         .throughput_unit = "samples",
-        .host_blas_telemetry = captureHostBlasTelemetry(&host),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
         .notes = spec.notes,
     };
 }
 
-fn runDqnInfer(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+fn runDqnInfer(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const Tensor = zg.NDTensor(f32);
     const batch_size = spec.batch_size.?;
 
     var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
     defer graph.deinit();
 
-    var host = zg.device.HostDevice.init();
-    defer host.deinit();
-    const device = host.reference();
+    const host = context.host();
+    const device = context.device();
 
     var timer = try std.time.Timer.start();
     var model = try DqnBenchmarkModel(f32).init(allocator, device, &graph, spec.seed);
@@ -815,7 +941,7 @@ fn runDqnInfer(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         const output = try model.forward(input);
         output.deinit();
     }
-    resetHostBenchmarkTelemetry(&host);
+    maybeResetHostBenchmarkTelemetry(host);
     for (timings) |*timing| {
         timer.reset();
         const output = try model.forward(input);
@@ -830,12 +956,12 @@ fn runDqnInfer(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .timings_ns = timings,
         .throughput_items = batch_size,
         .throughput_unit = "samples",
-        .host_blas_telemetry = captureHostBlasTelemetry(&host),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
         .notes = spec.notes,
     };
 }
 
-fn runGcnTrain(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+fn runGcnTrain(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const input_shape = spec.input_shape.?;
     const label_shape = spec.label_shape.?;
     const node_count = input_shape[0];
@@ -845,9 +971,8 @@ fn runGcnTrain(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
     var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
     defer graph.deinit();
 
-    var host = zg.device.HostDevice.init();
-    defer host.deinit();
-    const device = host.reference();
+    const host = context.host();
+    const device = context.device();
 
     var timer = try std.time.Timer.start();
     var model = try GcnBenchmarkModel(f32).init(
@@ -891,7 +1016,7 @@ fn runGcnTrain(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
             optimizer,
         );
     }
-    resetHostBenchmarkTelemetry(&host);
+    maybeResetHostBenchmarkTelemetry(host);
     for (timings) |*timing| {
         timer.reset();
         try oneGcnTrainingStep(
@@ -915,12 +1040,12 @@ fn runGcnTrain(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .timings_ns = timings,
         .throughput_items = node_count,
         .throughput_unit = "nodes",
-        .host_blas_telemetry = captureHostBlasTelemetry(&host),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
         .notes = spec.notes,
     };
 }
 
-fn runGcnInfer(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
+fn runGcnInfer(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const Tensor = zg.NDTensor(f32);
     const input_shape = spec.input_shape.?;
     const node_count = input_shape[0];
@@ -930,9 +1055,8 @@ fn runGcnInfer(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
     var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
     defer graph.deinit();
 
-    var host = zg.device.HostDevice.init();
-    defer host.deinit();
-    const device = host.reference();
+    const host = context.host();
+    const device = context.device();
 
     var timer = try std.time.Timer.start();
     var model = try GcnBenchmarkModel(f32).init(
@@ -966,7 +1090,7 @@ fn runGcnInfer(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         const output = try model.forward(input, edge_index);
         output.deinit();
     }
-    resetHostBenchmarkTelemetry(&host);
+    maybeResetHostBenchmarkTelemetry(host);
     for (timings) |*timing| {
         timer.reset();
         const output = try model.forward(input, edge_index);
@@ -981,7 +1105,7 @@ fn runGcnInfer(allocator: std.mem.Allocator, spec: manifest.Spec) !RunOutput {
         .timings_ns = timings,
         .throughput_items = node_count,
         .throughput_unit = "nodes",
-        .host_blas_telemetry = captureHostBlasTelemetry(&host),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
         .notes = spec.notes,
     };
 }
@@ -1473,7 +1597,9 @@ test "run dqn infer benchmark" {
         .path = "inline",
     };
 
-    const output = try run(arena.allocator(), spec);
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.ok, run_result.status);
+    const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
     try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
     try std.testing.expectEqual(@as(usize, 1), output.shapes.len);
     try std.testing.expectEqual(@as(usize, 8), output.batch_size.?);
@@ -1500,7 +1626,9 @@ test "run blas dot benchmark" {
         .path = "inline",
     };
 
-    const output = try run(arena.allocator(), spec);
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.ok, run_result.status);
+    const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
     try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
     try std.testing.expectEqual(@as(usize, 2), output.shapes.len);
     try std.testing.expectEqualStrings("lhs", output.shapes[0].name);
@@ -1527,7 +1655,9 @@ test "run autograd matvec benchmark" {
         .path = "inline",
     };
 
-    const output = try run(arena.allocator(), spec);
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.ok, run_result.status);
+    const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
     try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
     try std.testing.expectEqual(@as(usize, 2), output.shapes.len);
     try std.testing.expectEqualStrings("matrix", output.shapes[0].name);
@@ -1561,7 +1691,9 @@ test "run conv2d im2col benchmark" {
         .path = "inline",
     };
 
-    const output = try run(arena.allocator(), spec);
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.ok, run_result.status);
+    const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
     try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
     try std.testing.expectEqual(@as(usize, 3), output.shapes.len);
     try std.testing.expectEqualStrings("output", output.shapes[2].name);
@@ -1591,7 +1723,9 @@ test "run memory tensor cache benchmark" {
         .path = "inline",
     };
 
-    const output = try run(arena.allocator(), spec);
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.ok, run_result.status);
+    const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
     try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
     try std.testing.expectEqual(@as(usize, 1), output.shapes.len);
     try std.testing.expect(output.memory != null);
@@ -1624,7 +1758,9 @@ test "run memory mnist training benchmark" {
         .path = "inline",
     };
 
-    const output = try run(arena.allocator(), spec);
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.ok, run_result.status);
+    const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
     try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
     try std.testing.expect(output.memory != null);
     try std.testing.expect(output.memory.?.peak_live_bytes.? >= output.memory.?.final_live_bytes.?);
@@ -1656,8 +1792,41 @@ test "run gcn train benchmark" {
         .path = "inline",
     };
 
-    const output = try run(arena.allocator(), spec);
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.ok, run_result.status);
+    const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
     try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
     try std.testing.expectEqual(@as(usize, 3), output.shapes.len);
     try std.testing.expectEqualStrings("edge_index", output.shapes[1].name);
+}
+
+test "memory suite skips cuda requests explicitly" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const buffer_shape = [_]usize{ 8, 8 };
+    const spec: manifest.Spec = .{
+        .id = "test.memory.tensor-cache.cuda",
+        .suite = .memory,
+        .kind = .memory_tensor_cache_cycle,
+        .device = .{ .kind = .cuda, .cuda_device_index = 0 },
+        .dtype = .f32,
+        .warmup_iterations = 0,
+        .measured_iterations = 1,
+        .batch_size = 4,
+        .thread_count = 1,
+        .seed = 1,
+        .lhs_shape = buffer_shape[0..],
+        .provenance = inlineProvenance(&.{
+            "reshape tensors to lhs_shape",
+            "reuse identical allocation sizes across each cache cycle",
+        }),
+        .path = "inline",
+    };
+
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.skipped, run_result.status);
+    try std.testing.expect(run_result.output == null);
+    try std.testing.expect(run_result.notes != null);
+    try std.testing.expectEqualStrings("cuda", run_result.backend.device);
 }

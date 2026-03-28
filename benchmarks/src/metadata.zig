@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const zg = @import("zigrad");
+const manifest = @import("manifest.zig");
 const result = @import("result.zig");
 
 pub const Snapshot = struct {
@@ -12,8 +13,7 @@ pub const Snapshot = struct {
 pub fn collect(
     allocator: std.mem.Allocator,
     harness_version: []const u8,
-    thread_count: ?u32,
-    host_blas_telemetry: ?result.HostBlasTelemetry,
+    backend: result.BackendMetadata,
 ) !Snapshot {
     return .{
         .runtime = .{
@@ -32,19 +32,62 @@ pub fn collect(
             .cpu_frequency_policy = cpuFrequencyPolicy(allocator),
             .total_memory_bytes = totalMemoryBytes(allocator),
         },
-        .backend = .{
-            .device = "host",
-            .host_provider = hostProvider(),
-            .thread_count = thread_count,
-            .thread_environment = threadEnvironment(),
-            .host_blas_telemetry = host_blas_telemetry,
-        },
+        .backend = backend,
     };
 }
 
 pub fn hostProvider() []const u8 {
     _ = builtin;
     return zg.device.configured_host_blas_provider.name();
+}
+
+pub fn requestedBackend(
+    allocator: std.mem.Allocator,
+    device_request: manifest.DeviceRequest,
+    thread_count: ?u32,
+) !result.BackendMetadata {
+    return .{
+        .device = device_request.kind.asString(),
+        .host_provider = hostProvider(),
+        .thread_count = thread_count,
+        .accelerator = try requestedAcceleratorLabel(allocator, device_request),
+        .thread_environment = threadEnvironment(),
+        .host_blas_telemetry = null,
+        .cuda = null,
+    };
+}
+
+pub fn runtimeBackend(
+    allocator: std.mem.Allocator,
+    runtime_device: *const zg.device.RuntimeDevice,
+    thread_count: ?u32,
+    host_blas_telemetry: ?result.HostBlasTelemetry,
+) !result.BackendMetadata {
+    var backend = result.BackendMetadata{
+        .device = switch (runtime_device.kind) {
+            .host => "host",
+            .cuda => "cuda",
+        },
+        .host_provider = hostProvider(),
+        .thread_count = thread_count,
+        .thread_environment = threadEnvironment(),
+        .host_blas_telemetry = if (runtime_device.kind == .host) host_blas_telemetry else null,
+        .accelerator = null,
+        .cuda = null,
+    };
+
+    if (runtime_device.kind == .cuda) {
+        if (comptime zg.has_cuda) {
+            const cuda_device = runtime_device.cuda orelse unreachable;
+            const diagnostics = cuda_device.runtimeDiagnostics();
+            backend.accelerator = try std.fmt.allocPrint(allocator, "cuda:{d}", .{diagnostics.device_number});
+            backend.cuda = try cudaMetadataFromDiagnostics(allocator, diagnostics);
+        } else {
+            unreachable;
+        }
+    }
+
+    return backend;
 }
 
 fn gitCommit(allocator: std.mem.Allocator) ![]const u8 {
@@ -99,6 +142,41 @@ fn threadEnvironment() ?result.ThreadEnvironment {
         .mkl_dynamic = getenv("MKL_DYNAMIC"),
     };
     return if (environment.hasValues()) environment else null;
+}
+
+fn requestedAcceleratorLabel(
+    allocator: std.mem.Allocator,
+    device_request: manifest.DeviceRequest,
+) !?[]const u8 {
+    return switch (device_request.kind) {
+        .host => null,
+        .cuda => try std.fmt.allocPrint(allocator, "cuda:{d}", .{device_request.cuda_device_index}),
+    };
+}
+
+fn cudaMetadataFromDiagnostics(
+    allocator: std.mem.Allocator,
+    diagnostics: zg.device.CudaRuntimeDiagnostics,
+) !result.CudaMetadata {
+    return .{
+        .device_count = diagnostics.device_count,
+        .device_index = diagnostics.device_number,
+        .device_name = try allocator.dupe(u8, diagnostics.device_name),
+        .compute_capability_major = diagnostics.compute_capability_major,
+        .compute_capability_minor = diagnostics.compute_capability_minor,
+        .multiprocessor_count = diagnostics.multiprocessor_count,
+        .total_global_memory_bytes = diagnostics.total_global_memory_bytes,
+        .driver_version = try cudaVersionString(allocator, diagnostics.driver_version_raw),
+        .runtime_version = try cudaVersionString(allocator, diagnostics.runtime_version_raw),
+    };
+}
+
+fn cudaVersionString(allocator: std.mem.Allocator, raw: i32) ![]const u8 {
+    if (raw <= 0) return allocator.dupe(u8, "unknown");
+
+    const major = @divTrunc(raw, 1000);
+    const minor = @divTrunc(@mod(raw, 1000), 10);
+    return std.fmt.allocPrint(allocator, "{d}.{d}", .{ major, minor });
 }
 
 fn linuxCpuModel(allocator: std.mem.Allocator) ![]const u8 {
@@ -184,15 +262,36 @@ test "collect attaches host BLAS telemetry to backend metadata" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    const snapshot = try collect(arena.allocator(), "0.1.0", 4, .{
-        .matmul_calls = 3,
-        .bmm_acc_calls = 1,
-        .direct_bmm_dispatches = 1,
-    });
+    const backend = result.BackendMetadata{
+        .device = "host",
+        .host_provider = hostProvider(),
+        .thread_count = 4,
+        .thread_environment = null,
+        .host_blas_telemetry = .{
+            .matmul_calls = 3,
+            .bmm_acc_calls = 1,
+            .direct_bmm_dispatches = 1,
+        },
+    };
+    const snapshot = try collect(arena.allocator(), "0.1.0", backend);
 
     try std.testing.expectEqual(@as(u64, 3), snapshot.backend.host_blas_telemetry.?.matmul_calls);
     try std.testing.expectEqual(@as(u64, 1), snapshot.backend.host_blas_telemetry.?.bmm_acc_calls);
     try std.testing.expectEqual(@as(u64, 1), snapshot.backend.host_blas_telemetry.?.direct_bmm_dispatches);
+}
+
+test "requested backend records cuda accelerator labels" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const backend = try requestedBackend(arena.allocator(), .{
+        .kind = .cuda,
+        .cuda_device_index = 2,
+    }, 8);
+
+    try std.testing.expectEqualStrings("cuda", backend.device);
+    try std.testing.expectEqualStrings("cuda:2", backend.accelerator.?);
+    try std.testing.expectEqualStrings(hostProvider(), backend.host_provider);
 }
 
 test "collect captures thread environment metadata" {
@@ -208,7 +307,13 @@ test "collect captures thread environment metadata" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    const snapshot = try collect(arena.allocator(), "0.1.0", 7, null);
+    const snapshot = try collect(arena.allocator(), "0.1.0", .{
+        .device = "host",
+        .host_provider = hostProvider(),
+        .thread_count = 7,
+        .thread_environment = threadEnvironment(),
+        .host_blas_telemetry = null,
+    });
     const thread_env = snapshot.backend.thread_environment.?;
 
     try std.testing.expectEqualStrings("7", thread_env.omp_num_threads.?);

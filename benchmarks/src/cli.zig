@@ -48,41 +48,66 @@ pub fn emitAll(
     harness_version: []const u8,
 ) !void {
     for (specs) |spec| {
-        const run_output = try workload.run(allocator, spec);
-        const snapshot = try metadata.collect(
-            allocator,
-            harness_version,
-            spec.thread_count,
-            run_output.host_blas_telemetry,
-        );
-        const stats = try result.SummaryStats.fromTimings(
-            allocator,
-            run_output.timings_ns,
-            run_output.throughput_items,
-            run_output.throughput_unit,
-        );
-        try result.writeJsonLine(writer, .{
-            .benchmark_id = spec.id,
-            .spec_path = spec.path,
-            .suite = spec.suite.asString(),
-            .kind = spec.kind.asString(),
-            .runner = "zig",
-            .status = .ok,
-            .dtype = spec.dtype.asString(),
-            .warmup_iterations = spec.warmup_iterations,
-            .measured_iterations = spec.measured_iterations,
-            .batch_size = run_output.batch_size,
-            .seed = spec.seed,
-            .shapes = run_output.shapes,
-            .provenance = spec.provenance,
-            .runtime = snapshot.runtime,
-            .system = snapshot.system,
-            .backend = snapshot.backend,
-            .setup_latency_ns = run_output.setup_latency_ns,
-            .stats = stats,
-            .memory = run_output.memory,
-            .notes = run_output.notes,
-        });
+        const run_result = try workload.run(allocator, spec);
+        const snapshot = try metadata.collect(allocator, harness_version, run_result.backend);
+
+        switch (run_result.status) {
+            .ok => {
+                const run_output = run_result.output orelse return error.MissingBenchmarkRunOutput;
+                const stats = try result.SummaryStats.fromTimings(
+                    allocator,
+                    run_output.timings_ns,
+                    run_output.throughput_items,
+                    run_output.throughput_unit,
+                );
+                try result.writeJsonLine(writer, .{
+                    .benchmark_id = spec.id,
+                    .spec_path = spec.path,
+                    .suite = spec.suite.asString(),
+                    .kind = spec.kind.asString(),
+                    .runner = "zig",
+                    .status = .ok,
+                    .dtype = spec.dtype.asString(),
+                    .warmup_iterations = spec.warmup_iterations,
+                    .measured_iterations = spec.measured_iterations,
+                    .batch_size = run_output.batch_size,
+                    .seed = spec.seed,
+                    .shapes = run_output.shapes,
+                    .provenance = spec.provenance,
+                    .runtime = snapshot.runtime,
+                    .system = snapshot.system,
+                    .backend = snapshot.backend,
+                    .setup_latency_ns = run_output.setup_latency_ns,
+                    .stats = stats,
+                    .memory = run_output.memory,
+                    .notes = run_output.notes,
+                });
+            },
+            .skipped, .failed => {
+                try result.writeJsonLine(writer, .{
+                    .benchmark_id = spec.id,
+                    .spec_path = spec.path,
+                    .suite = spec.suite.asString(),
+                    .kind = spec.kind.asString(),
+                    .runner = "zig",
+                    .status = run_result.status,
+                    .dtype = spec.dtype.asString(),
+                    .warmup_iterations = spec.warmup_iterations,
+                    .measured_iterations = spec.measured_iterations,
+                    .batch_size = workload.expectedBatchSize(spec),
+                    .seed = spec.seed,
+                    .shapes = try workload.expectedShapeMetadata(allocator, spec),
+                    .provenance = spec.provenance,
+                    .runtime = snapshot.runtime,
+                    .system = snapshot.system,
+                    .backend = snapshot.backend,
+                    .setup_latency_ns = null,
+                    .stats = null,
+                    .memory = null,
+                    .notes = run_result.notes,
+                });
+            },
+        }
 
         if (std.mem.eql(u8, options.baseline, "pytorch")) {
             try runPytorchBaseline(allocator, writer, spec, harness_version);
@@ -258,6 +283,20 @@ fn runPytorchBaseline(
     harness_version: []const u8,
 ) !void {
     const runner = spec.pytorch_runner orelse return;
+    if (spec.device.kind != .host) {
+        try emitPytorchBaselineSkippedRecord(
+            allocator,
+            writer,
+            spec,
+            harness_version,
+            try std.fmt.allocPrint(
+                allocator,
+                "PyTorch baseline runner `{s}` currently supports only host benchmarks; requested device was `{s}`.",
+                .{ runner, spec.device.kind.asString() },
+            ),
+        );
+        return;
+    }
 
     var argv = std.ArrayList([]const u8){};
     defer argv.deinit(allocator);
@@ -356,7 +395,11 @@ fn emitPytorchBaselineFailureRecord(
     harness_version: []const u8,
     note: []const u8,
 ) !void {
-    const snapshot = try metadata.collect(allocator, harness_version, spec.thread_count, null);
+    const snapshot = try metadata.collect(
+        allocator,
+        harness_version,
+        try pytorchBackendMetadata(allocator, spec),
+    );
 
     try result.writeJsonLine(writer, .{
         .benchmark_id = spec.id,
@@ -374,18 +417,64 @@ fn emitPytorchBaselineFailureRecord(
         .provenance = spec.provenance,
         .runtime = snapshot.runtime,
         .system = snapshot.system,
-        .backend = .{
-            .device = "cpu",
-            .host_provider = pytorchHostProvider(),
-            .thread_count = spec.thread_count,
-            .thread_environment = snapshot.backend.thread_environment,
-            .host_blas_telemetry = null,
-        },
+        .backend = snapshot.backend,
         .setup_latency_ns = null,
         .stats = null,
         .memory = null,
         .notes = note,
     });
+}
+
+fn emitPytorchBaselineSkippedRecord(
+    allocator: std.mem.Allocator,
+    writer: anytype,
+    spec: manifest.Spec,
+    harness_version: []const u8,
+    note: []const u8,
+) !void {
+    const snapshot = try metadata.collect(
+        allocator,
+        harness_version,
+        try pytorchBackendMetadata(allocator, spec),
+    );
+
+    try result.writeJsonLine(writer, .{
+        .benchmark_id = spec.id,
+        .spec_path = spec.path,
+        .suite = spec.suite.asString(),
+        .kind = spec.kind.asString(),
+        .runner = "pytorch",
+        .status = .skipped,
+        .dtype = spec.dtype.asString(),
+        .warmup_iterations = spec.warmup_iterations,
+        .measured_iterations = spec.measured_iterations,
+        .batch_size = workload.expectedBatchSize(spec),
+        .seed = spec.seed,
+        .shapes = try workload.expectedShapeMetadata(allocator, spec),
+        .provenance = spec.provenance,
+        .runtime = snapshot.runtime,
+        .system = snapshot.system,
+        .backend = snapshot.backend,
+        .setup_latency_ns = null,
+        .stats = null,
+        .memory = null,
+        .notes = note,
+    });
+}
+
+fn pytorchBackendMetadata(
+    allocator: std.mem.Allocator,
+    spec: manifest.Spec,
+) !result.BackendMetadata {
+    var backend = try metadata.requestedBackend(allocator, spec.device, spec.thread_count);
+    backend.host_provider = pytorchHostProvider();
+    backend.host_blas_telemetry = null;
+    backend.cuda = null;
+    if (spec.device.kind == .host) {
+        backend.device = "cpu";
+        backend.accelerator = null;
+    }
+    return backend;
 }
 
 fn pytorchHostProvider() []const u8 {
