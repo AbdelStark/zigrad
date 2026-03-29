@@ -329,7 +329,7 @@ def shape_metadata(spec: dict):
             shapes.append({"name": "labels", "dims": spec["label_shape"]})
         return shapes
 
-    if kind in {"pendulum_dynamics_train", "pendulum_dynamics_infer"}:
+    if kind in {"pendulum_dynamics_train", "pendulum_dynamics_infer", "compiler_pendulum_dynamics_capture"}:
         shapes = [{"name": "input", "dims": input_shape}]
         if spec.get("label_shape"):
             shapes.append({"name": "labels", "dims": spec["label_shape"]})
@@ -449,6 +449,7 @@ def throughput_shape(spec: dict):
         "compiler_char_lm_capture",
         "pendulum_dynamics_train",
         "pendulum_dynamics_infer",
+        "compiler_pendulum_dynamics_capture",
         "corridor_control_train",
         "corridor_control_infer",
         "compiler_corridor_control_capture",
@@ -494,6 +495,7 @@ def main() -> int:
         "compiler_char_lm_capture",
         "pendulum_dynamics_train",
         "pendulum_dynamics_infer",
+        "compiler_pendulum_dynamics_capture",
         "corridor_control_train",
         "corridor_control_infer",
         "compiler_corridor_control_capture",
@@ -776,15 +778,22 @@ def main() -> int:
         else:
             step = infer_step
 
-    elif kind in {"pendulum_dynamics_train", "pendulum_dynamics_infer"}:
+    elif kind in {"pendulum_dynamics_train", "pendulum_dynamics_infer", "compiler_pendulum_dynamics_capture"}:
         batch_size = spec["batch_size"]
         input_shape = spec["input_shape"]
         model = PendulumDynamicsModel()
-        optimizer = torch.optim.Adam(model.parameters(), lr=1e-2, betas=(0.9, 0.999), eps=1e-8) if kind == "pendulum_dynamics_train" else None
-        input_values, label_values = pendulum_transition_batch(batch_size, seed + 89)
+        optimizer = (
+            torch.optim.Adam(model.parameters(), lr=1e-2, betas=(0.9, 0.999), eps=1e-8)
+            if kind == "pendulum_dynamics_train"
+            else None
+        )
+        input_values, label_values = pendulum_transition_batch(
+            batch_size,
+            seed + 89 if kind == "pendulum_dynamics_train" else seed + 101,
+        )
         inputs = torch.tensor(input_values, dtype=torch.float32).reshape(*input_shape)
         labels = None
-        if kind == "pendulum_dynamics_train":
+        if kind in {"pendulum_dynamics_train", "compiler_pendulum_dynamics_capture"}:
             labels = torch.tensor(label_values, dtype=torch.float32).reshape(batch_size, 3)
 
         def train_step():
@@ -794,11 +803,22 @@ def main() -> int:
             optimizer.step()
             optimizer.zero_grad(set_to_none=False)
 
+        def capture_step():
+            outputs = model(inputs)
+            loss = F.mse_loss(outputs, labels, reduction="mean")
+            del loss
+            del outputs
+
         def infer_step():
             with torch.no_grad():
                 _ = model(inputs)
 
-        step = train_step if kind == "pendulum_dynamics_train" else infer_step
+        if kind == "pendulum_dynamics_train":
+            step = train_step
+        elif kind == "compiler_pendulum_dynamics_capture":
+            step = capture_step
+        else:
+            step = infer_step
 
     elif kind in {"corridor_control_train", "corridor_control_infer", "compiler_corridor_control_capture"}:
         batch_size = spec["batch_size"]

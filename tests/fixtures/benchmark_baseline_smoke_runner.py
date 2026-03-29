@@ -61,6 +61,11 @@ def shape_metadata(spec: dict):
         if spec.get("label_shape"):
             shapes.append({"name": "labels", "dims": spec["label_shape"]})
         return shapes
+    if kind in {"pendulum_dynamics_train", "pendulum_dynamics_infer", "compiler_pendulum_dynamics_capture"}:
+        shapes = [{"name": "input", "dims": spec["input_shape"]}]
+        if spec.get("label_shape"):
+            shapes.append({"name": "labels", "dims": spec["label_shape"]})
+        return shapes
     if kind in {"corridor_control_train", "compiler_corridor_control_capture"}:
         batch_size = spec["batch_size"]
         input_shape = spec["input_shape"]
@@ -81,6 +86,8 @@ def throughput(spec: dict):
     if kind in {"blas_dot", "autograd_dot_backward"}:
         return spec["lhs_shape"][0], "elements"
     if kind in {"mnist_mlp_train", "mnist_mlp_infer"}:
+        return spec.get("batch_size"), "samples"
+    if kind in {"pendulum_dynamics_train", "pendulum_dynamics_infer", "compiler_pendulum_dynamics_capture"}:
         return spec.get("batch_size"), "samples"
     if kind in {"corridor_control_train", "corridor_control_infer", "compiler_corridor_control_capture"}:
         return spec.get("batch_size"), "samples"

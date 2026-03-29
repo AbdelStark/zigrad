@@ -216,9 +216,6 @@ Every RFC in this folder set must maintain:
     [`benchmarks/README.md`](../benchmarks/README.md), and
     [`benchmarks/AUTHORING.md`](../benchmarks/AUTHORING.md).
 - Remains:
-  - Add compiler-capture coverage for other maintained families that still stop
-    at train/infer only if compiler prioritization needs them before lazy or
-    optimized execution exists.
   - Extend corridor capture into realized lazy/optimized execution once
     RFC-0006 and RFC-0007 expose those pipelines.
 - Blockers:
@@ -231,6 +228,46 @@ Every RFC in this folder set must maintain:
   - `zig build benchmark-validate -- --input .zig-cache/corridor-compiler-capture-baseline.jsonl`
   - `zig build test-benchmark-smoke`
   - `zig build test-benchmark-baseline-smoke`
+  - `zig build test`
+
+### RFC-0001 2026-03-29 Pendulum Dynamics Compiler Capture Baseline Slice
+
+- Completed:
+  - Added a maintained pendulum compiler-capture workload and checked-in spec
+    under
+    [`benchmarks/src/workload.zig`](../benchmarks/src/workload.zig),
+    [`benchmarks/src/manifest.zig`](../benchmarks/src/manifest.zig), and
+    [`benchmarks/specs/compiler/pendulum-dynamics-capture-synthetic.json`](../benchmarks/specs/compiler/pendulum-dynamics-capture-synthetic.json),
+    reusing the deterministic pendulum transition generator and MSE loss graph
+    from the maintained physics/control benchmark family.
+  - Extended
+    [`benchmarks/runners/pytorch/mnist_mlp.py`](../benchmarks/runners/pytorch/mnist_mlp.py)
+    so the maintained pendulum family now participates in the optional PyTorch
+    baseline contract across train, infer, and compiler capture.
+  - Expanded smoke coverage and docs through
+    [`tests/src/benchmark_smoke_main.zig`](../tests/src/benchmark_smoke_main.zig),
+    [`tests/src/benchmark_baseline_smoke_main.zig`](../tests/src/benchmark_baseline_smoke_main.zig),
+    [`tests/fixtures/benchmark_baseline_smoke_runner.py`](../tests/fixtures/benchmark_baseline_smoke_runner.py),
+    [`README.md`](../README.md),
+    [`benchmarks/README.md`](../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../benchmarks/AUTHORING.md).
+- Remains:
+  - Extend pendulum compiler coverage into realized lazy or optimized execution
+    once RFC-0006 and RFC-0007 expose those pipelines.
+  - Decide whether pendulum should gain a second compiler slice for multi-step
+    rollout capture once stronger graph pipelines exist.
+- Blockers:
+  - Compiler benchmarking is still limited to eager graph capture in this
+    environment, so pendulum rows cannot yet measure optimization passes or
+    compiled execution.
+- Validation:
+  - `zig build benchmark -- --spec benchmarks/specs/compiler/pendulum-dynamics-capture-synthetic.json --output .zig-cache/pendulum-compiler-capture.jsonl`
+  - `zig build benchmark -- --spec benchmarks/specs/compiler/pendulum-dynamics-capture-synthetic.json --baseline pytorch --output .zig-cache/pendulum-compiler-capture-baseline.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/pendulum-compiler-capture-baseline.jsonl`
+  - `zig build test-benchmark-smoke`
+  - `zig build test-benchmark-baseline-smoke`
+  - `zig build benchmark-compiler`
+  - `zig build benchmark-validate -- --group compiler`
   - `zig build test`
 
 ### RFC-0012 2026-03-28 Char-LM Reference Example And Benchmark Slice
@@ -284,8 +321,9 @@ Every RFC in this folder set must maintain:
     one `llm`, one RL/control example, and one physics/robotics-oriented
     example.
 - Remains:
-  - Decide whether the pendulum family should gain compiler-capture coverage
-    once RFC-0006 and RFC-0007 expose a stronger graph pipeline.
+  - Decide whether the pendulum family should gain a second compiler-capture
+    slice for multi-step rollout execution once RFC-0006 and RFC-0007 expose a
+    stronger graph pipeline.
 - Blockers:
   - CUDA-capable validation remains unavailable in this environment, so the
     new example and benchmark slice were verified on host only.

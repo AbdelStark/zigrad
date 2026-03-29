@@ -91,6 +91,7 @@ pub fn expectedBatchSize(spec: manifest.Spec) ?usize {
         .memory_mnist_train_step,
         .compiler_mnist_mlp_capture,
         .compiler_char_lm_capture,
+        .compiler_pendulum_dynamics_capture,
         .compiler_corridor_control_capture,
         .compiler_dqn_cartpole_capture,
         .mnist_mlp_train,
@@ -145,6 +146,7 @@ pub fn expectedShapeMetadata(
         => shapeMetadataFromCharLm(allocator, spec),
         .pendulum_dynamics_train,
         .pendulum_dynamics_infer,
+        .compiler_pendulum_dynamics_capture,
         => shapeMetadataFromPendulum(allocator, spec),
         .corridor_control_train => shapeMetadataFromCorridorTrain(allocator, spec),
         .corridor_control_infer => shapeMetadataFromCorridorInfer(allocator, spec),
@@ -244,6 +246,7 @@ pub fn run(allocator: std.mem.Allocator, spec: manifest.Spec) !RunResult {
         .memory_mnist_train_step => runMemoryMnistTrainStep(allocator, spec, &context),
         .compiler_mnist_mlp_capture => runCompilerMnistCapture(allocator, spec, &context),
         .compiler_char_lm_capture => runCompilerCharLmCapture(allocator, spec, &context),
+        .compiler_pendulum_dynamics_capture => runCompilerPendulumCapture(allocator, spec, &context),
         .compiler_corridor_control_capture => runCompilerCorridorCapture(allocator, spec, &context),
         .compiler_dqn_cartpole_capture => runCompilerDqnCapture(allocator, spec, &context),
         .compiler_gcn_capture => runCompilerGcnCapture(allocator, spec, &context),
@@ -874,6 +877,76 @@ fn runCompilerCharLmCapture(allocator: std.mem.Allocator, spec: manifest.Spec, c
 
     return .{
         .shapes = try shapeMetadataFromCharLm(allocator, spec),
+        .batch_size = batch_size,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = batch_size,
+        .throughput_unit = "samples",
+        .memory = compilerCaptureMemoryStats(host, peak_graph_arena_bytes, graph.queryArenaCapacityBytes()),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runCompilerPendulumCapture(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
+    const batch_size = spec.batch_size.?;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    const host = context.host();
+    const device = context.device();
+
+    var timer = try std.time.Timer.start();
+    var model = try PendulumDynamicsModel(f32).initWithGraphAndSeed(
+        device,
+        pendulum_data.input_feature_count,
+        pendulumHiddenSize(),
+        pendulum_data.output_feature_count,
+        &graph,
+        spec.seed,
+    );
+    defer model.deinit();
+
+    var generated = try pendulum_data.generateTransitions(allocator, batch_size, spec.seed +% 101, .{});
+    defer generated.deinit(allocator);
+
+    const setup_latency_ns = timer.read();
+
+    for (0..spec.warmup_iterations) |_| {
+        try oneCompilerPendulumCaptureStep(
+            &graph,
+            device,
+            &model,
+            generated.inputs,
+            spec.input_shape.?,
+            generated.targets,
+            spec.label_shape.?,
+        );
+    }
+
+    if (host) |value| value.resetCacheTelemetry();
+    maybeResetHostBenchmarkTelemetry(host);
+    var peak_graph_arena_bytes = graph.queryArenaCapacityBytes();
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+
+    for (timings) |*timing| {
+        timer.reset();
+        try oneCompilerPendulumCaptureStep(
+            &graph,
+            device,
+            &model,
+            generated.inputs,
+            spec.input_shape.?,
+            generated.targets,
+            spec.label_shape.?,
+        );
+        timing.* = timer.read();
+        peak_graph_arena_bytes = @max(peak_graph_arena_bytes, graph.queryArenaCapacityBytes());
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromPendulum(allocator, spec),
         .batch_size = batch_size,
         .setup_latency_ns = setup_latency_ns,
         .timings_ns = timings,
@@ -2253,6 +2326,24 @@ fn onePendulumTrainingStep(
     model.zero_grad();
 }
 
+fn oneCompilerPendulumCaptureStep(
+    graph: *zg.Graph,
+    device: zg.DeviceReference,
+    model: *PendulumDynamicsModel(f32),
+    input_values: []const f32,
+    input_shape: []const usize,
+    label_values: []const f32,
+    label_shape: []const usize,
+) !void {
+    const Tensor = zg.NDTensor(f32);
+
+    const input = try Tensor.from_slice(device, input_values, input_shape, .{ .graph = graph });
+    const labels = try Tensor.from_slice(device, label_values, label_shape, .{ .graph = graph });
+    const output = try model.forward(input);
+    const loss = try zg.loss.mse_loss(f32, output, labels);
+    graph.teardown(&loss.node);
+}
+
 fn oneCompilerMnistCaptureStep(
     graph: *zg.Graph,
     device: zg.DeviceReference,
@@ -3355,6 +3446,41 @@ test "run compiler char lm capture benchmark" {
             "derive a deterministic token stream",
             "materialize one-hot causal context windows",
             "capture forward plus loss graph without backward execution",
+        }),
+        .path = "inline",
+    };
+
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.ok, run_result.status);
+    const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
+    try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
+    try std.testing.expectEqual(@as(usize, 2), output.shapes.len);
+    try std.testing.expect(output.memory != null);
+    try std.testing.expect(output.memory.?.peak_graph_arena_bytes.? > 0);
+}
+
+test "run compiler pendulum capture benchmark" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const input_shape = [_]usize{ 8, 4 };
+    const label_shape = [_]usize{ 8, 3 };
+    const spec: manifest.Spec = .{
+        .id = "test.compiler.pendulum.capture",
+        .suite = .compiler,
+        .kind = .compiler_pendulum_dynamics_capture,
+        .dtype = .f32,
+        .warmup_iterations = 0,
+        .measured_iterations = 1,
+        .batch_size = 8,
+        .thread_count = 1,
+        .seed = 1,
+        .input_shape = input_shape[0..],
+        .label_shape = label_shape[0..],
+        .provenance = inlineProvenance(&.{
+            "generate deterministic pendulum states",
+            "simulate next-state regression targets",
+            "capture forward plus regression loss graph without backward execution",
         }),
         .path = "inline",
     };

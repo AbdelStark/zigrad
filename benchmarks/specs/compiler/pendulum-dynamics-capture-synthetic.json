@@ -1,0 +1,22 @@
+{
+  "id": "compiler.pendulum-dynamics.capture.synthetic.f32.batch32",
+  "suite": "compiler",
+  "kind": "compiler_pendulum_dynamics_capture",
+  "dtype": "f32",
+  "warmup_iterations": 1,
+  "measured_iterations": 3,
+  "batch_size": 32,
+  "input_shape": [32, 4],
+  "label_shape": [32, 3],
+  "seed": 20260329,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "generate deterministic pendulum states",
+      "simulate next-state regression targets",
+      "capture forward plus regression loss graph without backward execution"
+    ]
+  },
+  "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py",
+  "notes": "Captures the maintained pendulum dynamics regression loss graph without optimizer execution."
+}

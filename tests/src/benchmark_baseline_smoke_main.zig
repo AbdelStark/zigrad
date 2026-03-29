@@ -15,6 +15,7 @@ const success_specs = [_][]const u8{
     "benchmarks/specs/model-infer/mnist-mlp-synthetic.json",
     "benchmarks/specs/model-train/corridor-control-synthetic.json",
     "benchmarks/specs/model-infer/corridor-control-synthetic.json",
+    "benchmarks/specs/compiler/pendulum-dynamics-capture-synthetic.json",
     "benchmarks/specs/compiler/corridor-control-capture-synthetic.json",
 };
 const failure_spec = "benchmarks/specs/blas/dot-f32-262144.json";
@@ -271,6 +272,9 @@ fn benchmarkIdForSpec(spec_path: []const u8) []const u8 {
     }
     if (std.mem.eql(u8, spec_path, "benchmarks/specs/model-infer/corridor-control-synthetic.json")) {
         return "model-infer.corridor-control.synthetic.f32.batch24";
+    }
+    if (std.mem.eql(u8, spec_path, "benchmarks/specs/compiler/pendulum-dynamics-capture-synthetic.json")) {
+        return "compiler.pendulum-dynamics.capture.synthetic.f32.batch32";
     }
     if (std.mem.eql(u8, spec_path, "benchmarks/specs/compiler/corridor-control-capture-synthetic.json")) {
         return "compiler.corridor-control.capture.synthetic.f32.batch24";

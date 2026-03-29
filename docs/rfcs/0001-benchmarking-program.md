@@ -343,9 +343,6 @@ Regression gating should use broad thresholds first, for example:
     so corridor compiler capture is exercised in smoke coverage and documented
     alongside the existing compiler and maintained-model suites.
 - Remains:
-  - Add comparable compiler-capture slices for maintained families that still
-    stop at train/infer only, such as pendulum dynamics, if they become
-    important for compiler prioritization before RFC-0006 and RFC-0007 land.
   - Grow corridor capture beyond eager graph construction into realized lazy or
     optimized execution once those downstream RFCs expose executable pipelines.
 - Blockers:
@@ -358,6 +355,49 @@ Regression gating should use broad thresholds first, for example:
   - `zig build benchmark-validate -- --input .zig-cache/corridor-compiler-capture-baseline.jsonl`
   - `zig build test-benchmark-smoke`
   - `zig build test-benchmark-baseline-smoke`
+  - `zig build test`
+
+### 2026-03-29 Pendulum Dynamics Compiler Capture Baseline Slice
+
+- Completed:
+  - Extended
+    [`benchmarks/src/manifest.zig`](../../benchmarks/src/manifest.zig),
+    [`benchmarks/src/workload.zig`](../../benchmarks/src/workload.zig), and
+    [`benchmarks/specs/compiler/pendulum-dynamics-capture-synthetic.json`](../../benchmarks/specs/compiler/pendulum-dynamics-capture-synthetic.json)
+    with a maintained pendulum compiler-capture workload that reuses the
+    deterministic transition generator and captures forward plus MSE loss graph
+    construction without entering backward or optimizer execution.
+  - Extended
+    [`benchmarks/runners/pytorch/mnist_mlp.py`](../../benchmarks/runners/pytorch/mnist_mlp.py)
+    so the maintained pendulum family now has train, infer, and compiler rows
+    in the optional PyTorch baseline contract instead of stopping at
+    train/infer-only coverage.
+  - Updated
+    [`tests/src/benchmark_smoke_main.zig`](../../tests/src/benchmark_smoke_main.zig),
+    [`tests/src/benchmark_baseline_smoke_main.zig`](../../tests/src/benchmark_baseline_smoke_main.zig),
+    [`tests/fixtures/benchmark_baseline_smoke_runner.py`](../../tests/fixtures/benchmark_baseline_smoke_runner.py),
+    [`README.md`](../../README.md),
+    [`benchmarks/README.md`](../../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md)
+    so pendulum compiler capture is smoke-tested and documented as part of the
+    maintained compiler-facing benchmark surface.
+- Remains:
+  - Extend pendulum compiler coverage into realized lazy or optimized execution
+    once RFC-0006 and RFC-0007 provide executable pipelines.
+  - Decide whether pendulum should eventually gain a second compiler slice for
+    multi-step rollout capture rather than single-step regression capture.
+- Blockers:
+  - The compiler suite still measures eager graph capture only in this
+    environment, so the new pendulum row cannot yet report optimization-pass
+    cost or compiled execution latency.
+- Validation performed:
+  - `zig build benchmark -- --spec benchmarks/specs/compiler/pendulum-dynamics-capture-synthetic.json --output .zig-cache/pendulum-compiler-capture.jsonl`
+  - `zig build benchmark -- --spec benchmarks/specs/compiler/pendulum-dynamics-capture-synthetic.json --baseline pytorch --output .zig-cache/pendulum-compiler-capture-baseline.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/pendulum-compiler-capture-baseline.jsonl`
+  - `zig build test-benchmark-smoke`
+  - `zig build test-benchmark-baseline-smoke`
+  - `zig build benchmark-compiler`
+  - `zig build benchmark-validate -- --group compiler`
   - `zig build test`
 
 ### 2026-03-28 Char-LM Benchmark Coverage
@@ -418,9 +458,9 @@ Regression gating should use broad thresholds first, for example:
     so the new physics/control benchmark surface is documented next to the
     existing reference-model workflows.
 - Remains:
-  - Add compiler-capture coverage for the pendulum family once RFC-0006 and
-    RFC-0007 expose a meaningful captured-graph optimization path for this
-    workload.
+  - Decide whether pendulum should gain a second compiler slice for multi-step
+    rollout capture once RFC-0006 and RFC-0007 expose a meaningful
+    captured-graph optimization path for this workload.
   - Capture and publish broader pendulum benchmark result sets once dedicated
     publication runs are scheduled.
 - Blockers:

@@ -48,6 +48,7 @@ zig build benchmark -- --spec benchmarks/specs/model-infer/char-lm-synthetic.jso
 zig build benchmark -- --spec benchmarks/specs/model-infer/pendulum-dynamics-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/corridor-control-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json
+zig build benchmark -- --spec benchmarks/specs/compiler/pendulum-dynamics-capture-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/compiler/corridor-control-capture-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/interop/mnist-mlp-safetensors-import-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json
@@ -187,6 +188,7 @@ emits both a machine-readable manifest and a Markdown summary for humans.
 - `compiler`
   - synthetic MNIST-style forward-plus-loss graph capture
   - synthetic char-level causal language model forward-plus-loss graph capture
+  - synthetic pendulum dynamics forward-plus-regression-loss graph capture
   - synthetic deterministic corridor-control Q-learning loss graph capture
   - synthetic CartPole-shaped DQN loss graph capture
   - synthetic two-layer GCN forward-plus-loss graph capture on a deterministic graph

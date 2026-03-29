@@ -107,6 +107,7 @@ zig build benchmark -- --spec benchmarks/specs/primitive/add-f32-1024x1024.json
 zig build benchmark -- --spec benchmarks/specs/blas/dot-f32-262144.json
 zig build benchmark -- --spec benchmarks/specs/blas/conv2d-im2col-f32-batch4-1x28x28-k3-out8.json
 zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json
+zig build benchmark -- --spec benchmarks/specs/compiler/pendulum-dynamics-capture-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/compiler/corridor-control-capture-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/interop/mnist-mlp-safetensors-import-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/char-lm-synthetic.json

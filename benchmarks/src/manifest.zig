@@ -37,6 +37,7 @@ pub const Kind = enum {
     memory_mnist_train_step,
     compiler_mnist_mlp_capture,
     compiler_char_lm_capture,
+    compiler_pendulum_dynamics_capture,
     compiler_corridor_control_capture,
     compiler_dqn_cartpole_capture,
     compiler_gcn_capture,
@@ -70,6 +71,7 @@ pub const Kind = enum {
             .memory_mnist_train_step => "memory_mnist_train_step",
             .compiler_mnist_mlp_capture => "compiler_mnist_mlp_capture",
             .compiler_char_lm_capture => "compiler_char_lm_capture",
+            .compiler_pendulum_dynamics_capture => "compiler_pendulum_dynamics_capture",
             .compiler_corridor_control_capture => "compiler_corridor_control_capture",
             .compiler_dqn_cartpole_capture => "compiler_dqn_cartpole_capture",
             .compiler_gcn_capture => "compiler_gcn_capture",
@@ -240,6 +242,9 @@ fn validate(path: []const u8, raw: RawSpec) !Spec {
         .compiler_char_lm_capture => {
             try requireBatchedModelShapes(raw, true);
         },
+        .compiler_pendulum_dynamics_capture => {
+            try requireBatchedModelShapes(raw, true);
+        },
         .compiler_corridor_control_capture => {
             try requireBatchedModelShapes(raw, false);
         },
@@ -352,6 +357,7 @@ fn parseKind(value: []const u8) !Kind {
     if (std.mem.eql(u8, value, "memory_mnist_train_step")) return .memory_mnist_train_step;
     if (std.mem.eql(u8, value, "compiler_mnist_mlp_capture")) return .compiler_mnist_mlp_capture;
     if (std.mem.eql(u8, value, "compiler_char_lm_capture")) return .compiler_char_lm_capture;
+    if (std.mem.eql(u8, value, "compiler_pendulum_dynamics_capture")) return .compiler_pendulum_dynamics_capture;
     if (std.mem.eql(u8, value, "compiler_corridor_control_capture")) return .compiler_corridor_control_capture;
     if (std.mem.eql(u8, value, "compiler_dqn_cartpole_capture")) return .compiler_dqn_cartpole_capture;
     if (std.mem.eql(u8, value, "compiler_gcn_capture")) return .compiler_gcn_capture;
@@ -712,6 +718,36 @@ test "load compiler corridor benchmark spec from json slice" {
     try std.testing.expectEqual(Kind.compiler_corridor_control_capture, spec.kind);
     try std.testing.expectEqual(@as(usize, 24), spec.batch_size.?);
     try std.testing.expectEqual(@as(usize, 3), spec.input_shape.?[1]);
+}
+
+test "load compiler pendulum benchmark spec from json slice" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const raw =
+        \\{
+        \\  "id": "compiler.pendulum-dynamics.capture.synthetic.f32.batch32",
+        \\  "suite": "compiler",
+        \\  "kind": "compiler_pendulum_dynamics_capture",
+        \\  "dtype": "f32",
+        \\  "warmup_iterations": 1,
+        \\  "measured_iterations": 2,
+        \\  "provenance": {
+        \\    "data_source": "synthetic.splitmix64",
+        \\    "preprocessing": ["generate deterministic pendulum states", "simulate next-state regression targets", "capture forward plus regression loss graph without backward execution"]
+        \\  },
+        \\  "batch_size": 32,
+        \\  "input_shape": [32, 4],
+        \\  "label_shape": [32, 3]
+        \\}
+    ;
+    const parsed = try std.json.parseFromSliceLeaky(RawSpec, allocator, raw, .{});
+    const spec = try validate("inline-compiler-pendulum.json", parsed);
+
+    try std.testing.expectEqual(Suite.compiler, spec.suite);
+    try std.testing.expectEqual(Kind.compiler_pendulum_dynamics_capture, spec.kind);
+    try std.testing.expectEqual(@as(usize, 32), spec.batch_size.?);
+    try std.testing.expectEqual(@as(usize, 3), spec.label_shape.?[1]);
 }
 
 test "load conv2d benchmark spec from json slice" {
