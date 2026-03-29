@@ -51,6 +51,7 @@ zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthe
 zig build benchmark -- --spec benchmarks/specs/compiler/pendulum-dynamics-capture-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/compiler/corridor-control-capture-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/interop/mnist-mlp-safetensors-import-synthetic.json
+zig build benchmark -- --spec benchmarks/specs/interop/gcn-safetensors-import-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json
 zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2 --thread-count 4
 ```
@@ -87,8 +88,8 @@ zig build test-benchmark-publication-smoke
 provided. When `--input` paths are supplied, it validates each JSONL record
 against the referenced checked-in spec, checks summary-stat invariants, and
 rejects duplicate result identities within a file. `test-benchmark-smoke`
-drives one representative checked-in spec per suite through the real benchmark
-harness and then runs the validator on the generated artifact.
+drives a maintained smoke subset through the real benchmark harness and then
+runs the validator on the generated artifact.
 `test-benchmark-cuda-request-smoke` exercises checked-in CUDA-targeted specs
 through the real harness and requires non-CUDA hosts to emit explicit
 schema-valid `skipped` records instead of aborting.
@@ -195,8 +196,16 @@ emits both a machine-readable manifest and a Markdown summary for humans.
 - `interop`
   - synthetic MNIST MLP safetensors checkpoint export
   - synthetic MNIST MLP safetensors checkpoint import and model reconstruction
+  - synthetic char-level language model safetensors checkpoint export
+  - synthetic char-level language model safetensors checkpoint import and model reconstruction
+  - synthetic pendulum dynamics safetensors checkpoint export
+  - synthetic pendulum dynamics safetensors checkpoint import and model reconstruction
+  - synthetic deterministic corridor-control safetensors checkpoint export
+  - synthetic deterministic corridor-control safetensors checkpoint import and model reconstruction
   - synthetic CartPole-shaped DQN safetensors checkpoint export
   - synthetic CartPole-shaped DQN safetensors checkpoint import and model reconstruction
+  - synthetic two-layer GCN safetensors checkpoint export
+  - synthetic two-layer GCN safetensors checkpoint import and model reconstruction
 - `model-train`
   - synthetic MNIST-style MLP training step
   - synthetic char-level causal language model training step
@@ -231,9 +240,9 @@ construction. Corridor-control capture mirrors the maintained RL benchmark by
 building the same bootstrap target and Smooth L1 loss graph used in the train
 step, but stops before backward or optimizer execution.
 The interop suite currently measures in-memory safetensors checkpoint
-encode/decode cost for maintained affine-stack model families, which keeps the
-signal focused on artifact translation and model reconstruction instead of
-filesystem throughput noise.
+encode/decode cost for the maintained checkpoint-capable benchmark families,
+which keeps the signal focused on artifact translation and model reconstruction
+instead of filesystem throughput noise.
 
 ## Spec Format
 

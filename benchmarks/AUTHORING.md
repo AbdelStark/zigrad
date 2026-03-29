@@ -81,6 +81,8 @@ host-local:
 - prefer in-memory encode/decode timing over filesystem throughput
 - keep checkpoint fixture generation in setup when the measured loop is focused
   on import cost
+- preserve serialized key structure when the model uses hierarchical parameter
+  names rather than a flat affine stack
 - use emitted shape metadata to describe serialized parameter tensors when the
   spec itself does not need explicit shape fields
 
@@ -110,6 +112,7 @@ zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthe
 zig build benchmark -- --spec benchmarks/specs/compiler/pendulum-dynamics-capture-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/compiler/corridor-control-capture-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/interop/mnist-mlp-safetensors-import-synthetic.json
+zig build benchmark -- --spec benchmarks/specs/interop/gcn-safetensors-import-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/char-lm-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/pendulum-dynamics-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/corridor-control-synthetic.json

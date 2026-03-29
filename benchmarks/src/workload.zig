@@ -140,14 +140,23 @@ pub fn expectedShapeMetadata(
         .interop_mnist_mlp_safetensors_export,
         .interop_mnist_mlp_safetensors_import,
         => shapeMetadataFromMnistCheckpoint(allocator),
+        .interop_char_lm_safetensors_export,
+        .interop_char_lm_safetensors_import,
+        => shapeMetadataFromCharLmCheckpoint(allocator),
         .compiler_char_lm_capture,
         .char_lm_train,
         .char_lm_infer,
         => shapeMetadataFromCharLm(allocator, spec),
+        .interop_pendulum_dynamics_safetensors_export,
+        .interop_pendulum_dynamics_safetensors_import,
+        => shapeMetadataFromPendulumCheckpoint(allocator),
         .pendulum_dynamics_train,
         .pendulum_dynamics_infer,
         .compiler_pendulum_dynamics_capture,
         => shapeMetadataFromPendulum(allocator, spec),
+        .interop_corridor_control_safetensors_export,
+        .interop_corridor_control_safetensors_import,
+        => shapeMetadataFromCorridorCheckpoint(allocator),
         .corridor_control_train => shapeMetadataFromCorridorTrain(allocator, spec),
         .corridor_control_infer => shapeMetadataFromCorridorInfer(allocator, spec),
         .compiler_corridor_control_capture => shapeMetadataFromCorridorTrain(allocator, spec),
@@ -155,6 +164,9 @@ pub fn expectedShapeMetadata(
         .interop_dqn_cartpole_safetensors_export,
         .interop_dqn_cartpole_safetensors_import,
         => shapeMetadataFromDqnCheckpoint(allocator),
+        .interop_gcn_safetensors_export,
+        .interop_gcn_safetensors_import,
+        => shapeMetadataFromGcnCheckpoint(allocator),
         .compiler_gcn_capture => shapeMetadataFromGcn(allocator, spec, spec.input_shape.?[0] * 4, true),
         .dqn_cartpole_train => shapeMetadataFromDqnTrain(allocator, spec),
         .dqn_cartpole_infer => shapeMetadataFromDqnInfer(allocator, spec),
@@ -252,8 +264,16 @@ pub fn run(allocator: std.mem.Allocator, spec: manifest.Spec) !RunResult {
         .compiler_gcn_capture => runCompilerGcnCapture(allocator, spec, &context),
         .interop_mnist_mlp_safetensors_export => runInteropMnistSafetensorsExport(allocator, spec, &context),
         .interop_mnist_mlp_safetensors_import => runInteropMnistSafetensorsImport(allocator, spec, &context),
+        .interop_char_lm_safetensors_export => runInteropCharLmSafetensorsExport(allocator, spec, &context),
+        .interop_char_lm_safetensors_import => runInteropCharLmSafetensorsImport(allocator, spec, &context),
+        .interop_pendulum_dynamics_safetensors_export => runInteropPendulumSafetensorsExport(allocator, spec, &context),
+        .interop_pendulum_dynamics_safetensors_import => runInteropPendulumSafetensorsImport(allocator, spec, &context),
+        .interop_corridor_control_safetensors_export => runInteropCorridorSafetensorsExport(allocator, spec, &context),
+        .interop_corridor_control_safetensors_import => runInteropCorridorSafetensorsImport(allocator, spec, &context),
         .interop_dqn_cartpole_safetensors_export => runInteropDqnSafetensorsExport(allocator, spec, &context),
         .interop_dqn_cartpole_safetensors_import => runInteropDqnSafetensorsImport(allocator, spec, &context),
+        .interop_gcn_safetensors_export => runInteropGcnSafetensorsExport(allocator, spec, &context),
+        .interop_gcn_safetensors_import => runInteropGcnSafetensorsImport(allocator, spec, &context),
         .mnist_mlp_train => runMnistTrain(allocator, spec, &context),
         .mnist_mlp_infer => runMnistInfer(allocator, spec, &context),
         .char_lm_train => runCharLmTrain(allocator, spec, &context),
@@ -1305,6 +1325,330 @@ fn runInteropMnistSafetensorsImport(
     };
 }
 
+fn runInteropCharLmSafetensorsExport(
+    allocator: std.mem.Allocator,
+    spec: manifest.Spec,
+    context: *RunContext,
+) !RunOutput {
+    const host = context.host();
+    const device = context.device();
+    const io_allocator = std.heap.page_allocator;
+    const context_len = interopCharLmContextLen();
+    const vocab_size = interopCharLmVocabSize();
+    const hidden_size = charLmHiddenSize(vocab_size);
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    var timer = try std.time.Timer.start();
+    var model = try CharLmModel(f32).initWithGraphAndSeed(
+        device,
+        context_len,
+        vocab_size,
+        hidden_size,
+        &graph,
+        spec.seed,
+    );
+    defer model.deinit();
+
+    const sample_checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+    defer io_allocator.free(sample_checkpoint);
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    for (0..spec.warmup_iterations) |_| {
+        const checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+        io_allocator.free(checkpoint);
+    }
+    maybeResetHostBenchmarkTelemetry(host);
+    for (timings) |*timing| {
+        timer.reset();
+        const checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+        timing.* = timer.read();
+        io_allocator.free(checkpoint);
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromCharLmCheckpoint(allocator),
+        .batch_size = null,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = sample_checkpoint.len,
+        .throughput_unit = "bytes",
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runInteropCharLmSafetensorsImport(
+    allocator: std.mem.Allocator,
+    spec: manifest.Spec,
+    context: *RunContext,
+) !RunOutput {
+    const host = context.host();
+    const device = context.device();
+    const io_allocator = std.heap.page_allocator;
+    const context_len = interopCharLmContextLen();
+    const vocab_size = interopCharLmVocabSize();
+    const hidden_size = charLmHiddenSize(vocab_size);
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    var timer = try std.time.Timer.start();
+    var model = try CharLmModel(f32).initWithGraphAndSeed(
+        device,
+        context_len,
+        vocab_size,
+        hidden_size,
+        &graph,
+        spec.seed,
+    );
+    defer model.deinit();
+
+    const checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+    defer io_allocator.free(checkpoint);
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    for (0..spec.warmup_iterations) |_| {
+        try oneCharLmCheckpointImport(io_allocator, device, checkpoint, context_len, vocab_size, hidden_size);
+    }
+    maybeResetHostBenchmarkTelemetry(host);
+    for (timings) |*timing| {
+        timer.reset();
+        try oneCharLmCheckpointImport(io_allocator, device, checkpoint, context_len, vocab_size, hidden_size);
+        timing.* = timer.read();
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromCharLmCheckpoint(allocator),
+        .batch_size = null,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = checkpoint.len,
+        .throughput_unit = "bytes",
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runInteropPendulumSafetensorsExport(
+    allocator: std.mem.Allocator,
+    spec: manifest.Spec,
+    context: *RunContext,
+) !RunOutput {
+    const host = context.host();
+    const device = context.device();
+    const io_allocator = std.heap.page_allocator;
+    const input_size = pendulum_data.input_feature_count;
+    const hidden_size = pendulumHiddenSize();
+    const output_size = pendulum_data.output_feature_count;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    var timer = try std.time.Timer.start();
+    var model = try PendulumDynamicsModel(f32).initWithGraphAndSeed(
+        device,
+        input_size,
+        hidden_size,
+        output_size,
+        &graph,
+        spec.seed,
+    );
+    defer model.deinit();
+
+    const sample_checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+    defer io_allocator.free(sample_checkpoint);
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    for (0..spec.warmup_iterations) |_| {
+        const checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+        io_allocator.free(checkpoint);
+    }
+    maybeResetHostBenchmarkTelemetry(host);
+    for (timings) |*timing| {
+        timer.reset();
+        const checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+        timing.* = timer.read();
+        io_allocator.free(checkpoint);
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromPendulumCheckpoint(allocator),
+        .batch_size = null,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = sample_checkpoint.len,
+        .throughput_unit = "bytes",
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runInteropPendulumSafetensorsImport(
+    allocator: std.mem.Allocator,
+    spec: manifest.Spec,
+    context: *RunContext,
+) !RunOutput {
+    const host = context.host();
+    const device = context.device();
+    const io_allocator = std.heap.page_allocator;
+    const input_size = pendulum_data.input_feature_count;
+    const hidden_size = pendulumHiddenSize();
+    const output_size = pendulum_data.output_feature_count;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    var timer = try std.time.Timer.start();
+    var model = try PendulumDynamicsModel(f32).initWithGraphAndSeed(
+        device,
+        input_size,
+        hidden_size,
+        output_size,
+        &graph,
+        spec.seed,
+    );
+    defer model.deinit();
+
+    const checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+    defer io_allocator.free(checkpoint);
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    for (0..spec.warmup_iterations) |_| {
+        try onePendulumCheckpointImport(io_allocator, device, checkpoint, input_size, hidden_size, output_size);
+    }
+    maybeResetHostBenchmarkTelemetry(host);
+    for (timings) |*timing| {
+        timer.reset();
+        try onePendulumCheckpointImport(io_allocator, device, checkpoint, input_size, hidden_size, output_size);
+        timing.* = timer.read();
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromPendulumCheckpoint(allocator),
+        .batch_size = null,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = checkpoint.len,
+        .throughput_unit = "bytes",
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runInteropCorridorSafetensorsExport(
+    allocator: std.mem.Allocator,
+    spec: manifest.Spec,
+    context: *RunContext,
+) !RunOutput {
+    const host = context.host();
+    const device = context.device();
+    const io_allocator = std.heap.page_allocator;
+    const input_size = corridor.state_feature_count;
+    const hidden_size = corridorHiddenSize();
+    const output_size = corridor.action_count;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    var timer = try std.time.Timer.start();
+    var model = try CorridorControlModel(f32).initWithGraphAndSeed(
+        device,
+        input_size,
+        hidden_size,
+        output_size,
+        &graph,
+        spec.seed,
+    );
+    defer model.deinit();
+
+    const sample_checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+    defer io_allocator.free(sample_checkpoint);
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    for (0..spec.warmup_iterations) |_| {
+        const checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+        io_allocator.free(checkpoint);
+    }
+    maybeResetHostBenchmarkTelemetry(host);
+    for (timings) |*timing| {
+        timer.reset();
+        const checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+        timing.* = timer.read();
+        io_allocator.free(checkpoint);
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromCorridorCheckpoint(allocator),
+        .batch_size = null,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = sample_checkpoint.len,
+        .throughput_unit = "bytes",
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runInteropCorridorSafetensorsImport(
+    allocator: std.mem.Allocator,
+    spec: manifest.Spec,
+    context: *RunContext,
+) !RunOutput {
+    const host = context.host();
+    const device = context.device();
+    const io_allocator = std.heap.page_allocator;
+    const input_size = corridor.state_feature_count;
+    const hidden_size = corridorHiddenSize();
+    const output_size = corridor.action_count;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    var timer = try std.time.Timer.start();
+    var model = try CorridorControlModel(f32).initWithGraphAndSeed(
+        device,
+        input_size,
+        hidden_size,
+        output_size,
+        &graph,
+        spec.seed,
+    );
+    defer model.deinit();
+
+    const checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+    defer io_allocator.free(checkpoint);
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    for (0..spec.warmup_iterations) |_| {
+        try oneCorridorCheckpointImport(io_allocator, device, checkpoint, input_size, hidden_size, output_size);
+    }
+    maybeResetHostBenchmarkTelemetry(host);
+    for (timings) |*timing| {
+        timer.reset();
+        try oneCorridorCheckpointImport(io_allocator, device, checkpoint, input_size, hidden_size, output_size);
+        timing.* = timer.read();
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromCorridorCheckpoint(allocator),
+        .batch_size = null,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = checkpoint.len,
+        .throughput_unit = "bytes",
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
 fn runInteropDqnSafetensorsExport(
     allocator: std.mem.Allocator,
     spec: manifest.Spec,
@@ -1383,6 +1727,108 @@ fn runInteropDqnSafetensorsImport(
 
     return .{
         .shapes = try shapeMetadataFromDqnCheckpoint(allocator),
+        .batch_size = null,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = checkpoint.len,
+        .throughput_unit = "bytes",
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runInteropGcnSafetensorsExport(
+    allocator: std.mem.Allocator,
+    spec: manifest.Spec,
+    context: *RunContext,
+) !RunOutput {
+    const host = context.host();
+    const device = context.device();
+    const io_allocator = std.heap.page_allocator;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    var timer = try std.time.Timer.start();
+    var model = try GcnBenchmarkModel(f32).init(
+        allocator,
+        device,
+        &graph,
+        interopGcnInputFeatureCount(),
+        interopGcnOutputFeatureCount(),
+        spec.seed,
+    );
+    defer model.deinit();
+
+    const sample_checkpoint = try serializeGcnCheckpoint(io_allocator, &model);
+    defer io_allocator.free(sample_checkpoint);
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    for (0..spec.warmup_iterations) |_| {
+        const checkpoint = try serializeGcnCheckpoint(io_allocator, &model);
+        io_allocator.free(checkpoint);
+    }
+    maybeResetHostBenchmarkTelemetry(host);
+    for (timings) |*timing| {
+        timer.reset();
+        const checkpoint = try serializeGcnCheckpoint(io_allocator, &model);
+        timing.* = timer.read();
+        io_allocator.free(checkpoint);
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromGcnCheckpoint(allocator),
+        .batch_size = null,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = sample_checkpoint.len,
+        .throughput_unit = "bytes",
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runInteropGcnSafetensorsImport(
+    allocator: std.mem.Allocator,
+    spec: manifest.Spec,
+    context: *RunContext,
+) !RunOutput {
+    const host = context.host();
+    const device = context.device();
+    const io_allocator = std.heap.page_allocator;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    var timer = try std.time.Timer.start();
+    var model = try GcnBenchmarkModel(f32).init(
+        allocator,
+        device,
+        &graph,
+        interopGcnInputFeatureCount(),
+        interopGcnOutputFeatureCount(),
+        spec.seed,
+    );
+    defer model.deinit();
+
+    const checkpoint = try serializeGcnCheckpoint(io_allocator, &model);
+    defer io_allocator.free(checkpoint);
+    const setup_latency_ns = timer.read();
+
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+    for (0..spec.warmup_iterations) |_| {
+        try oneGcnCheckpointImport(io_allocator, device, checkpoint);
+    }
+    maybeResetHostBenchmarkTelemetry(host);
+    for (timings) |*timing| {
+        timer.reset();
+        try oneGcnCheckpointImport(io_allocator, device, checkpoint);
+        timing.* = timer.read();
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromGcnCheckpoint(allocator),
         .batch_size = null,
         .setup_latency_ns = setup_latency_ns,
         .timings_ns = timings,
@@ -2733,6 +3179,179 @@ fn oneAffineCheckpointImport(
     defer model.deinit();
 }
 
+fn serializeGcnCheckpoint(
+    allocator: std.mem.Allocator,
+    model: *GcnBenchmarkModel(f32),
+) ![]u8 {
+    var params = zg.LayerMap.init(allocator);
+    defer params.deinit();
+
+    try params.put(model.conv1.weights.get_label().?, model.conv1.weights, .{});
+    try params.put(model.conv1.bias.get_label().?, model.conv1.bias, .{});
+    try params.put(model.conv2.weights.get_label().?, model.conv2.weights, .{});
+    try params.put(model.conv2.bias.get_label().?, model.conv2.bias, .{});
+
+    return params.serialize(allocator);
+}
+
+fn oneCharLmCheckpointImport(
+    allocator: std.mem.Allocator,
+    device: zg.DeviceReference,
+    checkpoint: []const u8,
+    context_len: usize,
+    vocab_size: usize,
+    hidden_size: usize,
+) !void {
+    const Tensor = zg.NDTensor(f32);
+    const ParameterPack = struct {
+        weights: [2]*Tensor,
+        biases: [2]*Tensor,
+    };
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    var params = try zg.LayerMap.deserialize(checkpoint, allocator, device, .{
+        .requires_grad = true,
+        .acquired = true,
+        .owning = false,
+        .graph = &graph,
+    });
+    defer params.deinit();
+
+    const pack = try params.extract(ParameterPack, "", .{});
+    var model: CharLmModel(f32) = .{
+        .weights = pack.weights,
+        .biases = pack.biases,
+        .context_len = context_len,
+        .vocab_size = vocab_size,
+        .hidden_size = hidden_size,
+    };
+    defer model.deinit();
+}
+
+fn onePendulumCheckpointImport(
+    allocator: std.mem.Allocator,
+    device: zg.DeviceReference,
+    checkpoint: []const u8,
+    input_size: usize,
+    hidden_size: usize,
+    output_size: usize,
+) !void {
+    const Tensor = zg.NDTensor(f32);
+    const ParameterPack = struct {
+        weights: [3]*Tensor,
+        biases: [3]*Tensor,
+    };
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    var params = try zg.LayerMap.deserialize(checkpoint, allocator, device, .{
+        .requires_grad = true,
+        .acquired = true,
+        .owning = false,
+        .graph = &graph,
+    });
+    defer params.deinit();
+
+    const pack = try params.extract(ParameterPack, "", .{});
+    var model: PendulumDynamicsModel(f32) = .{
+        .weights = pack.weights,
+        .biases = pack.biases,
+        .input_size = input_size,
+        .hidden_size = hidden_size,
+        .output_size = output_size,
+    };
+    defer model.deinit();
+}
+
+fn oneCorridorCheckpointImport(
+    allocator: std.mem.Allocator,
+    device: zg.DeviceReference,
+    checkpoint: []const u8,
+    input_size: usize,
+    hidden_size: usize,
+    output_size: usize,
+) !void {
+    const Tensor = zg.NDTensor(f32);
+    const ParameterPack = struct {
+        weights: [3]*Tensor,
+        biases: [3]*Tensor,
+    };
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    var params = try zg.LayerMap.deserialize(checkpoint, allocator, device, .{
+        .requires_grad = true,
+        .acquired = true,
+        .owning = false,
+        .graph = &graph,
+    });
+    defer params.deinit();
+
+    const pack = try params.extract(ParameterPack, "", .{});
+    var model: CorridorControlModel(f32) = .{
+        .weights = pack.weights,
+        .biases = pack.biases,
+        .input_size = input_size,
+        .hidden_size = hidden_size,
+        .output_size = output_size,
+    };
+    defer model.deinit();
+}
+
+fn oneGcnCheckpointImport(
+    allocator: std.mem.Allocator,
+    device: zg.DeviceReference,
+    checkpoint: []const u8,
+) !void {
+    const Tensor = zg.NDTensor(f32);
+    const ParameterPack = struct {
+        bench: struct {
+            gcn: struct {
+                conv1: struct {
+                    weights: *Tensor,
+                    bias: *Tensor,
+                },
+                conv2: struct {
+                    weights: *Tensor,
+                    bias: *Tensor,
+                },
+            },
+        },
+    };
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    var params = try zg.LayerMap.deserialize(checkpoint, allocator, device, .{
+        .requires_grad = true,
+        .acquired = true,
+        .owning = false,
+        .graph = &graph,
+    });
+    defer params.deinit();
+
+    const pack = try params.extract(ParameterPack, "", .{});
+    var model: GcnBenchmarkModel(f32) = .{
+        .conv1 = .{
+            .device = device,
+            .graph = &graph,
+            .weights = pack.bench.gcn.conv1.weights,
+            .bias = pack.bench.gcn.conv1.bias,
+        },
+        .conv2 = .{
+            .device = device,
+            .graph = &graph,
+            .weights = pack.bench.gcn.conv2.weights,
+            .bias = pack.bench.gcn.conv2.bias,
+        },
+    };
+    defer model.deinit();
+}
+
 fn prepareAutogradDotOperands(
     allocator: std.mem.Allocator,
     device: zg.DeviceReference,
@@ -3132,6 +3751,50 @@ fn shapeMetadataFromDqnCheckpoint(allocator: std.mem.Allocator) ![]const result.
     return shapes;
 }
 
+fn shapeMetadataFromCharLmCheckpoint(allocator: std.mem.Allocator) ![]const result.ShapeMetadata {
+    const vocab_size = interopCharLmVocabSize();
+    const shapes = try allocator.alloc(result.ShapeMetadata, 4);
+    shapes[0] = .{
+        .name = "weights.0",
+        .dims = try allocDims(allocator, &.{ charLmHiddenSize(vocab_size), interopCharLmContextLen() * vocab_size }),
+    };
+    shapes[1] = .{ .name = "biases.0", .dims = try allocDims(allocator, &.{charLmHiddenSize(vocab_size)}) };
+    shapes[2] = .{ .name = "weights.1", .dims = try allocDims(allocator, &.{ vocab_size, charLmHiddenSize(vocab_size) }) };
+    shapes[3] = .{ .name = "biases.1", .dims = try allocDims(allocator, &.{vocab_size}) };
+    return shapes;
+}
+
+fn shapeMetadataFromPendulumCheckpoint(allocator: std.mem.Allocator) ![]const result.ShapeMetadata {
+    const shapes = try allocator.alloc(result.ShapeMetadata, 6);
+    shapes[0] = .{ .name = "weights.0", .dims = try allocDims(allocator, &.{ pendulumHiddenSize(), pendulum_data.input_feature_count }) };
+    shapes[1] = .{ .name = "biases.0", .dims = try allocDims(allocator, &.{pendulumHiddenSize()}) };
+    shapes[2] = .{ .name = "weights.1", .dims = try allocDims(allocator, &.{ pendulumHiddenSize(), pendulumHiddenSize() }) };
+    shapes[3] = .{ .name = "biases.1", .dims = try allocDims(allocator, &.{pendulumHiddenSize()}) };
+    shapes[4] = .{ .name = "weights.2", .dims = try allocDims(allocator, &.{ pendulum_data.output_feature_count, pendulumHiddenSize() }) };
+    shapes[5] = .{ .name = "biases.2", .dims = try allocDims(allocator, &.{pendulum_data.output_feature_count}) };
+    return shapes;
+}
+
+fn shapeMetadataFromCorridorCheckpoint(allocator: std.mem.Allocator) ![]const result.ShapeMetadata {
+    const shapes = try allocator.alloc(result.ShapeMetadata, 6);
+    shapes[0] = .{ .name = "weights.0", .dims = try allocDims(allocator, &.{ corridorHiddenSize(), corridor.state_feature_count }) };
+    shapes[1] = .{ .name = "biases.0", .dims = try allocDims(allocator, &.{corridorHiddenSize()}) };
+    shapes[2] = .{ .name = "weights.1", .dims = try allocDims(allocator, &.{ corridorHiddenSize(), corridorHiddenSize() }) };
+    shapes[3] = .{ .name = "biases.1", .dims = try allocDims(allocator, &.{corridorHiddenSize()}) };
+    shapes[4] = .{ .name = "weights.2", .dims = try allocDims(allocator, &.{ corridor.action_count, corridorHiddenSize() }) };
+    shapes[5] = .{ .name = "biases.2", .dims = try allocDims(allocator, &.{corridor.action_count}) };
+    return shapes;
+}
+
+fn shapeMetadataFromGcnCheckpoint(allocator: std.mem.Allocator) ![]const result.ShapeMetadata {
+    const shapes = try allocator.alloc(result.ShapeMetadata, 4);
+    shapes[0] = .{ .name = "bench.gcn.conv1.weights", .dims = try allocDims(allocator, &.{ 16, interopGcnInputFeatureCount() }) };
+    shapes[1] = .{ .name = "bench.gcn.conv1.bias", .dims = try allocDims(allocator, &.{16}) };
+    shapes[2] = .{ .name = "bench.gcn.conv2.weights", .dims = try allocDims(allocator, &.{ interopGcnOutputFeatureCount(), 16 }) };
+    shapes[3] = .{ .name = "bench.gcn.conv2.bias", .dims = try allocDims(allocator, &.{interopGcnOutputFeatureCount()}) };
+    return shapes;
+}
+
 fn shapeMetadataFromGcn(
     allocator: std.mem.Allocator,
     spec: manifest.Spec,
@@ -3173,6 +3836,22 @@ fn compilerCaptureMemoryStats(
 
 fn charLmHiddenSize(vocab_size: usize) usize {
     return @max(vocab_size * 2, 64);
+}
+
+fn interopCharLmContextLen() usize {
+    return 16;
+}
+
+fn interopCharLmVocabSize() usize {
+    return 32;
+}
+
+fn interopGcnInputFeatureCount() usize {
+    return 64;
+}
+
+fn interopGcnOutputFeatureCount() usize {
+    return 7;
 }
 
 fn pendulumHiddenSize() usize {
@@ -3593,6 +4272,63 @@ test "run compiler gcn capture benchmark" {
     try std.testing.expect(output.batch_size == null);
     try std.testing.expect(output.memory != null);
     try std.testing.expect(output.memory.?.peak_graph_arena_bytes.? > 0);
+}
+
+test "run interop char lm export benchmark" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const spec: manifest.Spec = .{
+        .id = "test.interop.char-lm.export",
+        .suite = .interop,
+        .kind = .interop_char_lm_safetensors_export,
+        .dtype = .f32,
+        .warmup_iterations = 0,
+        .measured_iterations = 1,
+        .seed = 1,
+        .provenance = inlineProvenance(&.{
+            "materialize deterministic benchmark char-lm parameters",
+            "encode affine parameter stack as safetensors bytes",
+        }),
+        .path = "inline",
+    };
+
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.ok, run_result.status);
+    const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
+    try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
+    try std.testing.expectEqual(@as(usize, 4), output.shapes.len);
+    try std.testing.expectEqualStrings("weights.0", output.shapes[0].name);
+    try std.testing.expectEqualStrings("bytes", output.throughput_unit.?);
+}
+
+test "run interop gcn import benchmark" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const spec: manifest.Spec = .{
+        .id = "test.interop.gcn.import",
+        .suite = .interop,
+        .kind = .interop_gcn_safetensors_import,
+        .dtype = .f32,
+        .warmup_iterations = 0,
+        .measured_iterations = 1,
+        .seed = 1,
+        .provenance = inlineProvenance(&.{
+            "materialize deterministic benchmark gcn parameters",
+            "encode checkpoint fixture as safetensors bytes",
+            "decode graph-conv parameter stack from safetensors bytes",
+        }),
+        .path = "inline",
+    };
+
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.ok, run_result.status);
+    const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
+    try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
+    try std.testing.expectEqual(@as(usize, 4), output.shapes.len);
+    try std.testing.expectEqualStrings("bench.gcn.conv1.weights", output.shapes[0].name);
+    try std.testing.expectEqualStrings("bytes", output.throughput_unit.?);
 }
 
 test "run char lm infer benchmark" {

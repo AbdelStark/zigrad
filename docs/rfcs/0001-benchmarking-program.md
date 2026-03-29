@@ -183,6 +183,8 @@ Regression gating should use broad thresholds first, for example:
 - [x] Memory suite for cache high-water mark and graph arena reuse coverage.
 - [x] Compiler suite for repeated eager graph-session capture on maintained
   reference models.
+- [x] Safetensors checkpoint export/import coverage for maintained
+  checkpoint-capable benchmark families.
 - [x] MNIST train and inference benchmarks using deterministic synthetic data.
 - [x] Char-level language model train and inference benchmarks using deterministic synthetic causal windows.
 - [x] DQN benchmark skeleton.
@@ -265,6 +267,47 @@ Regression gating should use broad thresholds first, for example:
   - `zig build benchmark-validate -- --input benchmarks/results/interop.jsonl`
   - `zig build test-benchmark-smoke`
   - `zig build test`
+
+### 2026-03-29 Interop Expansion Across Maintained Benchmark Families
+
+- Completed:
+  - Extended
+    [`benchmarks/src/manifest.zig`](../../benchmarks/src/manifest.zig)
+    and
+    [`benchmarks/src/workload.zig`](../../benchmarks/src/workload.zig)
+    with maintained safetensors export/import kinds for the char-level
+    language model, pendulum dynamics model, corridor-control model, and GCN
+    benchmark model, including hierarchical GCN checkpoint reconstruction from
+    serialized parameter-tree keys.
+  - Added checked-in interop specs in
+    [`benchmarks/specs/interop/`](../../benchmarks/specs/interop/)
+    so RFC-0001 now exercises checkpoint save/load on the maintained MNIST,
+    char-LM, pendulum, corridor-control, DQN, and GCN benchmark families
+    instead of stopping at MNIST and DQN only.
+  - Expanded smoke and docs coverage through
+    [`tests/src/benchmark_smoke_main.zig`](../../tests/src/benchmark_smoke_main.zig),
+    [`README.md`](../../README.md),
+    [`benchmarks/README.md`](../../benchmarks/README.md),
+    and
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md)
+    so the widened interop surface is benchmarked and documented as part of
+    the maintained RFC-0001 contract.
+- Remains:
+  - Extend interop coverage beyond safetensors checkpoints into ONNX import,
+    GGUF load, and ZML translation benchmarks once those artifact paths land.
+  - Decide whether interop rows should add dedicated artifact-size or
+    tensor-count telemetry beyond checkpoint-byte throughput.
+- Blockers:
+  - External-format interop paths are still unimplemented in this environment,
+    so the suite remains focused on safetensors checkpoint encode/decode and
+    model reconstruction rather than ONNX, GGUF, or ZML translation cost.
+- Validation performed:
+  - `zig build test`
+  - `zig build benchmark-interop`
+  - `zig build benchmark-validate -- --group interop`
+  - `zig build benchmark -- --spec benchmarks/specs/interop/gcn-safetensors-import-synthetic.json --output .zig-cache/interop-gcn-checkpoint.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/interop-gcn-checkpoint.jsonl`
+  - `zig build test-benchmark-smoke`
 
 ### 2026-03-28 Compiler Capture Benchmark Suite
 

@@ -43,8 +43,16 @@ pub const Kind = enum {
     compiler_gcn_capture,
     interop_mnist_mlp_safetensors_export,
     interop_mnist_mlp_safetensors_import,
+    interop_char_lm_safetensors_export,
+    interop_char_lm_safetensors_import,
+    interop_pendulum_dynamics_safetensors_export,
+    interop_pendulum_dynamics_safetensors_import,
+    interop_corridor_control_safetensors_export,
+    interop_corridor_control_safetensors_import,
     interop_dqn_cartpole_safetensors_export,
     interop_dqn_cartpole_safetensors_import,
+    interop_gcn_safetensors_export,
+    interop_gcn_safetensors_import,
     mnist_mlp_train,
     mnist_mlp_infer,
     char_lm_train,
@@ -77,8 +85,16 @@ pub const Kind = enum {
             .compiler_gcn_capture => "compiler_gcn_capture",
             .interop_mnist_mlp_safetensors_export => "interop_mnist_mlp_safetensors_export",
             .interop_mnist_mlp_safetensors_import => "interop_mnist_mlp_safetensors_import",
+            .interop_char_lm_safetensors_export => "interop_char_lm_safetensors_export",
+            .interop_char_lm_safetensors_import => "interop_char_lm_safetensors_import",
+            .interop_pendulum_dynamics_safetensors_export => "interop_pendulum_dynamics_safetensors_export",
+            .interop_pendulum_dynamics_safetensors_import => "interop_pendulum_dynamics_safetensors_import",
+            .interop_corridor_control_safetensors_export => "interop_corridor_control_safetensors_export",
+            .interop_corridor_control_safetensors_import => "interop_corridor_control_safetensors_import",
             .interop_dqn_cartpole_safetensors_export => "interop_dqn_cartpole_safetensors_export",
             .interop_dqn_cartpole_safetensors_import => "interop_dqn_cartpole_safetensors_import",
+            .interop_gcn_safetensors_export => "interop_gcn_safetensors_export",
+            .interop_gcn_safetensors_import => "interop_gcn_safetensors_import",
             .mnist_mlp_train => "mnist_mlp_train",
             .mnist_mlp_infer => "mnist_mlp_infer",
             .char_lm_train => "char_lm_train",
@@ -261,8 +277,16 @@ fn validate(path: []const u8, raw: RawSpec) !Spec {
         },
         .interop_mnist_mlp_safetensors_export,
         .interop_mnist_mlp_safetensors_import,
+        .interop_char_lm_safetensors_export,
+        .interop_char_lm_safetensors_import,
+        .interop_pendulum_dynamics_safetensors_export,
+        .interop_pendulum_dynamics_safetensors_import,
+        .interop_corridor_control_safetensors_export,
+        .interop_corridor_control_safetensors_import,
         .interop_dqn_cartpole_safetensors_export,
         .interop_dqn_cartpole_safetensors_import,
+        .interop_gcn_safetensors_export,
+        .interop_gcn_safetensors_import,
         => {},
         .mnist_mlp_train => {
             try requireBatchedModelShapes(raw, true);
@@ -363,8 +387,16 @@ fn parseKind(value: []const u8) !Kind {
     if (std.mem.eql(u8, value, "compiler_gcn_capture")) return .compiler_gcn_capture;
     if (std.mem.eql(u8, value, "interop_mnist_mlp_safetensors_export")) return .interop_mnist_mlp_safetensors_export;
     if (std.mem.eql(u8, value, "interop_mnist_mlp_safetensors_import")) return .interop_mnist_mlp_safetensors_import;
+    if (std.mem.eql(u8, value, "interop_char_lm_safetensors_export")) return .interop_char_lm_safetensors_export;
+    if (std.mem.eql(u8, value, "interop_char_lm_safetensors_import")) return .interop_char_lm_safetensors_import;
+    if (std.mem.eql(u8, value, "interop_pendulum_dynamics_safetensors_export")) return .interop_pendulum_dynamics_safetensors_export;
+    if (std.mem.eql(u8, value, "interop_pendulum_dynamics_safetensors_import")) return .interop_pendulum_dynamics_safetensors_import;
+    if (std.mem.eql(u8, value, "interop_corridor_control_safetensors_export")) return .interop_corridor_control_safetensors_export;
+    if (std.mem.eql(u8, value, "interop_corridor_control_safetensors_import")) return .interop_corridor_control_safetensors_import;
     if (std.mem.eql(u8, value, "interop_dqn_cartpole_safetensors_export")) return .interop_dqn_cartpole_safetensors_export;
     if (std.mem.eql(u8, value, "interop_dqn_cartpole_safetensors_import")) return .interop_dqn_cartpole_safetensors_import;
+    if (std.mem.eql(u8, value, "interop_gcn_safetensors_export")) return .interop_gcn_safetensors_export;
+    if (std.mem.eql(u8, value, "interop_gcn_safetensors_import")) return .interop_gcn_safetensors_import;
     if (std.mem.eql(u8, value, "mnist_mlp_train")) return .mnist_mlp_train;
     if (std.mem.eql(u8, value, "mnist_mlp_infer")) return .mnist_mlp_infer;
     if (std.mem.eql(u8, value, "char_lm_train")) return .char_lm_train;
@@ -601,6 +633,60 @@ test "load interop benchmark spec from json slice" {
     try std.testing.expectEqual(Suite.interop, spec.suite);
     try std.testing.expectEqual(Kind.interop_mnist_mlp_safetensors_export, spec.kind);
     try std.testing.expectEqual(DType.f32, spec.dtype);
+}
+
+test "load char lm interop benchmark spec from json slice" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const raw =
+        \\{
+        \\  "id": "interop.char-lm.safetensors.export.synthetic.f32",
+        \\  "suite": "interop",
+        \\  "kind": "interop_char_lm_safetensors_export",
+        \\  "dtype": "f32",
+        \\  "warmup_iterations": 1,
+        \\  "measured_iterations": 2,
+        \\  "seed": 99,
+        \\  "provenance": {
+        \\    "data_source": "synthetic.splitmix64",
+        \\    "preprocessing": ["materialize deterministic benchmark char-lm parameters", "encode affine parameter stack as safetensors bytes"]
+        \\  }
+        \\}
+    ;
+    const parsed = try std.json.parseFromSliceLeaky(RawSpec, allocator, raw, .{});
+    const spec = try validate("inline-interop-char-lm.json", parsed);
+
+    try std.testing.expectEqual(Suite.interop, spec.suite);
+    try std.testing.expectEqual(Kind.interop_char_lm_safetensors_export, spec.kind);
+    try std.testing.expectEqual(@as(u64, 99), spec.seed);
+}
+
+test "load gcn interop benchmark spec from json slice" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const raw =
+        \\{
+        \\  "id": "interop.gcn.safetensors.import.synthetic.f32",
+        \\  "suite": "interop",
+        \\  "kind": "interop_gcn_safetensors_import",
+        \\  "dtype": "f32",
+        \\  "warmup_iterations": 1,
+        \\  "measured_iterations": 2,
+        \\  "seed": 123,
+        \\  "provenance": {
+        \\    "data_source": "synthetic.splitmix64",
+        \\    "preprocessing": ["materialize deterministic benchmark gcn parameters", "encode checkpoint fixture as safetensors bytes", "decode graph-conv parameter stack from safetensors bytes"]
+        \\  }
+        \\}
+    ;
+    const parsed = try std.json.parseFromSliceLeaky(RawSpec, allocator, raw, .{});
+    const spec = try validate("inline-interop-gcn.json", parsed);
+
+    try std.testing.expectEqual(Suite.interop, spec.suite);
+    try std.testing.expectEqual(Kind.interop_gcn_safetensors_import, spec.kind);
+    try std.testing.expectEqual(@as(u64, 123), spec.seed);
 }
 
 test "load autograd matvec benchmark spec from json slice" {

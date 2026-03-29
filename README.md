@@ -66,8 +66,8 @@ dynamics regression, deterministic corridor-control, CartPole-style DQN, and
 two-layer GCN workloads. The harness now also includes dedicated `compiler`
 and `interop` suites: compiler coverage measures repeated eager
 graph-session capture on the same maintained families, while interop coverage
-measures in-memory safetensors checkpoint export/import on maintained
-affine-stack models.
+measures in-memory safetensors checkpoint export/import on the maintained
+MNIST, char-LM, pendulum, corridor-control, DQN, and GCN benchmark families.
 Host benchmark/build metadata now records the explicit BLAS provider as
 `accelerate`, `openblas`, or `mkl`, and Zig runs also report host BLAS
 dispatch telemetry so fallback usage is visible in the JSONL output:
@@ -153,13 +153,16 @@ shadowing eager execution; deferred realization and lowering are tracked in
 Interop checkpoint specs such as
 [`benchmarks/specs/interop/mnist-mlp-safetensors-import-synthetic.json`](./benchmarks/specs/interop/mnist-mlp-safetensors-import-synthetic.json)
 and
-[`benchmarks/specs/interop/dqn-cartpole-safetensors-export-synthetic.json`](./benchmarks/specs/interop/dqn-cartpole-safetensors-export-synthetic.json)
+[`benchmarks/specs/interop/char-lm-safetensors-export-synthetic.json`](./benchmarks/specs/interop/char-lm-safetensors-export-synthetic.json)
+and
+[`benchmarks/specs/interop/gcn-safetensors-import-synthetic.json`](./benchmarks/specs/interop/gcn-safetensors-import-synthetic.json)
 exercise maintained checkpoint save/load paths without depending on filesystem
 throughput:
 
 ```shell
 zig build benchmark-interop
 zig build benchmark -- --spec benchmarks/specs/interop/mnist-mlp-safetensors-import-synthetic.json --output .zig-cache/zigrad-interop-checkpoint.jsonl
+zig build benchmark -- --spec benchmarks/specs/interop/gcn-safetensors-import-synthetic.json --output .zig-cache/zigrad-interop-gcn-checkpoint.jsonl
 zig build benchmark-validate -- --input .zig-cache/zigrad-interop-checkpoint.jsonl
 ```
 

@@ -161,7 +161,8 @@ pub fn serializeTensors(tensors: std.ArrayList(Tensor), allocator: std.mem.Alloc
         if (!first) try writer.writeAll(",");
         first = false;
 
-        const end_offset = offset + tensor.data.len;
+        const aligned_offset = (offset + 7) & ~(@as(u64, 7));
+        const end_offset = aligned_offset + tensor.data.len;
 
         // tensor name
         try writer.writeAll("\"");
@@ -182,7 +183,7 @@ pub fn serializeTensors(tensors: std.ArrayList(Tensor), allocator: std.mem.Alloc
 
         // data_offsets
         // brace is doubled so it's treated as a literal
-        try writer.print("\"data_offsets\":[{},{}]}}", .{ offset, end_offset });
+        try writer.print("\"data_offsets\":[{},{}]}}", .{ aligned_offset, end_offset });
         offset = end_offset;
     }
     try writer.writeAll("}");
@@ -208,8 +209,12 @@ pub fn serializeTensors(tensors: std.ArrayList(Tensor), allocator: std.mem.Alloc
     // Append tensor data.
     var current_offset: usize = 8 + padded_len;
     for (sorted_tensors) |tensor| {
-        @memcpy(out_buffer[current_offset .. current_offset + tensor.data.len], tensor.data);
-        current_offset += tensor.data.len;
+        const aligned_current_offset = (current_offset + 7) & ~(@as(usize, 7));
+        if (aligned_current_offset > current_offset) {
+            @memset(out_buffer[current_offset..aligned_current_offset], 0);
+        }
+        @memcpy(out_buffer[aligned_current_offset .. aligned_current_offset + tensor.data.len], tensor.data);
+        current_offset = aligned_current_offset + tensor.data.len;
     }
 
     return out_buffer;
@@ -245,7 +250,7 @@ pub const SafeTensorsFile = struct {
     allocator: std.mem.Allocator,
     header_size: usize,
     tensors: []TensorInfo,
-    raw_data: []align(8) const u8,
+    raw_data: []const u8,
 
     pub fn deinit(self: *Self) void {
         for (self.tensors) |*tensor| {
@@ -283,10 +288,6 @@ pub const SafeTensorsFile = struct {
         const header_end = 8 + header_size;
         if (header_end > data.len) return Error.BufferTooSmall;
 
-        // Verify the data buffer is 8-byte aligned
-        const data_addr = @intFromPtr(data.ptr);
-        if (data_addr % 8 != 0) return Error.UnalignedTensor;
-
         // Calculate padded header size (data starts at 8-byte aligned boundary)
         const padded_header_size = (header_size + 7) & ~(@as(usize, 7));
 
@@ -295,7 +296,7 @@ pub const SafeTensorsFile = struct {
             .allocator = allocator,
             .header_size = padded_header_size,
             .tensors = tensors,
-            .raw_data = @alignCast(data),
+            .raw_data = data,
         };
     }
 };
@@ -712,4 +713,46 @@ test "deserialize" {
     const tensor = try tensors.get("weights");
     try std.testing.expectEqual(tensor.info.dtype, .f32);
     try std.testing.expectEqualSlices(usize, &[_]usize{ 2, 2 }, tensor.info.shape);
+}
+
+test "serialize keeps later tensors 8-byte aligned" {
+    const allocator = std.testing.allocator;
+
+    var bias_values: [7]f32 align(8) = .{ 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5 };
+    var weight_values: [16]f32 align(8) = .{
+        1,  2,  3,  4,
+        5,  6,  7,  8,
+        9,  10, 11, 12,
+        13, 14, 15, 16,
+    };
+
+    var tensors = std.ArrayList(Tensor).empty;
+    defer tensors.deinit(allocator);
+
+    try tensors.append(allocator, .{
+        .name = "bench.gcn.conv2.bias",
+        .dtype = .f32,
+        .shape = &.{7},
+        .data = @alignCast(std.mem.sliceAsBytes(bias_values[0..])),
+    });
+    try tensors.append(allocator, .{
+        .name = "bench.gcn.conv2.weights",
+        .dtype = .f32,
+        .shape = &.{ 4, 4 },
+        .data = @alignCast(std.mem.sliceAsBytes(weight_values[0..])),
+    });
+
+    const encoded = try serializeTensors(tensors, allocator);
+    defer allocator.free(encoded);
+
+    var decoded = try SafeTensorsFile.deserialize(encoded, allocator);
+    defer decoded.deinit();
+
+    const bias = try decoded.get("bench.gcn.conv2.bias");
+    const weights = try decoded.get("bench.gcn.conv2.weights");
+
+    try std.testing.expectEqualSlices(usize, &.{7}, bias.info.shape);
+    try std.testing.expectEqualSlices(usize, &.{ 4, 4 }, weights.info.shape);
+    try std.testing.expectEqualSlices(f32, bias_values[0..], std.mem.bytesAsSlice(f32, bias.data));
+    try std.testing.expectEqualSlices(f32, weight_values[0..], std.mem.bytesAsSlice(f32, weights.data));
 }

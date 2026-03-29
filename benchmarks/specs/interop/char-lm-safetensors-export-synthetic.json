@@ -1,0 +1,17 @@
+{
+  "id": "interop.char-lm.safetensors.export.synthetic.f32",
+  "suite": "interop",
+  "kind": "interop_char_lm_safetensors_export",
+  "dtype": "f32",
+  "warmup_iterations": 5,
+  "measured_iterations": 20,
+  "seed": 81761,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "materialize deterministic benchmark char-lm parameters",
+      "encode affine parameter stack as safetensors bytes"
+    ]
+  },
+  "notes": "Measures in-memory checkpoint export cost for the maintained char-level language model without filesystem noise."
+}

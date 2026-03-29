@@ -1,0 +1,17 @@
+{
+  "id": "interop.corridor-control.safetensors.export.synthetic.f32",
+  "suite": "interop",
+  "kind": "interop_corridor_control_safetensors_export",
+  "dtype": "f32",
+  "warmup_iterations": 5,
+  "measured_iterations": 20,
+  "seed": 20260329,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "materialize deterministic benchmark corridor-control parameters",
+      "encode affine parameter stack as safetensors bytes"
+    ]
+  },
+  "notes": "Measures in-memory checkpoint export cost for the maintained corridor-control model without filesystem noise."
+}

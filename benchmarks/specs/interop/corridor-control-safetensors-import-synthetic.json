@@ -1,0 +1,18 @@
+{
+  "id": "interop.corridor-control.safetensors.import.synthetic.f32",
+  "suite": "interop",
+  "kind": "interop_corridor_control_safetensors_import",
+  "dtype": "f32",
+  "warmup_iterations": 5,
+  "measured_iterations": 20,
+  "seed": 20260329,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "materialize deterministic benchmark corridor-control parameters",
+      "encode checkpoint fixture as safetensors bytes",
+      "decode affine parameter stack from safetensors bytes"
+    ]
+  },
+  "notes": "Measures in-memory checkpoint import and model reconstruction cost for the maintained corridor-control model."
+}
