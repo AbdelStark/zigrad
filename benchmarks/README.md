@@ -227,7 +227,8 @@ These model benchmarks mirror the repository's reference families while using
 deterministic synthetic inputs, transitions, labels, and graphs so the suite
 runs from a clean checkout without dataset downloads or simulator setup. The
 char-LM workloads mirror [`examples/char-lm/`](../examples/char-lm/) with
-one-hot causal windows and next-token labels, while the pendulum workloads
+one-hot causal windows, a maintained causal self-attention stack, and
+next-token labels, while the pendulum workloads
 mirror [`examples/pendulum/`](../examples/pendulum/) with sine/cosine angle
 features plus deterministic next-state regression targets. The corridor-control
 workloads mirror [`examples/corridor/`](../examples/corridor/) with

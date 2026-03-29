@@ -1,12 +1,13 @@
 # Zigrad Char-Level Language Model
 
-This reference example trains a small causal next-character model on an
-embedded corpus. It is intentionally lightweight: no tokenizer download, no
-dataset fetch, and no Python dependency.
+This reference example trains a small causal self-attention next-character
+model on an embedded corpus. It is intentionally lightweight: no tokenizer
+download, no dataset fetch, and no Python dependency.
 
 ## What it validates
 
 - sequence-style model wiring in eager Zigrad
+- causal attention plus residual next-token readout on top of one-hot inputs
 - reproducible next-token batching from a fixed corpus
 - smoke-testable training and greedy generation
 - RFC-0001 benchmark integration for model-train and model-infer paths
@@ -22,7 +23,8 @@ with `-Denable_cuda=true`.
 - Corpus source: embedded text in [`src/corpus.txt`](./src/corpus.txt)
 - Preprocessing: character vocabulary discovery in first-seen order, fixed
   causal windows, one-hot context tensors, one-hot next-token labels
-- Checkpoint path: `char-lm.stz` by default
+- Checkpoint path: `char-lm.stz` by default, storing token/position embeddings,
+  attention projections, and the output head
 
 ## Run
 

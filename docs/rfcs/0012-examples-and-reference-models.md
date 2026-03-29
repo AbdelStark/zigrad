@@ -4,7 +4,7 @@ Status: `Ready`
 Priority: `P1`  
 Depends on: RFC-0001, RFC-0002, RFC-0003  
 Blocks: RFC-0005  
-Last updated: `2026-03-28`
+Last updated: `2026-03-29`
 
 ## Summary
 
@@ -173,6 +173,45 @@ documented rather than hidden in bespoke scripts.
 - Validation performed:
   - `zig build test-example-smoke`
   - `zig build test-benchmark-smoke`
+
+### 2026-03-29 Causal Self-Attention Char-LM Upgrade
+
+- Completed:
+  - Replaced the maintained char-level language model’s flattened affine stack
+    with a causal self-attention architecture in
+    [`examples/char-lm/src/model.zig`](../../examples/char-lm/src/model.zig)
+    and
+    [`examples/char-lm/src/main.zig`](../../examples/char-lm/src/main.zig),
+    including token/position embeddings, causal masking, residual mixing, and
+    a last-token readout that still trains and greedily generates from the
+    embedded corpus in smoke mode.
+  - Updated RFC-0001 benchmark and interop integration through
+    [`benchmarks/src/workload.zig`](../../benchmarks/src/workload.zig)
+    and
+    [`benchmarks/runners/pytorch/mnist_mlp.py`](../../benchmarks/runners/pytorch/mnist_mlp.py),
+    so the maintained char-LM train, infer, compiler-capture, and
+    safetensors import/export slices all measure the same attention-based
+    parameter layout instead of the old four-tensor affine checkpoint.
+  - Refreshed the shipped docs in
+    [`examples/char-lm/README.md`](../../examples/char-lm/README.md),
+    [`README.md`](../../README.md), and
+    [`benchmarks/README.md`](../../benchmarks/README.md)
+    so the reference portfolio now describes the landed attention model
+    instead of the old MLP-style baseline.
+- Remains:
+  - Decide when RFC-0012 should grow from this single-block attention baseline
+    into a deeper or tokenized transformer reference model.
+  - Validate the same workload on CUDA-capable hardware once that environment
+    is available.
+- Blockers:
+  - No CUDA-capable runtime or real PyTorch baseline environment was available
+    in this run, so the new model was validated through Zig smoke paths and a
+    Python syntax check rather than executed cross-runner benchmark artifacts.
+- Validation performed:
+  - `zig build test-example-smoke`
+  - `zig build test-benchmark-smoke`
+  - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`
+  - `zig build test`
 
 ### 2026-03-28 Pendulum Dynamics Reference Example
 

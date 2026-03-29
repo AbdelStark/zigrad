@@ -556,15 +556,35 @@ def main() -> int:
         def __init__(self, context_len: int, vocab_size: int):
             super().__init__()
             hidden_size = max(vocab_size * 2, 64)
-            self.w0 = torch.nn.Parameter(linear_weight(hidden_size, context_len * vocab_size, seed + 1))
-            self.b0 = torch.nn.Parameter(torch.zeros(hidden_size, dtype=torch.float32))
-            self.w1 = torch.nn.Parameter(linear_weight(vocab_size, hidden_size, seed + 2))
-            self.b1 = torch.nn.Parameter(torch.zeros(vocab_size, dtype=torch.float32))
+            self.hidden_size = hidden_size
+            self.token_embedding = torch.nn.Parameter(linear_weight(hidden_size, vocab_size, seed + 1))
+            self.position_embedding = torch.nn.Parameter(linear_weight(context_len, hidden_size, seed + 2))
+            self.query_weights = torch.nn.Parameter(linear_weight(hidden_size, hidden_size, seed + 3))
+            self.query_bias = torch.nn.Parameter(torch.zeros(hidden_size, dtype=torch.float32))
+            self.key_weights = torch.nn.Parameter(linear_weight(hidden_size, hidden_size, seed + 4))
+            self.key_bias = torch.nn.Parameter(torch.zeros(hidden_size, dtype=torch.float32))
+            self.value_weights = torch.nn.Parameter(linear_weight(hidden_size, hidden_size, seed + 5))
+            self.value_bias = torch.nn.Parameter(torch.zeros(hidden_size, dtype=torch.float32))
+            self.output_weights = torch.nn.Parameter(linear_weight(vocab_size, hidden_size, seed + 6))
+            self.output_bias = torch.nn.Parameter(torch.zeros(vocab_size, dtype=torch.float32))
+            self.register_buffer(
+                "causal_mask",
+                torch.triu(torch.full((1, context_len, context_len), -1.0e4, dtype=torch.float32), diagonal=1),
+            )
+            selector = torch.zeros((1, context_len), dtype=torch.float32)
+            selector[0, context_len - 1] = 1.0
+            self.register_buffer("position_selector", selector)
 
         def forward(self, x):
-            x = x.reshape(x.shape[0], -1)
-            x = F.relu(F.linear(x, self.w0, self.b0))
-            return F.linear(x, self.w1, self.b1)
+            embeddings = F.linear(x, self.token_embedding, None) + self.position_embedding
+            queries = F.linear(embeddings, self.query_weights, self.query_bias)
+            keys = F.linear(embeddings, self.key_weights, self.key_bias)
+            values = F.linear(embeddings, self.value_weights, self.value_bias)
+            scores = torch.matmul(queries, keys.transpose(-1, -2)) / math.sqrt(self.hidden_size)
+            attention = torch.softmax(scores + self.causal_mask, dim=-1)
+            mixed = torch.matmul(attention, values) + embeddings
+            summary = torch.matmul(self.position_selector, mixed).reshape(x.shape[0], self.hidden_size)
+            return F.linear(summary, self.output_weights, self.output_bias)
 
     class GCNModel(torch.nn.Module):
         def __init__(self, in_features: int, out_features: int):

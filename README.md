@@ -397,7 +397,7 @@ make
 ZG_DEVICE=cuda ZG_EXAMPLE_SMOKE=1 zig build run -Denable_cuda=true
 ```
 
-Run the char-level language model demo
+Run the causal self-attention char-level language model demo
 
 ```shell
 cd zigrad/examples/char-lm
@@ -431,8 +431,9 @@ Runtime backend expectations are now explicit:
   `-Denable_cuda=true`.
 - DQN and GCN now avoid host-only tensor reads in their runtime paths, but
   dedicated CUDA hardware validation is still pending on a GPU-capable runner.
-- The char-level language model uses an embedded corpus and deterministic
-  one-hot causal windows, so it runs from a clean checkout without downloads.
+- The char-level language model uses an embedded corpus, deterministic
+  one-hot causal windows, and a small causal self-attention block, so it runs
+  from a clean checkout without downloads.
 
 The maintained loss surface also avoids direct off-host tensor dereferences in
 Zig now: `softmax_cross_entropy_loss`, `softmax`, `smooth_l1_loss`, and

@@ -79,7 +79,7 @@ documents we will implement against.
 | RFC-0009 | MLIR Lowering Pipeline | `Exploratory` | P2 | RFC-0007, RFC-0008 | Optional compiler interoperability layer. |
 | RFC-0010 | ZML Inference Bridge | `Draft` | P2 | RFC-0007 | Enables inference handoff to ZML for pure serving flows. |
 | RFC-0011 | Apache TVM Integration | `Exploratory` | P3 | RFC-0001, RFC-0007, RFC-0009 | External compiler/autotuning path. |
-| RFC-0012 | Examples and Reference Models | `Ready` | P1 | RFC-0001, RFC-0002, RFC-0003 | Maintained smoke coverage now exists for hello-world, MNIST, char-LM, pendulum dynamics, corridor-control RL, DQN, and GCN; the first `llm`, physics/control, and upgraded RL reference examples plus matching benchmark hooks are landed, while a deeper transformer-style portfolio still remains. |
+| RFC-0012 | Examples and Reference Models | `Ready` | P1 | RFC-0001, RFC-0002, RFC-0003 | Maintained smoke coverage now exists for hello-world, MNIST, char-LM, pendulum dynamics, corridor-control RL, DQN, and GCN; the first `llm`, physics/control, and upgraded RL reference examples plus matching benchmark hooks are landed, and the char-LM reference now uses causal self-attention while a deeper transformer-style portfolio still remains. |
 
 ## Recommended Implementation Order
 
@@ -334,6 +334,45 @@ Every RFC in this folder set must maintain:
 - Validation:
   - `zig build test-example-smoke`
   - `zig build test-benchmark-smoke`
+
+### RFC-0012/RFC-0001 2026-03-29 Causal Self-Attention Char-LM Upgrade
+
+- Completed:
+  - Replaced the maintained char-LM reference model in
+    [`examples/char-lm/src/model.zig`](../examples/char-lm/src/model.zig)
+    and
+    [`examples/char-lm/src/main.zig`](../examples/char-lm/src/main.zig)
+    with a causal self-attention architecture that keeps the embedded-corpus,
+    smoke-trainable workflow intact while materially moving the `llm`
+    portfolio beyond the old flattened affine stack.
+  - Updated RFC-0001 benchmark and interop coverage through
+    [`benchmarks/src/workload.zig`](../benchmarks/src/workload.zig)
+    and
+    [`benchmarks/runners/pytorch/mnist_mlp.py`](../benchmarks/runners/pytorch/mnist_mlp.py),
+    so char-LM train, infer, compiler-capture, and safetensors
+    export/import rows now all exercise the same attention parameter layout.
+  - Refreshed
+    [`examples/char-lm/README.md`](../examples/char-lm/README.md),
+    [`README.md`](../README.md),
+    [`benchmarks/README.md`](../benchmarks/README.md),
+    [`docs/rfcs/0001-benchmarking-program.md`](./rfcs/0001-benchmarking-program.md),
+    and
+    [`docs/rfcs/0012-examples-and-reference-models.md`](./rfcs/0012-examples-and-reference-models.md)
+    so the roadmap/docs now describe the shipped attention model rather than
+    the superseded MLP-style slice.
+- Remains:
+  - Decide when to grow from this single-block attention baseline into a
+    deeper or tokenized transformer reference family.
+  - Publish first executed PyTorch baseline artifacts for the new workload once
+    a host with `torch` is available.
+- Blockers:
+  - No CUDA-capable runtime or local PyTorch execution environment was
+    available in this run.
+- Validation:
+  - `zig build test-example-smoke`
+  - `zig build test-benchmark-smoke`
+  - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`
+  - `zig build test`
 
 ### RFC-0001/RFC-0012 2026-03-28 Pendulum Dynamics Reference Example And Benchmark Slice
 

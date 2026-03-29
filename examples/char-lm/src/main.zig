@@ -38,10 +38,10 @@ pub fn runCharLm() !void {
 pub fn trainCharLmSmoke() !RunSummary {
     return runCharLmWithConfig(.{
         .batch_size = 8,
-        .num_epochs = 12,
+        .num_epochs = 16,
         .context_len = 12,
-        .hidden_size = 48,
-        .learning_rate = 0.02,
+        .hidden_size = 64,
+        .learning_rate = 0.01,
         .generate_chars = 24,
         .seed = 7,
         .prompt = "zigrad ",
@@ -167,10 +167,10 @@ pub fn main() !void {
     _ = try runCharLmWithConfig(if (smoke)
         .{
             .batch_size = 8,
-            .num_epochs = 12,
+            .num_epochs = 16,
             .context_len = 12,
-            .hidden_size = 48,
-            .learning_rate = 0.02,
+            .hidden_size = 64,
+            .learning_rate = 0.01,
             .generate_chars = 24,
             .seed = 7,
             .prompt = prompt,
@@ -283,7 +283,7 @@ fn generateGreedy(
 
 test "train char lm smoke" {
     const summary = try trainCharLmSmoke();
-    try std.testing.expectEqual(@as(usize, 12), summary.epochs_completed);
+    try std.testing.expectEqual(@as(usize, 16), summary.epochs_completed);
     try std.testing.expect(summary.train_batches > 0);
     try std.testing.expect(std.math.isFinite(summary.initial_loss));
     try std.testing.expect(std.math.isFinite(summary.final_loss));

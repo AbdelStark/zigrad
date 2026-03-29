@@ -478,6 +478,41 @@ Regression gating should use broad thresholds first, for example:
   - `zig build test-example-smoke`
   - `zig build test-benchmark-smoke`
 
+### 2026-03-29 Char-LM Attention Benchmark Alignment
+
+- Completed:
+  - Updated
+    [`benchmarks/src/workload.zig`](../../benchmarks/src/workload.zig)
+    and
+    [`benchmarks/runners/pytorch/mnist_mlp.py`](../../benchmarks/runners/pytorch/mnist_mlp.py)
+    so the maintained char-LM train, infer, and compiler-capture workloads now
+    execute the same causal self-attention reference model that ships in
+    RFC-0012 instead of continuing to benchmark the superseded flattened
+    affine stack.
+  - Reworked char-LM safetensors interop coverage in
+    [`benchmarks/src/workload.zig`](../../benchmarks/src/workload.zig)
+    to serialize and reconstruct the new token/position embeddings,
+    attention projections, and output head, keeping RFC-0001’s executable
+    checkpoint import/export surface aligned with the real model family.
+  - Refreshed
+    [`README.md`](../../README.md)
+    and
+    [`benchmarks/README.md`](../../benchmarks/README.md)
+    so the benchmark program documents the landed attention-based workload.
+- Remains:
+  - Publish first cross-framework attention char-LM benchmark artifacts on a
+    host with a working PyTorch baseline environment.
+  - Decide when to grow from this single-block attention workload into a
+    deeper transformer benchmark family.
+- Blockers:
+  - This run had no local `torch` execution environment, so baseline parity
+    was syntax-checked but not executed end to end.
+- Validation performed:
+  - `zig build test-example-smoke`
+  - `zig build test-benchmark-smoke`
+  - `python3 -m py_compile benchmarks/runners/pytorch/mnist_mlp.py`
+  - `zig build test`
+
 ### 2026-03-28 Pendulum Dynamics Benchmark Coverage
 
 - Completed:

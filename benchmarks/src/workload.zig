@@ -1351,19 +1351,19 @@ fn runInteropCharLmSafetensorsExport(
     );
     defer model.deinit();
 
-    const sample_checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+    const sample_checkpoint = try serializeCharLmCheckpoint(io_allocator, &model);
     defer io_allocator.free(sample_checkpoint);
     const setup_latency_ns = timer.read();
 
     const timings = try allocator.alloc(u64, spec.measured_iterations);
     for (0..spec.warmup_iterations) |_| {
-        const checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+        const checkpoint = try serializeCharLmCheckpoint(io_allocator, &model);
         io_allocator.free(checkpoint);
     }
     maybeResetHostBenchmarkTelemetry(host);
     for (timings) |*timing| {
         timer.reset();
-        const checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+        const checkpoint = try serializeCharLmCheckpoint(io_allocator, &model);
         timing.* = timer.read();
         io_allocator.free(checkpoint);
     }
@@ -1406,7 +1406,7 @@ fn runInteropCharLmSafetensorsImport(
     );
     defer model.deinit();
 
-    const checkpoint = try serializeAffineCheckpoint(io_allocator, model.weights[0..], model.biases[0..]);
+    const checkpoint = try serializeCharLmCheckpoint(io_allocator, &model);
     defer io_allocator.free(checkpoint);
     const setup_latency_ns = timer.read();
 
@@ -3158,6 +3158,27 @@ fn serializeAffineCheckpoint(
     return params.serialize(allocator);
 }
 
+fn serializeCharLmCheckpoint(
+    allocator: std.mem.Allocator,
+    model: *CharLmModel(f32),
+) ![]u8 {
+    var params = zg.LayerMap.init(allocator);
+    defer params.deinit();
+
+    try params.put("token_embedding", model.token_embedding, .{});
+    try params.put("position_embedding", model.position_embedding, .{});
+    try params.put("query_weights", model.query_weights, .{});
+    try params.put("query_bias", model.query_bias, .{});
+    try params.put("key_weights", model.key_weights, .{});
+    try params.put("key_bias", model.key_bias, .{});
+    try params.put("value_weights", model.value_weights, .{});
+    try params.put("value_bias", model.value_bias, .{});
+    try params.put("output_weights", model.output_weights, .{});
+    try params.put("output_bias", model.output_bias, .{});
+
+    return params.serialize(allocator);
+}
+
 fn oneAffineCheckpointImport(
     comptime Model: type,
     allocator: std.mem.Allocator,
@@ -3202,12 +3223,6 @@ fn oneCharLmCheckpointImport(
     vocab_size: usize,
     hidden_size: usize,
 ) !void {
-    const Tensor = zg.NDTensor(f32);
-    const ParameterPack = struct {
-        weights: [2]*Tensor,
-        biases: [2]*Tensor,
-    };
-
     var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
     defer graph.deinit();
 
@@ -3219,14 +3234,15 @@ fn oneCharLmCheckpointImport(
     });
     defer params.deinit();
 
-    const pack = try params.extract(ParameterPack, "", .{});
-    var model: CharLmModel(f32) = .{
-        .weights = pack.weights,
-        .biases = pack.biases,
-        .context_len = context_len,
-        .vocab_size = vocab_size,
-        .hidden_size = hidden_size,
-    };
+    const pack = try params.extract(CharLmModel(f32).ParameterPack, "", .{});
+    var model = try CharLmModel(f32).fromParameterPack(
+        device,
+        context_len,
+        vocab_size,
+        hidden_size,
+        pack,
+        &graph,
+    );
     defer model.deinit();
 }
 
@@ -3753,14 +3769,19 @@ fn shapeMetadataFromDqnCheckpoint(allocator: std.mem.Allocator) ![]const result.
 
 fn shapeMetadataFromCharLmCheckpoint(allocator: std.mem.Allocator) ![]const result.ShapeMetadata {
     const vocab_size = interopCharLmVocabSize();
-    const shapes = try allocator.alloc(result.ShapeMetadata, 4);
-    shapes[0] = .{
-        .name = "weights.0",
-        .dims = try allocDims(allocator, &.{ charLmHiddenSize(vocab_size), interopCharLmContextLen() * vocab_size }),
-    };
-    shapes[1] = .{ .name = "biases.0", .dims = try allocDims(allocator, &.{charLmHiddenSize(vocab_size)}) };
-    shapes[2] = .{ .name = "weights.1", .dims = try allocDims(allocator, &.{ vocab_size, charLmHiddenSize(vocab_size) }) };
-    shapes[3] = .{ .name = "biases.1", .dims = try allocDims(allocator, &.{vocab_size}) };
+    const hidden_size = charLmHiddenSize(vocab_size);
+    const context_len = interopCharLmContextLen();
+    const shapes = try allocator.alloc(result.ShapeMetadata, 10);
+    shapes[0] = .{ .name = "token_embedding", .dims = try allocDims(allocator, &.{ hidden_size, vocab_size }) };
+    shapes[1] = .{ .name = "position_embedding", .dims = try allocDims(allocator, &.{ context_len, hidden_size }) };
+    shapes[2] = .{ .name = "query_weights", .dims = try allocDims(allocator, &.{ hidden_size, hidden_size }) };
+    shapes[3] = .{ .name = "query_bias", .dims = try allocDims(allocator, &.{hidden_size}) };
+    shapes[4] = .{ .name = "key_weights", .dims = try allocDims(allocator, &.{ hidden_size, hidden_size }) };
+    shapes[5] = .{ .name = "key_bias", .dims = try allocDims(allocator, &.{hidden_size}) };
+    shapes[6] = .{ .name = "value_weights", .dims = try allocDims(allocator, &.{ hidden_size, hidden_size }) };
+    shapes[7] = .{ .name = "value_bias", .dims = try allocDims(allocator, &.{hidden_size}) };
+    shapes[8] = .{ .name = "output_weights", .dims = try allocDims(allocator, &.{ vocab_size, hidden_size }) };
+    shapes[9] = .{ .name = "output_bias", .dims = try allocDims(allocator, &.{vocab_size}) };
     return shapes;
 }
 
@@ -4297,8 +4318,8 @@ test "run interop char lm export benchmark" {
     try std.testing.expectEqual(result.Status.ok, run_result.status);
     const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
     try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
-    try std.testing.expectEqual(@as(usize, 4), output.shapes.len);
-    try std.testing.expectEqualStrings("weights.0", output.shapes[0].name);
+    try std.testing.expectEqual(@as(usize, 10), output.shapes.len);
+    try std.testing.expectEqualStrings("token_embedding", output.shapes[0].name);
     try std.testing.expectEqualStrings("bytes", output.throughput_unit.?);
 }
 
