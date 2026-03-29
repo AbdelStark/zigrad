@@ -243,6 +243,7 @@ pub fn mse_loss(T: type, y_pred: *NDTensor(T), y: *NDTensor(T)) !*NDTensor(T) {
         .device = y_pred.device,
         .gb = y_pred.node.gb,
         .callback = .{},
+        .capture_name = "mse_loss",
     });
 }
 
@@ -311,12 +312,15 @@ pub fn softmax_cross_entropy_loss(T: type, y_pred: *NDTensor(T), y: *NDTensor(T)
 
     return try Tensor.create_dependent(CceBwd, .{
         .data = try NDArray(T).from_slice(&.{mean_loss}, &.{1}, y_pred.device),
-        .op = null,
         .children = &.{ &y_pred.node, &y.node },
         .label = "cross_entropy",
         .device = y_pred.device,
         .gb = y_pred.node.gb,
         .callback = .{ .sm_preds = sm_preds },
+        .capture_name = "cross_entropy",
+        .capture_attributes = &.{
+            .{ .key = "dim", .value = .{ .uint = @intCast(last_dim) } },
+        },
     });
 }
 
@@ -343,6 +347,9 @@ fn _softmax_fwd(T: type, input: *const NDTensor(T), dim: usize) !*NDTensor(T) {
 
 pub fn softmax(T: type, input: *const NDTensor(T), dim: usize, device: DeviceReference) !*NDTensor(T) {
     const Tensor = NDTensor(T);
+    const capture_attributes = [_]zg.lazy.OpAttribute{
+        .{ .key = "dim", .value = .{ .uint = @intCast(dim) } },
+    };
 
     const result = try _softmax_fwd(T, input, dim);
     const SmaxBwd = struct {
@@ -376,6 +383,8 @@ pub fn softmax(T: type, input: *const NDTensor(T), dim: usize, device: DeviceRef
         .device = device,
         .gb = input.node.gb,
         .callback = .{ .dim = dim },
+        .capture_name = "softmax",
+        .capture_attributes = &capture_attributes,
     });
 }
 
@@ -465,6 +474,10 @@ pub fn smooth_l1_loss(T: type, y_pred: *NDTensor(T), y: *NDTensor(T), beta: T) !
         .callback = .{ .beta = beta },
         .gb = y_pred.node.gb,
         .device = y_pred.device,
+        .capture_name = "smooth_l1_loss",
+        .capture_attributes = &.{
+            .{ .key = "beta", .value = .{ .float = @floatCast(beta) } },
+        },
     });
 }
 

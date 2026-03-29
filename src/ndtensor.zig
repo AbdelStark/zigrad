@@ -290,6 +290,7 @@ pub fn NDTensor(comptime T: type) type {
                 label: ?[]const u8 = null,
                 op: ?Op = null,
                 capture_name: ?[]const u8 = null,
+                capture_attributes: []const zg.lazy.OpAttribute = &.{},
             };
         }
 
@@ -325,6 +326,7 @@ pub fn NDTensor(comptime T: type) type {
             try self.captureTensor(
                 opts.capture_name orelse if (opts.op) |op| @tagName(op) else "op",
                 opts.children,
+                opts.capture_attributes,
             );
             return self;
         }
@@ -464,6 +466,10 @@ pub fn NDTensor(comptime T: type) type {
                 .gb = self.node.gb,
                 .callback = .{},
                 .op = .TRANSFER,
+                .capture_attributes = &.{
+                    .{ .key = "source_device", .value = .{ .string = if (self.device.is_host()) "host" else "cuda" } },
+                    .{ .key = "target_device", .value = .{ .string = if (device.is_host()) "host" else "cuda" } },
+                },
             });
         }
 
@@ -512,6 +518,9 @@ pub fn NDTensor(comptime T: type) type {
 
         /// Copies. COM.
         pub fn reshape(self: *Self, new_shape: []const usize) !*Self {
+            const capture_attributes = [_]zg.lazy.OpAttribute{
+                .{ .key = "new_shape", .value = .{ .usize_list = new_shape } },
+            };
             const ReshapeBwd = struct {
                 pub fn backward(y: *Self, children: *Node.Children) !void {
                     const x = children.get_bwd_upcast(Self, 0) orelse return;
@@ -531,11 +540,13 @@ pub fn NDTensor(comptime T: type) type {
                 .device = self.device,
                 .callback = .{},
                 .op = .RESHAPE,
+                .capture_attributes = &capture_attributes,
             });
         }
 
         /// Copies. COM.
         pub fn transpose(self: *Self) !*Self {
+            const permutation = [_]usize{ 1, 0 };
             const TransposeBwd = struct {
                 pub fn backward(y: *Self, children: *Node.Children) !void {
                     const x = children.get_bwd_upcast(Self, 0) orelse return;
@@ -556,6 +567,9 @@ pub fn NDTensor(comptime T: type) type {
                 .device = self.device,
                 .callback = .{},
                 .op = .TRANSPOSE,
+                .capture_attributes = &.{
+                    .{ .key = "permutation", .value = .{ .usize_list = &permutation } },
+                },
             });
         }
 
@@ -671,6 +685,9 @@ pub fn NDTensor(comptime T: type) type {
                 .status = status,
                 .callback = .{ .start = start },
                 .capture_name = "subset",
+                .capture_attributes = &.{
+                    .{ .key = "steps", .value = .{ .int_list = steps } },
+                },
             });
             return tmp;
         }
@@ -1081,6 +1098,12 @@ pub fn NDTensor(comptime T: type) type {
 
         /// Matrix multiplication. COM.
         pub fn bmm(self: *Self, other: *Self, opts: BmmOpts) !*Self {
+            const capture_attributes = [_]zg.lazy.OpAttribute{
+                .{ .key = "trans_a", .value = .{ .bool = opts.trans_a } },
+                .{ .key = "trans_b", .value = .{ .bool = opts.trans_b } },
+                .{ .key = "alpha", .value = .{ .float = @floatCast(opts.alpha) } },
+                .{ .key = "beta", .value = .{ .float = @floatCast(opts.beta) } },
+            };
             return create_dependent(BmmAccBwd, .{
                 .data = try self.data.bmm(other.data, self.device, .{
                     .trans_a = opts.trans_a,
@@ -1093,6 +1116,7 @@ pub fn NDTensor(comptime T: type) type {
                 .gb = self.node.gb,
                 .callback = .{},
                 .op = Op.matmul_tag(opts.trans_a, opts.trans_b),
+                .capture_attributes = &capture_attributes,
             });
         }
 
@@ -1104,6 +1128,12 @@ pub fn NDTensor(comptime T: type) type {
                 .beta = opts.beta,
             });
 
+            const capture_attributes = [_]zg.lazy.OpAttribute{
+                .{ .key = "trans_a", .value = .{ .bool = opts.trans_a } },
+                .{ .key = "trans_b", .value = .{ .bool = opts.trans_b } },
+                .{ .key = "alpha", .value = .{ .float = @floatCast(opts.alpha) } },
+                .{ .key = "beta", .value = .{ .float = @floatCast(opts.beta) } },
+            };
             return create_dependent(BmmAccBwd, .{
                 .data = out.data,
                 .grad = out.grad,
@@ -1112,6 +1142,7 @@ pub fn NDTensor(comptime T: type) type {
                 .gb = self.node.gb,
                 .callback = .{},
                 .op = Op.matmul_tag(opts.trans_a, opts.trans_b),
+                .capture_attributes = &capture_attributes,
             });
         }
 
@@ -1251,6 +1282,9 @@ pub fn NDTensor(comptime T: type) type {
 
         pub fn matvec(self: *Self, other: *Self, opts: MatvecOpts) !*Self {
             std.debug.assert(self.device.is_compatible(other.device));
+            const capture_attributes = [_]zg.lazy.OpAttribute{
+                .{ .key = "trans_a", .value = .{ .bool = opts.trans_a } },
+            };
 
             const MatvecBwd = struct {
                 _trans_a: bool,
@@ -1294,6 +1328,7 @@ pub fn NDTensor(comptime T: type) type {
                 .gb = self.node.gb,
                 .callback = .{ ._trans_a = opts.trans_a },
                 .op = .MATVEC,
+                .capture_attributes = &capture_attributes,
             });
         }
 
@@ -1330,6 +1365,11 @@ pub fn NDTensor(comptime T: type) type {
                     \\Do you need differentiable `max_along`? If so, open an
                     \\ issue. If not, disable grad for this op.
                 );
+            };
+            const capture_attributes = [_]zg.lazy.OpAttribute{
+                .{ .key = "dim", .value = .{ .uint = opts.dim } },
+                .{ .key = "keep_dims", .value = .{ .bool = opts.keep_dims } },
+                .{ .key = "return_indices", .value = .{ .bool = opts.return_indices } },
             };
 
             // TODO: MaxAlongBwd once I settle on device layer decisions
@@ -1374,10 +1414,15 @@ pub fn NDTensor(comptime T: type) type {
                 .gb = self.node.gb,
                 .callback = .{},
                 .capture_name = "max_along",
+                .capture_attributes = &capture_attributes,
             });
         }
 
         pub fn gather(self: *Self, indices: NDArray(usize), dim: usize) !*Self {
+            const capture_attributes = [_]zg.lazy.OpAttribute{
+                .{ .key = "dim", .value = .{ .uint = dim } },
+                .{ .key = "indices_shape", .value = .{ .usize_list = indices.shape.slice() } },
+            };
             var gather_result = try self.data.gather(self.device, .{
                 .indices = indices,
                 .dim = dim,
@@ -1420,6 +1465,7 @@ pub fn NDTensor(comptime T: type) type {
                     .src_shape = Shape.init(self.get_shape()),
                 },
                 .capture_name = "gather",
+                .capture_attributes = &capture_attributes,
             });
         }
 
@@ -1588,7 +1634,12 @@ pub fn NDTensor(comptime T: type) type {
             });
         }
 
-        fn captureTensor(self: *const Self, capture_name: []const u8, children: []const *Node) !void {
+        fn captureTensor(
+            self: *const Self,
+            capture_name: []const u8,
+            children: []const *Node,
+            capture_attributes: []const zg.lazy.OpAttribute,
+        ) !void {
             if (!zg.lazy.isCapturing()) return;
 
             var parent_keys = BoundedArray(usize, settings.backward_children_capacity){};
@@ -1609,6 +1660,7 @@ pub fn NDTensor(comptime T: type) type {
                 .attached = self.node.attached(),
                 .acquired = self.node.acquired(),
                 .storage = if (self.status == .owned) .owned else .view,
+                .attributes = capture_attributes,
                 .label = self.get_label(),
             });
         }
@@ -2546,6 +2598,161 @@ test "tensor/lazy session treats preexisting tensors as external inputs" {
     try std.testing.expectEqualStrings("sqrt", records[1].op_name);
     try std.testing.expectEqualSlices(u32, &.{1}, records[1].parent_ids);
     try std.testing.expectEqualStrings("preexisting", records[0].label.?);
+}
+
+test "tensor/lazy session records op attributes and json dump" {
+    var cpu = zg.device.HostDevice.init();
+    defer cpu.deinit();
+
+    const device = cpu.reference();
+
+    var graph = Graph.init(std.testing.allocator, .{});
+    defer graph.deinit();
+
+    var session = zg.lazy.Session.init(std.testing.allocator);
+    defer session.deinit();
+
+    var capture = try session.begin();
+    defer capture.end();
+
+    const Tensor = NDTensor(f32);
+
+    const input = try Tensor.from_slice(device, &.{ 1, 2, 3, 4, 5, 6 }, &.{ 2, 3 }, .{
+        .graph = &graph,
+        .label = "input",
+    });
+    defer input.deinit();
+
+    const reshaped = try input.reshape(&.{ 3, 2 });
+    defer reshaped.deinit();
+
+    const transposed = try reshaped.transpose();
+    defer transposed.deinit();
+
+    const rhs = try Tensor.from_slice(device, &.{ 1, 0, 0, 1, 1, 1 }, &.{ 2, 3 }, .{
+        .graph = &graph,
+        .label = "rhs",
+    });
+    defer rhs.deinit();
+
+    const matmul = try transposed.bmm(rhs, .{
+        .trans_b = true,
+        .alpha = 0.5,
+        .beta = 0.25,
+    });
+    defer matmul.deinit();
+
+    const subset = try transposed.subset(&.{1}, .view);
+    defer subset.deinit();
+
+    const maxed = try transposed.max_along(.{
+        .dim = 1,
+        .keep_dims = true,
+    });
+    defer maxed.deinit();
+
+    const softmaxed = try zg.loss.softmax(f32, transposed, 1, device);
+    defer softmaxed.deinit();
+
+    const records = session.tensors();
+
+    const reshape_record = findLazyRecord(records, "RESHAPE") orelse return error.MissingLazyReshapeRecord;
+    try std.testing.expectEqualSlices(usize, &.{ 3, 2 }, findLazyUsizeListAttribute(reshape_record.attributes, "new_shape") orelse return error.MissingLazyReshapeAttribute);
+
+    const transpose_record = findLazyRecord(records, "TRANSPOSE") orelse return error.MissingLazyTransposeRecord;
+    try std.testing.expectEqualSlices(usize, &.{ 1, 0 }, findLazyUsizeListAttribute(transpose_record.attributes, "permutation") orelse return error.MissingLazyTransposeAttribute);
+
+    const matmul_record = findLazyRecord(records, "MATMUL_ABt") orelse return error.MissingLazyMatmulRecord;
+    try std.testing.expectEqual(false, findLazyBoolAttribute(matmul_record.attributes, "trans_a") orelse return error.MissingLazyMatmulTransAAttribute);
+    try std.testing.expectEqual(true, findLazyBoolAttribute(matmul_record.attributes, "trans_b") orelse return error.MissingLazyMatmulTransBAttribute);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.5), findLazyFloatAttribute(matmul_record.attributes, "alpha") orelse return error.MissingLazyMatmulAlphaAttribute, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25), findLazyFloatAttribute(matmul_record.attributes, "beta") orelse return error.MissingLazyMatmulBetaAttribute, 1e-9);
+
+    const subset_record = findLazyRecord(records, "subset") orelse return error.MissingLazySubsetRecord;
+    try std.testing.expectEqualSlices(i64, &.{1}, findLazyIntListAttribute(subset_record.attributes, "steps") orelse return error.MissingLazySubsetStepsAttribute);
+
+    const max_record = findLazyRecord(records, "max_along") orelse return error.MissingLazyMaxAlongRecord;
+    try std.testing.expectEqual(@as(u64, 1), findLazyUintAttribute(max_record.attributes, "dim") orelse return error.MissingLazyMaxAlongDimAttribute);
+    try std.testing.expectEqual(true, findLazyBoolAttribute(max_record.attributes, "keep_dims") orelse return error.MissingLazyMaxAlongKeepDimsAttribute);
+    try std.testing.expectEqual(false, findLazyBoolAttribute(max_record.attributes, "return_indices") orelse return error.MissingLazyMaxAlongReturnIndicesAttribute);
+
+    const softmax_record = findLazyRecord(records, "softmax") orelse return error.MissingLazySoftmaxRecord;
+    try std.testing.expectEqual(@as(u64, 1), findLazyUintAttribute(softmax_record.attributes, "dim") orelse return error.MissingLazySoftmaxDimAttribute);
+
+    var summary = std.ArrayList(u8){};
+    defer summary.deinit(std.testing.allocator);
+    try session.writeSummary(summary.writer(std.testing.allocator));
+    try std.testing.expect(std.mem.indexOf(u8, summary.items, "attrs={new_shape=[3,2]}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, summary.items, "attrs={trans_a=false,trans_b=true,alpha=0.5,beta=0.25}") != null);
+
+    var json_writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer json_writer.deinit();
+    try session.writeJson(&json_writer.writer);
+    const json_bytes = json_writer.written();
+    try std.testing.expect(std.mem.indexOf(u8, json_bytes, "\"attributes\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json_bytes, "\"key\":\"new_shape\"") != null);
+
+    var json_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer json_arena.deinit();
+    const parsed = try std.json.parseFromSliceLeaky(zg.lazy.SessionDump, json_arena.allocator(), json_bytes, .{
+        .ignore_unknown_fields = false,
+    });
+    const parsed_subset = findLazyRecord(parsed.tensors, "subset") orelse return error.MissingParsedLazySubsetRecord;
+    try std.testing.expectEqualSlices(i64, &.{1}, findLazyIntListAttribute(parsed_subset.attributes, "steps") orelse return error.MissingParsedLazySubsetStepsAttribute);
+}
+
+fn findLazyRecord(records: []const zg.lazy.TensorRecord, op_name: []const u8) ?*const zg.lazy.TensorRecord {
+    for (records) |*record| {
+        if (std.mem.eql(u8, record.op_name, op_name)) return record;
+    }
+    return null;
+}
+
+fn findLazyAttribute(attributes: []const zg.lazy.OpAttribute, key: []const u8) ?zg.lazy.AttributeValue {
+    for (attributes) |attribute| {
+        if (std.mem.eql(u8, attribute.key, key)) return attribute.value;
+    }
+    return null;
+}
+
+fn findLazyBoolAttribute(attributes: []const zg.lazy.OpAttribute, key: []const u8) ?bool {
+    const value = findLazyAttribute(attributes, key) orelse return null;
+    return switch (value) {
+        .bool => |item| item,
+        else => null,
+    };
+}
+
+fn findLazyUintAttribute(attributes: []const zg.lazy.OpAttribute, key: []const u8) ?u64 {
+    const value = findLazyAttribute(attributes, key) orelse return null;
+    return switch (value) {
+        .uint => |item| item,
+        else => null,
+    };
+}
+
+fn findLazyFloatAttribute(attributes: []const zg.lazy.OpAttribute, key: []const u8) ?f64 {
+    const value = findLazyAttribute(attributes, key) orelse return null;
+    return switch (value) {
+        .float => |item| item,
+        else => null,
+    };
+}
+
+fn findLazyUsizeListAttribute(attributes: []const zg.lazy.OpAttribute, key: []const u8) ?[]const usize {
+    const value = findLazyAttribute(attributes, key) orelse return null;
+    return switch (value) {
+        .usize_list => |item| item,
+        else => null,
+    };
+}
+
+fn findLazyIntListAttribute(attributes: []const zg.lazy.OpAttribute, key: []const u8) ?[]const i64 {
+    const value = findLazyAttribute(attributes, key) orelse return null;
+    return switch (value) {
+        .int_list => |item| item,
+        else => null,
+    };
 }
 
 test "tensor/pow" {

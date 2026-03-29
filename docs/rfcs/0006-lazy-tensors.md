@@ -200,3 +200,43 @@ The exact API should stay minimal until implementation experience is gathered.
 - Validation performed:
   - `zig fmt src/lazy.zig src/ndtensor.zig src/zigrad.zig`
   - `zig build test`
+
+### 2026-03-29 Operation Attributes and JSON Session Dumps
+
+- Completed:
+  - Extended
+    [`src/lazy.zig`](../../src/lazy.zig)
+    so lazy-session tensor records now carry structured operation attributes in
+    addition to op names, dtype, shape, device, storage kind, labels, and
+    parent edges.
+  - Added a machine-readable JSON dump surface to the lazy session alongside
+    the existing text and D2 writers, giving RFC-0006 a stable inspection
+    format that RFC-0007 can consume in verifier and IR-lowering work.
+  - Threaded representative op metadata through
+    [`src/ndtensor.zig`](../../src/ndtensor.zig),
+    [`src/nn/nn.zig`](../../src/nn/nn.zig), and
+    [`src/nn/loss.zig`](../../src/nn/loss.zig),
+    including reshape target shapes, transpose permutations, subset steps,
+    matmul transpose/scale parameters, max-along reduction settings, transfer
+    device transitions, and softmax/loss capture names instead of generic
+    `"op"` placeholders.
+  - Added regression coverage in
+    [`src/ndtensor.zig`](../../src/ndtensor.zig)
+    for attribute-rich lazy capture plus JSON serialization/parsing so the new
+    metadata surface is verified end to end rather than only through manual
+    debug dumps.
+- Remains:
+  - Introduce a true lazy execution mode where captured tensors can defer
+    backend work until `realize()` rather than only shadowing eager execution.
+  - Define how RFC-0007 should lower the new session metadata into a stable IR
+    with verifier-friendly value/node identities instead of stopping at session
+    dumps.
+  - Expand attribute capture to more ops once optimizer work identifies which
+    attributes are required beyond the current representative set.
+- Blockers:
+  - This slice still preserves eager execution underneath capture, so RFC-0007
+    has richer metadata to build on but no deferred scheduler or executable IR
+    lowering yet.
+- Validation performed:
+  - `zig fmt src/lazy.zig src/ndtensor.zig src/nn/nn.zig src/nn/loss.zig`
+  - `zig build test`

@@ -80,6 +80,7 @@ pub fn nn(comptime T: type) type {
                 .device = x.device,
                 .gb = x.node.gb,
                 .callback = .{},
+                .capture_name = "relu",
             });
         }
 
@@ -141,6 +142,7 @@ pub fn nn(comptime T: type) type {
                 .device = x.device,
                 .gb = x.node.gb,
                 .callback = .{},
+                .capture_name = "tanh",
             });
         }
 
@@ -202,6 +204,7 @@ pub fn nn(comptime T: type) type {
                 .device = x.device,
                 .gb = x.node.gb,
                 .callback = .{},
+                .capture_name = "sigmoid",
             });
         }
 
@@ -271,6 +274,7 @@ pub fn nn(comptime T: type) type {
                 .device = pred.device,
                 .gb = pred.node.gb,
                 .callback = .{},
+                .capture_name = "mse_loss",
             });
         }
     };

@@ -15,6 +15,21 @@ pub const MaterializationReason = enum {
     host_read,
 };
 
+pub const AttributeValue = union(enum) {
+    bool: bool,
+    int: i64,
+    uint: u64,
+    float: f64,
+    string: []const u8,
+    usize_list: []const usize,
+    int_list: []const i64,
+};
+
+pub const OpAttribute = struct {
+    key: []const u8,
+    value: AttributeValue,
+};
+
 pub const TensorRecord = struct {
     id: u32,
     op_name: []const u8,
@@ -25,6 +40,7 @@ pub const TensorRecord = struct {
     attached: bool,
     acquired: bool,
     storage: StorageKind,
+    attributes: []const OpAttribute = &.{},
     label: ?[]const u8,
     parent_ids: []const u32,
 };
@@ -45,6 +61,7 @@ pub const TensorCapture = struct {
     attached: bool,
     acquired: bool,
     storage: StorageKind = .owned,
+    attributes: []const OpAttribute = &.{},
     label: ?[]const u8 = null,
 };
 
@@ -65,6 +82,11 @@ pub fn maybeRecordMaterialization(tensor_key: usize, reason: MaterializationReas
         try session.recordMaterialization(tensor_key, reason);
     }
 }
+
+pub const SessionDump = struct {
+    tensors: []const TensorRecord,
+    materializations: []const MaterializationRecord,
+};
 
 pub const Session = struct {
     allocator: std.mem.Allocator,
@@ -88,6 +110,7 @@ pub const Session = struct {
     pub fn reset(self: *Session) void {
         for (self.records.items) |record| {
             self.allocator.free(record.shape);
+            freeAttributes(self.allocator, record.attributes);
             self.allocator.free(record.parent_ids);
             if (record.label) |label| self.allocator.free(label);
         }
@@ -134,6 +157,17 @@ pub const Session = struct {
         return self.tensor_ids.get(tensor_key);
     }
 
+    pub fn dump(self: *const Session) SessionDump {
+        return .{
+            .tensors = self.records.items,
+            .materializations = self.materializations.items,
+        };
+    }
+
+    pub fn writeJson(self: *const Session, writer: *std.Io.Writer) !void {
+        try std.json.Stringify.value(self.dump(), .{}, writer);
+    }
+
     pub fn writeSummary(self: *const Session, writer: anytype) !void {
         try writer.print(
             "lazy session tensors={d} materializations={d}\n",
@@ -155,6 +189,11 @@ pub const Session = struct {
             );
             try writer.writeAll(" shape=");
             try writeShape(writer, record.shape);
+            if (record.attributes.len != 0) {
+                try writer.writeAll(" attrs={");
+                try writeAttributes(writer, record.attributes);
+                try writer.writeByte('}');
+            }
             if (record.parent_ids.len != 0) {
                 try writer.writeAll(" parents=[");
                 for (record.parent_ids, 0..) |parent_id, index| {
@@ -190,6 +229,10 @@ pub const Session = struct {
                 @tagName(record.storage),
             });
             if (record.requires_grad) try writer.writeAll(" grad");
+            if (record.attributes.len != 0) {
+                try writer.writeAll("\\nattrs=");
+                try writeAttributes(writer, record.attributes);
+            }
             if (record.label) |label| try writer.print("\\nlabel={s}", .{label});
             try writer.writeAll("\"\n");
         }
@@ -224,6 +267,9 @@ pub const Session = struct {
         const shape_copy = try self.allocator.dupe(usize, capture.shape);
         errdefer self.allocator.free(shape_copy);
 
+        const attributes_copy = try dupeAttributes(self.allocator, capture.attributes);
+        errdefer freeAttributes(self.allocator, attributes_copy);
+
         const label_copy = if (capture.label) |label|
             try self.allocator.dupe(u8, label)
         else
@@ -241,6 +287,7 @@ pub const Session = struct {
             .attached = capture.attached,
             .acquired = capture.acquired,
             .storage = capture.storage,
+            .attributes = attributes_copy,
             .label = label_copy,
             .parent_ids = parent_ids,
         });
@@ -268,10 +315,93 @@ pub const Guard = struct {
 };
 
 fn writeShape(writer: anytype, shape: []const usize) !void {
+    try writeUsizeList(writer, shape, "x");
+}
+
+fn writeUsizeList(writer: anytype, values: []const usize, separator: []const u8) !void {
     try writer.writeByte('[');
-    for (shape, 0..) |dim, index| {
-        if (index != 0) try writer.writeByte('x');
-        try writer.print("{d}", .{dim});
+    for (values, 0..) |value, index| {
+        if (index != 0) try writer.writeAll(separator);
+        try writer.print("{d}", .{value});
     }
     try writer.writeByte(']');
+}
+
+fn writeI64List(writer: anytype, values: []const i64) !void {
+    try writer.writeByte('[');
+    for (values, 0..) |value, index| {
+        if (index != 0) try writer.writeByte(',');
+        try writer.print("{d}", .{value});
+    }
+    try writer.writeByte(']');
+}
+
+fn writeAttributes(writer: anytype, attributes: []const OpAttribute) !void {
+    for (attributes, 0..) |attribute, index| {
+        if (index != 0) try writer.writeByte(',');
+        try writer.print("{s}=", .{attribute.key});
+        switch (attribute.value) {
+            .bool => |value| try writer.writeAll(if (value) "true" else "false"),
+            .int => |value| try writer.print("{d}", .{value}),
+            .uint => |value| try writer.print("{d}", .{value}),
+            .float => |value| try writer.print("{d}", .{value}),
+            .string => |value| try writer.writeAll(value),
+            .usize_list => |value| try writeUsizeList(writer, value, ","),
+            .int_list => |value| try writeI64List(writer, value),
+        }
+    }
+}
+
+fn dupeAttributes(allocator: std.mem.Allocator, attributes: []const OpAttribute) ![]const OpAttribute {
+    const copied = try allocator.alloc(OpAttribute, attributes.len);
+    errdefer allocator.free(copied);
+
+    var copied_len: usize = 0;
+    errdefer {
+        for (copied[0..copied_len]) |attribute| {
+            freeAttribute(allocator, attribute);
+        }
+    }
+
+    for (attributes, 0..) |attribute, index| {
+        copied[index] = try dupeAttribute(allocator, attribute);
+        copied_len += 1;
+    }
+    return copied;
+}
+
+fn dupeAttribute(allocator: std.mem.Allocator, attribute: OpAttribute) !OpAttribute {
+    return .{
+        .key = try allocator.dupe(u8, attribute.key),
+        .value = try dupeAttributeValue(allocator, attribute.value),
+    };
+}
+
+fn dupeAttributeValue(allocator: std.mem.Allocator, value: AttributeValue) !AttributeValue {
+    return switch (value) {
+        .bool => |item| .{ .bool = item },
+        .int => |item| .{ .int = item },
+        .uint => |item| .{ .uint = item },
+        .float => |item| .{ .float = item },
+        .string => |item| .{ .string = try allocator.dupe(u8, item) },
+        .usize_list => |item| .{ .usize_list = try allocator.dupe(usize, item) },
+        .int_list => |item| .{ .int_list = try allocator.dupe(i64, item) },
+    };
+}
+
+fn freeAttributes(allocator: std.mem.Allocator, attributes: []const OpAttribute) void {
+    for (attributes) |attribute| {
+        freeAttribute(allocator, attribute);
+    }
+    allocator.free(attributes);
+}
+
+fn freeAttribute(allocator: std.mem.Allocator, attribute: OpAttribute) void {
+    allocator.free(attribute.key);
+    switch (attribute.value) {
+        .string => |value| allocator.free(value),
+        .usize_list => |value| allocator.free(value),
+        .int_list => |value| allocator.free(value),
+        else => {},
+    }
 }

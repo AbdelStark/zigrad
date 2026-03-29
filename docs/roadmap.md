@@ -73,7 +73,7 @@ documents we will implement against.
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Runtime selection, diagnostics, CUDA-safe DQN/GCN kernels, backend-dispatched Adam optimizer updates, host-staged loss fallbacks for maintained training workloads, and benchmark-harness integration for checked-in CUDA-targeted specs are landed; real GPU compile/run validation and executed CUDA benchmark suites remain. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
 | RFC-0005 | ggml/GGUF Interop | `Planned` | P1 | RFC-0001, RFC-0012 | Critical for LLM examples and inference compatibility. |
-| RFC-0006 | Lazy Tensors | `Ready` | P1 | RFC-0001, RFC-0002, RFC-0003 | Opt-in lazy-session capture, graph inspection dumps, and explicit materialization events are landed; deferred execution, lowering, and autograd-aware realization remain. |
+| RFC-0006 | Lazy Tensors | `Ready` | P1 | RFC-0001, RFC-0002, RFC-0003 | Opt-in lazy-session capture, graph inspection dumps, explicit materialization events, structured op attributes, and machine-readable session JSON dumps are landed; deferred execution, lowering, and autograd-aware realization remain. |
 | RFC-0007 | Static Graph Optimization | `Planned` | P1 | RFC-0006 | First optimization layer and foundation for compiler work. |
 | RFC-0008 | Dynamic Graph Compiler | `Draft` | P2 | RFC-0006, RFC-0007 | Specialization and caching for dynamic workloads. |
 | RFC-0009 | MLIR Lowering Pipeline | `Exploratory` | P2 | RFC-0007, RFC-0008 | Optional compiler interoperability layer. |
