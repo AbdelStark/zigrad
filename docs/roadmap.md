@@ -68,7 +68,7 @@ documents we will implement against.
 
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, external baseline-runner smoke validation, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/compiler/interop/MNIST/char-LM/pendulum/DQN/GCN coverage, conv-lowering and broadcast-fallback matmul coverage, host thread-sweep/scaling-report workflows, and backend-aware CUDA benchmark request specs with explicit skip/fail semantics plus dedicated smoke coverage are landed; future real-GPU and external-format interop suites remain. |
+| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, external baseline-runner smoke validation, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/compiler/interop/MNIST/char-LM/pendulum/corridor-control/DQN/GCN coverage, conv-lowering and broadcast-fallback matmul coverage, host thread-sweep/scaling-report workflows, and backend-aware CUDA benchmark request specs with explicit skip/fail semantics plus dedicated smoke coverage are landed; future real-GPU and external-format interop suites remain. |
 | RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, a provider-sensitive numerical parity suite, opt-in runtime diagnostics hooks, example runtime smoke coverage for hello-world/MNIST/DQN/GCN, and Markdown/JSON provider plus thread-scaling report generators are landed; publication-path smoke validation now covers provider/thread reports and CI emits thread-scaling bundle artifacts, while oneMKL execution and published provider comparison runs remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Runtime selection, diagnostics, CUDA-safe DQN/GCN kernels, backend-dispatched Adam optimizer updates, host-staged loss fallbacks for maintained training workloads, and benchmark-harness integration for checked-in CUDA-targeted specs are landed; real GPU compile/run validation and executed CUDA benchmark suites remain. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
@@ -192,6 +192,46 @@ Every RFC in this folder set must maintain:
   - `zig build benchmark-validate -- --group compiler`
   - `zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json --baseline pytorch --output .zig-cache/compiler-mnist-capture-baseline.jsonl`
   - `zig build benchmark-validate -- --input .zig-cache/compiler-mnist-capture-baseline.jsonl`
+
+### RFC-0001 2026-03-29 Corridor-Control Compiler Capture Baseline Slice
+
+- Completed:
+  - Added a maintained corridor-control compiler capture workload and checked-in
+    spec under
+    [`benchmarks/src/workload.zig`](../benchmarks/src/workload.zig),
+    [`benchmarks/src/manifest.zig`](../benchmarks/src/manifest.zig), and
+    [`benchmarks/specs/compiler/corridor-control-capture-synthetic.json`](../benchmarks/specs/compiler/corridor-control-capture-synthetic.json),
+    reusing the deterministic transition generator and capture-only Q-learning
+    loss graph from the maintained RL benchmark family.
+  - Extended
+    [`benchmarks/runners/pytorch/mnist_mlp.py`](../benchmarks/runners/pytorch/mnist_mlp.py)
+    plus the maintained corridor train/infer specs so corridor train, infer,
+    and compiler-capture rows now all participate in the optional PyTorch
+    baseline contract instead of splitting the RL example across Zig-only and
+    cross-framework surfaces.
+  - Expanded smoke coverage and docs through
+    [`tests/src/benchmark_smoke_main.zig`](../tests/src/benchmark_smoke_main.zig),
+    [`tests/src/benchmark_baseline_smoke_main.zig`](../tests/src/benchmark_baseline_smoke_main.zig),
+    [`README.md`](../README.md),
+    [`benchmarks/README.md`](../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../benchmarks/AUTHORING.md).
+- Remains:
+  - Add compiler-capture coverage for other maintained families that still stop
+    at train/infer only if compiler prioritization needs them before lazy or
+    optimized execution exists.
+  - Extend corridor capture into realized lazy/optimized execution once
+    RFC-0006 and RFC-0007 expose those pipelines.
+- Blockers:
+  - Compiler benchmarking is still limited to eager graph capture in this
+    environment, so corridor rows cannot yet measure optimization passes or
+    compiled execution.
+- Validation:
+  - `zig build benchmark -- --spec benchmarks/specs/compiler/corridor-control-capture-synthetic.json --output .zig-cache/corridor-compiler-capture.jsonl`
+  - `zig build benchmark -- --spec benchmarks/specs/compiler/corridor-control-capture-synthetic.json --baseline pytorch --output .zig-cache/corridor-compiler-capture-baseline.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/corridor-compiler-capture-baseline.jsonl`
+  - `zig build test-benchmark-smoke`
+  - `zig build test-benchmark-baseline-smoke`
+  - `zig build test`
 
 ### RFC-0012 2026-03-28 Char-LM Reference Example And Benchmark Slice
 

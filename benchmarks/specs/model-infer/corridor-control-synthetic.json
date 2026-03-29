@@ -16,5 +16,6 @@
       "run greedy Q-network inference without environment stepping"
     ]
   },
+  "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py",
   "notes": "Deterministic corridor-control inference step for the upgraded maintained RL reference example."
 }

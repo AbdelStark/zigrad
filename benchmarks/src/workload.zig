@@ -91,6 +91,7 @@ pub fn expectedBatchSize(spec: manifest.Spec) ?usize {
         .memory_mnist_train_step,
         .compiler_mnist_mlp_capture,
         .compiler_char_lm_capture,
+        .compiler_corridor_control_capture,
         .compiler_dqn_cartpole_capture,
         .mnist_mlp_train,
         .mnist_mlp_infer,
@@ -147,6 +148,7 @@ pub fn expectedShapeMetadata(
         => shapeMetadataFromPendulum(allocator, spec),
         .corridor_control_train => shapeMetadataFromCorridorTrain(allocator, spec),
         .corridor_control_infer => shapeMetadataFromCorridorInfer(allocator, spec),
+        .compiler_corridor_control_capture => shapeMetadataFromCorridorTrain(allocator, spec),
         .compiler_dqn_cartpole_capture => shapeMetadataFromDqnTrain(allocator, spec),
         .interop_dqn_cartpole_safetensors_export,
         .interop_dqn_cartpole_safetensors_import,
@@ -242,6 +244,7 @@ pub fn run(allocator: std.mem.Allocator, spec: manifest.Spec) !RunResult {
         .memory_mnist_train_step => runMemoryMnistTrainStep(allocator, spec, &context),
         .compiler_mnist_mlp_capture => runCompilerMnistCapture(allocator, spec, &context),
         .compiler_char_lm_capture => runCompilerCharLmCapture(allocator, spec, &context),
+        .compiler_corridor_control_capture => runCompilerCorridorCapture(allocator, spec, &context),
         .compiler_dqn_cartpole_capture => runCompilerDqnCapture(allocator, spec, &context),
         .compiler_gcn_capture => runCompilerGcnCapture(allocator, spec, &context),
         .interop_mnist_mlp_safetensors_export => runInteropMnistSafetensorsExport(allocator, spec, &context),
@@ -871,6 +874,96 @@ fn runCompilerCharLmCapture(allocator: std.mem.Allocator, spec: manifest.Spec, c
 
     return .{
         .shapes = try shapeMetadataFromCharLm(allocator, spec),
+        .batch_size = batch_size,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings,
+        .throughput_items = batch_size,
+        .throughput_unit = "samples",
+        .memory = compilerCaptureMemoryStats(host, peak_graph_arena_bytes, graph.queryArenaCapacityBytes()),
+        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
+        .notes = spec.notes,
+    };
+}
+
+fn runCompilerCorridorCapture(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
+    const batch_size = spec.batch_size.?;
+
+    var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
+    defer graph.deinit();
+
+    const host = context.host();
+    const device = context.device();
+
+    var timer = try std.time.Timer.start();
+    var policy = try CorridorControlModel(f32).initWithGraphAndSeed(
+        device,
+        corridor.state_feature_count,
+        corridorHiddenSize(),
+        corridor.action_count,
+        &graph,
+        spec.seed,
+    );
+    defer policy.deinit();
+
+    var target = try policy.clone();
+    defer target.deinit();
+    target.set_requires_grad(false);
+
+    var generated = try corridor.generateSyntheticTransitionBatch(allocator, batch_size, spec.seed +% 163, .{});
+    defer generated.deinit(allocator);
+    const action_mask_values = try makeActionMask(allocator, generated.actions, corridor.action_count);
+    defer allocator.free(action_mask_values);
+    const gamma_values = try makeFilledSlice(allocator, batch_size, 0.97);
+    defer allocator.free(gamma_values);
+    const one_values = try makeFilledSlice(allocator, batch_size, 1.0);
+    defer allocator.free(one_values);
+
+    const setup_latency_ns = timer.read();
+
+    for (0..spec.warmup_iterations) |_| {
+        try oneCompilerCorridorCaptureStep(
+            &graph,
+            device,
+            &policy,
+            &target,
+            generated.states,
+            generated.next_states,
+            action_mask_values,
+            generated.rewards,
+            generated.dones,
+            gamma_values,
+            one_values,
+            spec.input_shape.?,
+        );
+    }
+
+    if (host) |value| value.resetCacheTelemetry();
+    maybeResetHostBenchmarkTelemetry(host);
+    var peak_graph_arena_bytes = graph.queryArenaCapacityBytes();
+    const timings = try allocator.alloc(u64, spec.measured_iterations);
+
+    for (timings) |*timing| {
+        timer.reset();
+        try oneCompilerCorridorCaptureStep(
+            &graph,
+            device,
+            &policy,
+            &target,
+            generated.states,
+            generated.next_states,
+            action_mask_values,
+            generated.rewards,
+            generated.dones,
+            gamma_values,
+            one_values,
+            spec.input_shape.?,
+        );
+        timing.* = timer.read();
+        peak_graph_arena_bytes = @max(peak_graph_arena_bytes, graph.queryArenaCapacityBytes());
+    }
+
+    return .{
+        .shapes = try shapeMetadataFromCorridorTrain(allocator, spec),
         .batch_size = batch_size,
         .setup_latency_ns = setup_latency_ns,
         .timings_ns = timings,
@@ -2359,6 +2452,52 @@ fn oneCorridorTrainingStep(
     try target.soft_update_from(policy, 0.08);
 }
 
+fn oneCompilerCorridorCaptureStep(
+    graph: *zg.Graph,
+    device: zg.DeviceReference,
+    policy: *CorridorControlModel(f32),
+    target: *CorridorControlModel(f32),
+    state_values: []const f32,
+    next_state_values: []const f32,
+    action_mask_values: []const f32,
+    reward_values: []const f32,
+    done_values: []const f32,
+    gamma_values: []const f32,
+    one_values: []const f32,
+    input_shape: []const usize,
+) !void {
+    const Tensor = zg.NDTensor(f32);
+    const batch_size = input_shape[0];
+    const selector_values = [_]f32{ 1.0, 1.0, 1.0 };
+
+    const states = try Tensor.from_slice(device, state_values, input_shape, .{ .graph = graph });
+    const next_states = try Tensor.from_slice(device, next_state_values, input_shape, .{ .graph = graph });
+    const action_mask = try Tensor.from_slice(device, action_mask_values, &.{ batch_size, corridor.action_count }, .{ .graph = graph });
+    const rewards = try Tensor.from_slice(device, reward_values, &.{ batch_size, 1 }, .{ .graph = graph });
+    const dones = try Tensor.from_slice(device, done_values, &.{ batch_size, 1 }, .{ .graph = graph });
+    const gamma = try Tensor.from_slice(device, gamma_values, &.{ batch_size, 1 }, .{ .graph = graph });
+    const ones = try Tensor.from_slice(device, one_values, &.{ batch_size, 1 }, .{ .graph = graph });
+    const selector = try Tensor.from_slice(device, &selector_values, &.{ corridor.action_count, 1 }, .{ .graph = graph });
+
+    const previous_grad_state = zg.runtime.grad_enabled;
+    zg.runtime.grad_enabled = false;
+    defer zg.runtime.grad_enabled = previous_grad_state;
+
+    const next_q_values = try target.forward(next_states);
+    const max_next_q_values = try next_q_values.max_along(.{ .dim = 1, .keep_dims = true });
+    const discounted = try max_next_q_values.mul(gamma);
+    const not_done = try ones.sub(dones);
+    const masked = try discounted.mul(not_done);
+    const targets = try rewards.add(masked);
+
+    zg.runtime.grad_enabled = true;
+    const all_q_values = try policy.forward(states);
+    const masked_q_values = try all_q_values.mul(action_mask);
+    const selected_q_values = try masked_q_values.bmm(selector, .{});
+    const loss = try zg.loss.smooth_l1_loss(f32, selected_q_values, targets, 1.0);
+    graph.teardown(&loss.node);
+}
+
 fn oneCompilerDqnCaptureStep(
     graph: *zg.Graph,
     device: zg.DeviceReference,
@@ -3225,6 +3364,39 @@ test "run compiler char lm capture benchmark" {
     const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
     try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
     try std.testing.expectEqual(@as(usize, 2), output.shapes.len);
+    try std.testing.expect(output.memory != null);
+    try std.testing.expect(output.memory.?.peak_graph_arena_bytes.? > 0);
+}
+
+test "run compiler corridor capture benchmark" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const input_shape = [_]usize{ 8, 3 };
+    const spec: manifest.Spec = .{
+        .id = "test.compiler.corridor.capture",
+        .suite = .compiler,
+        .kind = .compiler_corridor_control_capture,
+        .dtype = .f32,
+        .warmup_iterations = 0,
+        .measured_iterations = 1,
+        .batch_size = 8,
+        .thread_count = 1,
+        .seed = 1,
+        .input_shape = input_shape[0..],
+        .provenance = inlineProvenance(&.{
+            "sample deterministic corridor start states",
+            "simulate one-step corridor transitions",
+            "capture Q-learning loss graph without backward execution",
+        }),
+        .path = "inline",
+    };
+
+    const run_result = try run(arena.allocator(), spec);
+    try std.testing.expectEqual(result.Status.ok, run_result.status);
+    const output = run_result.output orelse return error.MissingBenchmarkRunOutput;
+    try std.testing.expectEqual(@as(usize, 1), output.timings_ns.len);
+    try std.testing.expectEqual(@as(usize, 5), output.shapes.len);
     try std.testing.expect(output.memory != null);
     try std.testing.expect(output.memory.?.peak_graph_arena_bytes.? > 0);
 }

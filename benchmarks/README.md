@@ -48,6 +48,7 @@ zig build benchmark -- --spec benchmarks/specs/model-infer/char-lm-synthetic.jso
 zig build benchmark -- --spec benchmarks/specs/model-infer/pendulum-dynamics-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/corridor-control-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json
+zig build benchmark -- --spec benchmarks/specs/compiler/corridor-control-capture-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/interop/mnist-mlp-safetensors-import-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json
 zig build benchmark -- --spec benchmarks/specs/primitive/matmul-f32-256x256x256.json --thread-count 1 --thread-count 2 --thread-count 4
@@ -186,6 +187,7 @@ emits both a machine-readable manifest and a Markdown summary for humans.
 - `compiler`
   - synthetic MNIST-style forward-plus-loss graph capture
   - synthetic char-level causal language model forward-plus-loss graph capture
+  - synthetic deterministic corridor-control Q-learning loss graph capture
   - synthetic CartPole-shaped DQN loss graph capture
   - synthetic two-layer GCN forward-plus-loss graph capture on a deterministic graph
 - `interop`
@@ -223,7 +225,9 @@ batches for the maintained reference Q-network.
 The compiler suite measures repeated eager graph-session capture on persistent
 reference-model parameters, pairing each capture step with explicit graph
 teardown so setup cost stays separate from measured forward-plus-loss graph
-construction.
+construction. Corridor-control capture mirrors the maintained RL benchmark by
+building the same bootstrap target and Smooth L1 loss graph used in the train
+step, but stops before backward or optimizer execution.
 The interop suite currently measures in-memory safetensors checkpoint
 encode/decode cost for maintained affine-stack model families, which keeps the
 signal focused on artifact translation and model reconstruction instead of

@@ -16,5 +16,6 @@
       "materialize Q-learning rewards and done masks"
     ]
   },
+  "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py",
   "notes": "Deterministic corridor-control Q-learning step for the upgraded maintained RL reference example."
 }

@@ -1,0 +1,22 @@
+{
+  "id": "compiler.corridor-control.capture.synthetic.f32.batch24",
+  "suite": "compiler",
+  "kind": "compiler_corridor_control_capture",
+  "dtype": "f32",
+  "warmup_iterations": 1,
+  "measured_iterations": 3,
+  "batch_size": 24,
+  "input_shape": [24, 3],
+  "seed": 20260329,
+  "provenance": {
+    "data_source": "synthetic.splitmix64",
+    "preprocessing": [
+      "sample deterministic corridor start states",
+      "simulate one-step corridor transitions",
+      "materialize action masks and bootstrap targets",
+      "capture Q-learning loss graph without backward execution"
+    ]
+  },
+  "pytorch_runner": "benchmarks/runners/pytorch/mnist_mlp.py",
+  "notes": "Captures the maintained corridor-control Q-learning loss graph without optimizer execution."
+}

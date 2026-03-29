@@ -61,6 +61,18 @@ def shape_metadata(spec: dict):
         if spec.get("label_shape"):
             shapes.append({"name": "labels", "dims": spec["label_shape"]})
         return shapes
+    if kind in {"corridor_control_train", "compiler_corridor_control_capture"}:
+        batch_size = spec["batch_size"]
+        input_shape = spec["input_shape"]
+        return [
+            {"name": "state", "dims": input_shape},
+            {"name": "next_state", "dims": input_shape},
+            {"name": "action", "dims": [batch_size, 1]},
+            {"name": "reward", "dims": [batch_size, 1]},
+            {"name": "done", "dims": [batch_size, 1]},
+        ]
+    if kind == "corridor_control_infer":
+        return [{"name": "state", "dims": spec["input_shape"]}]
     return [{"name": "input", "dims": spec.get("input_shape") or spec.get("lhs_shape") or []}]
 
 
@@ -69,6 +81,8 @@ def throughput(spec: dict):
     if kind in {"blas_dot", "autograd_dot_backward"}:
         return spec["lhs_shape"][0], "elements"
     if kind in {"mnist_mlp_train", "mnist_mlp_infer"}:
+        return spec.get("batch_size"), "samples"
+    if kind in {"corridor_control_train", "corridor_control_infer", "compiler_corridor_control_capture"}:
         return spec.get("batch_size"), "samples"
     return None, None
 

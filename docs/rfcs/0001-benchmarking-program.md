@@ -4,7 +4,7 @@ Status: `Ready`
 Priority: `P0`  
 Depends on: None  
 Blocks: RFC-0002, RFC-0003, RFC-0004, RFC-0005, RFC-0006, RFC-0012  
-Last updated: `2026-03-28`
+Last updated: `2026-03-29`
 
 ## Summary
 
@@ -313,6 +313,52 @@ Regression gating should use broad thresholds first, for example:
   - `zig build benchmark-validate -- --group compiler`
   - `zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json --baseline pytorch --output .zig-cache/compiler-mnist-capture-baseline.jsonl`
   - `zig build benchmark-validate -- --input .zig-cache/compiler-mnist-capture-baseline.jsonl`
+
+### 2026-03-29 Corridor-Control Compiler Capture Baseline Slice
+
+- Completed:
+  - Extended
+    [`benchmarks/src/manifest.zig`](../../benchmarks/src/manifest.zig),
+    [`benchmarks/src/workload.zig`](../../benchmarks/src/workload.zig), and
+    [`benchmarks/specs/compiler/corridor-control-capture-synthetic.json`](../../benchmarks/specs/compiler/corridor-control-capture-synthetic.json)
+    with a maintained corridor-control compiler-capture workload that reuses
+    the deterministic RL transition generator, builds the same bootstrap target
+    and Smooth L1 loss graph as the train benchmark, and tears the graph down
+    without entering backward or optimizer execution.
+  - Extended
+    [`benchmarks/runners/pytorch/mnist_mlp.py`](../../benchmarks/runners/pytorch/mnist_mlp.py)
+    plus the maintained corridor train/infer specs in
+    [`benchmarks/specs/model-train/corridor-control-synthetic.json`](../../benchmarks/specs/model-train/corridor-control-synthetic.json)
+    and
+    [`benchmarks/specs/model-infer/corridor-control-synthetic.json`](../../benchmarks/specs/model-infer/corridor-control-synthetic.json)
+    so the full corridor benchmark family now participates in the optional
+    PyTorch baseline contract instead of leaving the maintained RL example with
+    partial cross-framework coverage.
+  - Updated
+    [`tests/src/benchmark_smoke_main.zig`](../../tests/src/benchmark_smoke_main.zig),
+    [`tests/src/benchmark_baseline_smoke_main.zig`](../../tests/src/benchmark_baseline_smoke_main.zig),
+    [`README.md`](../../README.md),
+    [`benchmarks/README.md`](../../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md)
+    so corridor compiler capture is exercised in smoke coverage and documented
+    alongside the existing compiler and maintained-model suites.
+- Remains:
+  - Add comparable compiler-capture slices for maintained families that still
+    stop at train/infer only, such as pendulum dynamics, if they become
+    important for compiler prioritization before RFC-0006 and RFC-0007 land.
+  - Grow corridor capture beyond eager graph construction into realized lazy or
+    optimized execution once those downstream RFCs expose executable pipelines.
+- Blockers:
+  - The compiler suite is still limited to eager graph capture in this
+    environment, so the new corridor row cannot yet measure optimization-pass
+    cost, lazy realization, or compiled execution.
+- Validation performed:
+  - `zig build benchmark -- --spec benchmarks/specs/compiler/corridor-control-capture-synthetic.json --output .zig-cache/corridor-compiler-capture.jsonl`
+  - `zig build benchmark -- --spec benchmarks/specs/compiler/corridor-control-capture-synthetic.json --baseline pytorch --output .zig-cache/corridor-compiler-capture-baseline.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/corridor-compiler-capture-baseline.jsonl`
+  - `zig build test-benchmark-smoke`
+  - `zig build test-benchmark-baseline-smoke`
+  - `zig build test`
 
 ### 2026-03-28 Char-LM Benchmark Coverage
 

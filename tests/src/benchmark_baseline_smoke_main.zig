@@ -13,6 +13,9 @@ const missing_runner_path = "tests/fixtures/does-not-exist.py";
 const success_specs = [_][]const u8{
     "benchmarks/specs/blas/dot-f32-262144.json",
     "benchmarks/specs/model-infer/mnist-mlp-synthetic.json",
+    "benchmarks/specs/model-train/corridor-control-synthetic.json",
+    "benchmarks/specs/model-infer/corridor-control-synthetic.json",
+    "benchmarks/specs/compiler/corridor-control-capture-synthetic.json",
 };
 const failure_spec = "benchmarks/specs/blas/dot-f32-262144.json";
 
@@ -262,6 +265,15 @@ fn benchmarkIdForSpec(spec_path: []const u8) []const u8 {
     }
     if (std.mem.eql(u8, spec_path, "benchmarks/specs/model-infer/mnist-mlp-synthetic.json")) {
         return "model-infer.mnist-mlp.synthetic.f32.batch64";
+    }
+    if (std.mem.eql(u8, spec_path, "benchmarks/specs/model-train/corridor-control-synthetic.json")) {
+        return "model-train.corridor-control.synthetic.f32.batch24";
+    }
+    if (std.mem.eql(u8, spec_path, "benchmarks/specs/model-infer/corridor-control-synthetic.json")) {
+        return "model-infer.corridor-control.synthetic.f32.batch24";
+    }
+    if (std.mem.eql(u8, spec_path, "benchmarks/specs/compiler/corridor-control-capture-synthetic.json")) {
+        return "compiler.corridor-control.capture.synthetic.f32.batch24";
     }
     unreachable;
 }

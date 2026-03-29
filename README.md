@@ -108,6 +108,8 @@ instead of silently dropping the baseline row.
 Compiler capture specs such as
 [`benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json`](./benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json)
 and
+[`benchmarks/specs/compiler/corridor-control-capture-synthetic.json`](./benchmarks/specs/compiler/corridor-control-capture-synthetic.json)
+and
 [`benchmarks/specs/compiler/gcn-capture-synthetic.json`](./benchmarks/specs/compiler/gcn-capture-synthetic.json)
 reuse persistent model parameters while timing only forward-plus-loss graph
 construction plus explicit teardown, which gives RFC-0001 a first executable
@@ -115,6 +117,7 @@ compiler-facing benchmark surface before RFC-0006 lazy tensors land:
 
 ```shell
 zig build benchmark-compiler
+zig build benchmark -- --spec benchmarks/specs/compiler/corridor-control-capture-synthetic.json --baseline pytorch --output .zig-cache/zigrad-corridor-compiler-capture.jsonl
 zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json --baseline pytorch --output .zig-cache/zigrad-compiler-capture.jsonl
 zig build benchmark-validate -- --input .zig-cache/zigrad-compiler-capture.jsonl
 ```

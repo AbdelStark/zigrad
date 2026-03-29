@@ -115,6 +115,100 @@ def pendulum_transition_batch(batch_size: int, seed: int):
     return inputs, labels
 
 
+def clamp_int(value: int, lower: int, upper: int):
+    return max(lower, min(upper, value))
+
+
+def corridor_state(position: int, velocity: int):
+    goal_position = 8
+    pit_position = 0
+    max_velocity = 1
+    span = float(goal_position - pit_position)
+    position_norm = (((position - pit_position) / span) * 2.0) - 1.0
+    velocity_norm = velocity / float(max_velocity)
+    goal_distance_norm = (goal_position - position) / span
+    return [position_norm, velocity_norm, goal_distance_norm]
+
+
+def corridor_start_state(index: int, seed: int):
+    goal_position = 8
+    pit_position = 0
+    max_velocity = 1
+    position_span = goal_position - pit_position - 1
+    position_offset = splitmix64(seed + (index * 13) + 1) % position_span
+    velocity_span = (max_velocity * 2) + 1
+    raw_velocity = splitmix64(seed + (index * 13) + 2) % velocity_span
+    return pit_position + 1 + position_offset, raw_velocity - max_velocity
+
+
+def corridor_action(position: int, velocity: int, seed: int):
+    goal_position = 8
+    pit_position = 0
+    noise = splitmix64(seed) % 7
+    if noise == 0 and position > pit_position + 1:
+        return 0
+    if noise == 1 and position >= goal_position - 2 and velocity > 0:
+        return 1
+    if velocity < 0:
+        return 2
+    if position >= goal_position - 1:
+        return 1
+    return 2
+
+
+def corridor_step(position: int, velocity: int, action_index: int):
+    goal_position = 8
+    pit_position = 0
+    max_velocity = 1
+    max_steps = 16
+    progress_reward = 0.12
+    step_penalty = -0.03
+    goal_reward = 1.0
+    pit_penalty = -1.0
+
+    force = (-1, 0, 1)[action_index]
+    previous_distance = goal_position - position
+    next_velocity = clamp_int(velocity + force, -max_velocity, max_velocity)
+    next_position = clamp_int(position + next_velocity, pit_position, goal_position)
+    distance_delta = previous_distance - (goal_position - next_position)
+    reward = step_penalty + (progress_reward * distance_delta)
+    reached_goal = next_position >= goal_position
+    fell_into_pit = next_position <= pit_position
+    if reached_goal:
+        reward += goal_reward
+    if fell_into_pit:
+        reward += pit_penalty
+    done = reached_goal or fell_into_pit or 1 >= max_steps
+    return corridor_state(next_position, next_velocity), reward, 1.0 if done else 0.0
+
+
+def corridor_transition_batch(batch_size: int, seed: int):
+    states = [0.0] * (batch_size * 3)
+    next_states = [0.0] * (batch_size * 3)
+    actions = [0] * batch_size
+    rewards = [0.0] * batch_size
+    dones = [0.0] * batch_size
+    for row in range(batch_size):
+        position, velocity = corridor_start_state(row, seed)
+        action_index = corridor_action(position, velocity, seed + (row * 11) + 3)
+        state = corridor_state(position, velocity)
+        next_state, reward, done = corridor_step(position, velocity, action_index)
+        states[row * 3 : (row + 1) * 3] = state
+        next_states[row * 3 : (row + 1) * 3] = next_state
+        actions[row] = action_index
+        rewards[row] = reward
+        dones[row] = done
+    return states, next_states, actions, rewards, dones
+
+
+def corridor_state_batch(batch_size: int, seed: int):
+    states = [0.0] * (batch_size * 3)
+    for row in range(batch_size):
+        position, velocity = corridor_start_state(row, seed + 7)
+        states[row * 3 : (row + 1) * 3] = corridor_state(position, velocity)
+    return states
+
+
 def ring_skip_edges(node_count: int, fanout: int = 4):
     src = []
     tgt = []
@@ -241,6 +335,18 @@ def shape_metadata(spec: dict):
             shapes.append({"name": "labels", "dims": spec["label_shape"]})
         return shapes
 
+    if kind in {"corridor_control_train", "compiler_corridor_control_capture"}:
+        return [
+            {"name": "state", "dims": input_shape},
+            {"name": "next_state", "dims": input_shape},
+            {"name": "action", "dims": [batch_size, 1]},
+            {"name": "reward", "dims": [batch_size, 1]},
+            {"name": "done", "dims": [batch_size, 1]},
+        ]
+
+    if kind == "corridor_control_infer":
+        return [{"name": "state", "dims": input_shape}]
+
     if kind in {"dqn_cartpole_train", "compiler_dqn_cartpole_capture"}:
         return [
             {"name": "state", "dims": input_shape},
@@ -343,6 +449,9 @@ def throughput_shape(spec: dict):
         "compiler_char_lm_capture",
         "pendulum_dynamics_train",
         "pendulum_dynamics_infer",
+        "corridor_control_train",
+        "corridor_control_infer",
+        "compiler_corridor_control_capture",
         "dqn_cartpole_train",
         "dqn_cartpole_infer",
         "compiler_dqn_cartpole_capture",
@@ -385,6 +494,9 @@ def main() -> int:
         "compiler_char_lm_capture",
         "pendulum_dynamics_train",
         "pendulum_dynamics_infer",
+        "corridor_control_train",
+        "corridor_control_infer",
+        "compiler_corridor_control_capture",
         "dqn_cartpole_train",
         "dqn_cartpole_infer",
         "compiler_dqn_cartpole_capture",
@@ -493,6 +605,22 @@ def main() -> int:
             self.w1 = torch.nn.Parameter(linear_weight(48, 48, seed + 2))
             self.b1 = torch.nn.Parameter(torch.zeros(48, dtype=torch.float32))
             self.w2 = torch.nn.Parameter(linear_weight(3, 48, seed + 3))
+            self.b2 = torch.nn.Parameter(torch.zeros(3, dtype=torch.float32))
+
+        def forward(self, x):
+            x = x.reshape(x.shape[0], -1)
+            x = F.relu(F.linear(x, self.w0, self.b0))
+            x = F.relu(F.linear(x, self.w1, self.b1))
+            return F.linear(x, self.w2, self.b2)
+
+    class CorridorControlModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.w0 = torch.nn.Parameter(linear_weight(32, 3, seed + 1))
+            self.b0 = torch.nn.Parameter(torch.zeros(32, dtype=torch.float32))
+            self.w1 = torch.nn.Parameter(linear_weight(32, 32, seed + 2))
+            self.b1 = torch.nn.Parameter(torch.zeros(32, dtype=torch.float32))
+            self.w2 = torch.nn.Parameter(linear_weight(3, 32, seed + 3))
             self.b2 = torch.nn.Parameter(torch.zeros(3, dtype=torch.float32))
 
         def forward(self, x):
@@ -671,6 +799,78 @@ def main() -> int:
                 _ = model(inputs)
 
         step = train_step if kind == "pendulum_dynamics_train" else infer_step
+
+    elif kind in {"corridor_control_train", "corridor_control_infer", "compiler_corridor_control_capture"}:
+        batch_size = spec["batch_size"]
+        input_shape = spec["input_shape"]
+        policy = CorridorControlModel()
+
+        def soft_update(target_model, source_model, tau: float):
+            with torch.no_grad():
+                for target_param, source_param in zip(target_model.parameters(), source_model.parameters()):
+                    target_param.mul_(1.0 - tau).add_(source_param * tau)
+
+        if kind in {"corridor_control_train", "compiler_corridor_control_capture"}:
+            optimizer = (
+                torch.optim.Adam(policy.parameters(), lr=0.004, betas=(0.9, 0.999), eps=1e-8)
+                if kind == "corridor_control_train"
+                else None
+            )
+            target = CorridorControlModel()
+            target.load_state_dict(policy.state_dict())
+            state_values, next_state_values, action_values, reward_value_list, done_value_list = corridor_transition_batch(
+                batch_size,
+                seed + 151 if kind == "corridor_control_train" else seed + 163,
+            )
+            states = torch.tensor(state_values, dtype=torch.float32).reshape(*input_shape)
+            next_states = torch.tensor(next_state_values, dtype=torch.float32).reshape(*input_shape)
+            action_mask = torch.tensor(
+                one_hot(batch_size, 3, 0),
+                dtype=torch.float32,
+            ).reshape(batch_size, 3)
+            action_mask.zero_()
+            action_mask.scatter_(1, torch.tensor(action_values, dtype=torch.int64).reshape(batch_size, 1), 1.0)
+            rewards = torch.tensor(reward_value_list, dtype=torch.float32).reshape(batch_size, 1)
+            dones = torch.tensor(done_value_list, dtype=torch.float32).reshape(batch_size, 1)
+            selector = torch.ones((3, 1), dtype=torch.float32)
+
+            def train_step():
+                with torch.no_grad():
+                    next_q = target(next_states)
+                    max_next_q = next_q.max(dim=1, keepdim=True).values
+                    targets = rewards + 0.97 * max_next_q * (1.0 - dones)
+
+                all_q = policy(states)
+                selected_q = torch.mm(all_q * action_mask, selector)
+                loss = F.smooth_l1_loss(selected_q, targets, reduction="mean")
+                loss.backward()
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=False)
+                soft_update(target, policy, 0.08)
+
+            def capture_step():
+                with torch.no_grad():
+                    next_q = target(next_states)
+                    max_next_q = next_q.max(dim=1, keepdim=True).values
+                    targets = rewards + 0.97 * max_next_q * (1.0 - dones)
+
+                all_q = policy(states)
+                selected_q = torch.mm(all_q * action_mask, selector)
+                loss = F.smooth_l1_loss(selected_q, targets, reduction="mean")
+                del loss
+                del selected_q
+                del all_q
+
+            step = train_step if kind == "corridor_control_train" else capture_step
+        else:
+            state_values = corridor_state_batch(batch_size, seed + 157)
+            states = torch.tensor(state_values, dtype=torch.float32).reshape(*input_shape)
+
+            def infer_step():
+                with torch.no_grad():
+                    _ = policy(states)
+
+            step = infer_step
 
     elif kind in {"dqn_cartpole_train", "dqn_cartpole_infer", "compiler_dqn_cartpole_capture"}:
         batch_size = spec["batch_size"]
