@@ -104,6 +104,8 @@ Every result record must contain:
 - backend configuration: Accelerate/OpenBLAS/oneMKL/CUDA/etc,
 - dtype,
 - tensor shapes,
+- suite-specific metadata where relevant, for example interop artifact bytes
+  and tensor count for checkpoint-oriented workloads,
 - batch size,
 - warmup count,
 - measured iterations,
@@ -224,6 +226,44 @@ Regression gating should use broad thresholds first, for example:
 - Should result archives live in the main repo or an external artifact store?
 
 ## Agentic Context
+
+### 2026-03-29 Interop Artifact/Tensor Telemetry Contract
+
+- Completed:
+  - Extended
+    [`benchmarks/src/result.zig`](../../benchmarks/src/result.zig),
+    [`benchmarks/src/workload.zig`](../../benchmarks/src/workload.zig),
+    [`benchmarks/src/cli.zig`](../../benchmarks/src/cli.zig), and
+    [`benchmarks/src/validate.zig`](../../benchmarks/src/validate.zig)
+    so successful `interop` benchmark rows now emit a dedicated `interop`
+    object with `artifact_bytes` and `tensor_count` instead of leaving
+    checkpoint size and parameter cardinality implicit in generic throughput
+    and shape fields.
+  - Added unit coverage for result parsing, interop workload emission, and
+    validator enforcement so the new JSONL contract is exercised both at the
+    struct level and through real benchmark execution paths.
+  - Updated
+    [`README.md`](../../README.md),
+    [`benchmarks/README.md`](../../benchmarks/README.md),
+    [`benchmarks/AUTHORING.md`](../../benchmarks/AUTHORING.md), and
+    [`docs/roadmap.md`](../roadmap.md)
+    to describe the new interop telemetry and record the remaining RFC-0001
+    gap as external-format interop only.
+- Remains:
+  - Extend interop coverage beyond safetensors checkpoints into ONNX import,
+    GGUF load, and ZML translation benchmarks once those artifact paths land.
+- Blockers:
+  - ONNX, GGUF, and ZML execution paths are still unavailable in this
+    environment, so the interop suite remains limited to safetensors
+    checkpoint encode/decode and reconstruction telemetry.
+- Validation performed:
+  - `zig build test`
+  - `zig build benchmark-validate -- --group interop`
+  - `zig build benchmark -- --spec benchmarks/specs/interop/gcn-safetensors-import-synthetic.json --output .zig-cache/interop-contract.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/interop-contract.jsonl`
+  - `zig build benchmark-interop`
+  - `zig build test-benchmark-smoke`
+  - `zig build test-benchmark-publication-smoke`
 
 ### 2026-03-28 Safetensors Checkpoint Interop Benchmark Suite
 

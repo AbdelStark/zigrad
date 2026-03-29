@@ -144,6 +144,11 @@ pub const MemoryStats = struct {
     peak_scratch_bytes: ?u64 = null,
 };
 
+pub const InteropMetrics = struct {
+    artifact_bytes: usize,
+    tensor_count: usize,
+};
+
 pub const Record = struct {
     benchmark_id: []const u8,
     spec_path: ?[]const u8 = null,
@@ -164,6 +169,7 @@ pub const Record = struct {
     setup_latency_ns: ?u64 = null,
     stats: ?SummaryStats = null,
     memory: ?MemoryStats = null,
+    interop: ?InteropMetrics = null,
     notes: ?[]const u8 = null,
 };
 
@@ -271,4 +277,19 @@ test "load jsonl records from slice" {
     try std.testing.expectEqualStrings("1", records[0].backend.thread_environment.?.omp_num_threads.?);
     try std.testing.expectApproxEqAbs(@as(f64, 10.0), records[0].stats.?.mean_ns, 1e-9);
     try std.testing.expectEqual(@as(u64, 64), records[0].memory.?.peak_live_bytes.?);
+    try std.testing.expect(records[0].interop == null);
+}
+
+test "load jsonl interop metrics from slice" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const records = try parseJsonLines(allocator,
+        \\{"benchmark_id":"interop.mnist.synthetic","spec_path":"benchmarks/specs/interop/mnist.json","suite":"interop","kind":"interop_mnist_mlp_safetensors_export","runner":"zig","status":"ok","dtype":"f32","warmup_iterations":0,"measured_iterations":1,"batch_size":null,"seed":1,"shapes":[{"name":"weights.0","dims":[128,784]},{"name":"biases.0","dims":[128]}],"provenance":{"data_source":"synthetic.splitmix64","preprocessing":["materialize deterministic benchmark mnist parameters","encode affine parameter stack as safetensors bytes"]},"runtime":{"timestamp_unix_ms":1,"git_commit":"deadbeef","git_dirty":false,"zig_version":"0.15.2","harness_version":"0.1.0"},"system":{"os":"linux","kernel":"test","arch":"x86_64","cpu_model":"cpu","cpu_logical_cores":1,"cpu_frequency_policy":"performance","total_memory_bytes":null},"backend":{"device":"host","host_provider":"accelerate","thread_count":1,"accelerator":null},"setup_latency_ns":10,"stats":{"min_ns":10,"median_ns":10,"mean_ns":10.0,"p95_ns":10,"max_ns":10,"throughput_per_second":100.0,"throughput_unit":"bytes"},"memory":null,"interop":{"artifact_bytes":4096,"tensor_count":2},"notes":null}
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), records.len);
+    try std.testing.expectEqual(@as(usize, 4096), records[0].interop.?.artifact_bytes);
+    try std.testing.expectEqual(@as(usize, 2), records[0].interop.?.tensor_count);
 }

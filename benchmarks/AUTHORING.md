@@ -85,6 +85,10 @@ host-local:
   names rather than a flat affine stack
 - use emitted shape metadata to describe serialized parameter tensors when the
   spec itself does not need explicit shape fields
+- successful interop results should populate machine-readable
+  `interop.artifact_bytes` and `interop.tensor_count` fields so report
+  consumers do not need to recover checkpoint size or tensor cardinality from
+  generic throughput output
 
 For conv-lowering benchmarks, encode the input tensor in `lhs_shape`, the
 weights in `rhs_shape`, and the lowering parameters in `stride`, `padding`, and

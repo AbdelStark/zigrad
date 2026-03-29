@@ -438,6 +438,8 @@ fn validateRecordContract(
     if (record_entry.stats) |stats| {
         try validateStats(allocator, path, record_entry, stats, issues);
     }
+
+    try validateInteropContract(allocator, path, record_entry, issues);
 }
 
 fn validateStats(
@@ -465,6 +467,41 @@ fn validateStats(
         }
     } else if (stats.throughput_unit != null) {
         try appendIssueFmt(allocator, issues, .result, path, record_entry.benchmark_id, record_entry.runner, record_entry.backend.thread_count, "throughput_unit is set without throughput_per_second", .{});
+    }
+}
+
+fn validateInteropContract(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    record_entry: result.Record,
+    issues: *std.ArrayList(Issue),
+) !void {
+    const is_interop_suite = std.mem.eql(u8, record_entry.suite, "interop");
+    if (!is_interop_suite) {
+        if (record_entry.interop != null) {
+            try appendIssueFmt(allocator, issues, .result, path, record_entry.benchmark_id, record_entry.runner, record_entry.backend.thread_count, "non-interop records must not include interop metrics", .{});
+        }
+        return;
+    }
+
+    if (record_entry.status == .ok and record_entry.interop == null) {
+        try appendIssueFmt(allocator, issues, .result, path, record_entry.benchmark_id, record_entry.runner, record_entry.backend.thread_count, "ok interop records must include interop metrics", .{});
+        return;
+    }
+
+    if (record_entry.interop) |interop| {
+        if (interop.artifact_bytes == 0) {
+            try appendIssueFmt(allocator, issues, .result, path, record_entry.benchmark_id, record_entry.runner, record_entry.backend.thread_count, "interop artifact_bytes must be greater than zero", .{});
+        }
+        if (interop.tensor_count == 0) {
+            try appendIssueFmt(allocator, issues, .result, path, record_entry.benchmark_id, record_entry.runner, record_entry.backend.thread_count, "interop tensor_count must be greater than zero", .{});
+        }
+        if (record_entry.status == .ok) {
+            const stats = record_entry.stats orelse return;
+            if (stats.throughput_unit == null or !std.mem.eql(u8, stats.throughput_unit.?, "bytes")) {
+                try appendIssueFmt(allocator, issues, .result, path, record_entry.benchmark_id, record_entry.runner, record_entry.backend.thread_count, "interop records must report throughput in bytes", .{});
+            }
+        }
     }
 }
 
@@ -874,4 +911,55 @@ test "validator flags spec mismatches and duplicate result identities" {
 
     try std.testing.expect(report.summary.should_fail);
     try std.testing.expect(report.summary.issues >= 2);
+}
+
+test "validator requires interop metrics on ok interop records" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const spec_rel = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/specs/interop/mnist.json", .{tmp.sub_path[0..]});
+    const result_rel = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/results/interop.jsonl", .{tmp.sub_path[0..]});
+
+    try tmp.dir.makePath("specs/interop");
+    try tmp.dir.makePath("results");
+    try tmp.dir.writeFile(.{
+        .sub_path = "specs/interop/mnist.json",
+        .data =
+        \\{
+        \\  "id": "interop.mnist.synthetic",
+        \\  "suite": "interop",
+        \\  "kind": "interop_mnist_mlp_safetensors_export",
+        \\  "dtype": "f32",
+        \\  "warmup_iterations": 0,
+        \\  "measured_iterations": 1,
+        \\  "seed": 7,
+        \\  "provenance": {
+        \\    "data_source": "synthetic.splitmix64",
+        \\    "preprocessing": ["materialize deterministic benchmark mnist parameters", "encode affine parameter stack as safetensors bytes"]
+        \\  }
+        \\}
+        ,
+    });
+    try tmp.dir.writeFile(.{
+        .sub_path = "results/interop.jsonl",
+        .data = try std.fmt.allocPrint(
+            allocator,
+            "{{\"benchmark_id\":\"interop.mnist.synthetic\",\"spec_path\":\"{s}\",\"suite\":\"interop\",\"kind\":\"interop_mnist_mlp_safetensors_export\",\"runner\":\"zig\",\"status\":\"ok\",\"dtype\":\"f32\",\"warmup_iterations\":0,\"measured_iterations\":1,\"batch_size\":null,\"seed\":7,\"shapes\":[{{\"name\":\"weights.0\",\"dims\":[128,784]}},{{\"name\":\"biases.0\",\"dims\":[128]}}],\"provenance\":{{\"data_source\":\"synthetic.splitmix64\",\"preprocessing\":[\"materialize deterministic benchmark mnist parameters\",\"encode affine parameter stack as safetensors bytes\"]}},\"runtime\":{{\"timestamp_unix_ms\":1,\"git_commit\":\"deadbeef\",\"git_dirty\":false,\"zig_version\":\"0.15.2\",\"harness_version\":\"0.1.0\"}},\"system\":{{\"os\":\"macos\",\"kernel\":\"Darwin 24.0\",\"arch\":\"aarch64\",\"cpu_model\":\"cpu\",\"cpu_logical_cores\":8,\"cpu_frequency_policy\":null,\"total_memory_bytes\":null}},\"backend\":{{\"device\":\"host\",\"host_provider\":\"accelerate\",\"thread_count\":1,\"accelerator\":null}},\"setup_latency_ns\":10,\"stats\":{{\"min_ns\":10,\"median_ns\":12,\"mean_ns\":12.0,\"p95_ns\":13,\"max_ns\":13,\"throughput_per_second\":100.0,\"throughput_unit\":\"bytes\"}},\"memory\":null,\"notes\":null}}\n",
+            .{spec_rel},
+        ),
+    });
+
+    const input_paths = try allocator.alloc([]const u8, 1);
+    input_paths[0] = result_rel;
+
+    const report = try buildReport(allocator, .{
+        .input_paths = input_paths,
+    });
+
+    try std.testing.expect(report.summary.should_fail);
+    try std.testing.expect(report.summary.issues >= 1);
 }

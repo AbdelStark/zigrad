@@ -22,6 +22,7 @@ pub const RunOutput = struct {
     throughput_items: ?usize = null,
     throughput_unit: ?[]const u8 = null,
     memory: ?result.MemoryStats = null,
+    interop: ?result.InteropMetrics = null,
     host_blas_telemetry: ?result.HostBlasTelemetry = null,
     notes: ?[]const u8 = null,
 };
@@ -1270,16 +1271,14 @@ fn runInteropMnistSafetensorsExport(
         io_allocator.free(checkpoint);
     }
 
-    return .{
-        .shapes = try shapeMetadataFromMnistCheckpoint(allocator),
-        .batch_size = null,
-        .setup_latency_ns = setup_latency_ns,
-        .timings_ns = timings,
-        .throughput_items = sample_checkpoint.len,
-        .throughput_unit = "bytes",
-        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
-        .notes = spec.notes,
-    };
+    return interopCheckpointOutput(
+        try shapeMetadataFromMnistCheckpoint(allocator),
+        setup_latency_ns,
+        timings,
+        sample_checkpoint.len,
+        maybeCaptureHostBlasTelemetry(host),
+        spec.notes,
+    );
 }
 
 fn runInteropMnistSafetensorsImport(
@@ -1313,16 +1312,14 @@ fn runInteropMnistSafetensorsImport(
         timing.* = timer.read();
     }
 
-    return .{
-        .shapes = try shapeMetadataFromMnistCheckpoint(allocator),
-        .batch_size = null,
-        .setup_latency_ns = setup_latency_ns,
-        .timings_ns = timings,
-        .throughput_items = checkpoint.len,
-        .throughput_unit = "bytes",
-        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
-        .notes = spec.notes,
-    };
+    return interopCheckpointOutput(
+        try shapeMetadataFromMnistCheckpoint(allocator),
+        setup_latency_ns,
+        timings,
+        checkpoint.len,
+        maybeCaptureHostBlasTelemetry(host),
+        spec.notes,
+    );
 }
 
 fn runInteropCharLmSafetensorsExport(
@@ -1368,16 +1365,14 @@ fn runInteropCharLmSafetensorsExport(
         io_allocator.free(checkpoint);
     }
 
-    return .{
-        .shapes = try shapeMetadataFromCharLmCheckpoint(allocator),
-        .batch_size = null,
-        .setup_latency_ns = setup_latency_ns,
-        .timings_ns = timings,
-        .throughput_items = sample_checkpoint.len,
-        .throughput_unit = "bytes",
-        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
-        .notes = spec.notes,
-    };
+    return interopCheckpointOutput(
+        try shapeMetadataFromCharLmCheckpoint(allocator),
+        setup_latency_ns,
+        timings,
+        sample_checkpoint.len,
+        maybeCaptureHostBlasTelemetry(host),
+        spec.notes,
+    );
 }
 
 fn runInteropCharLmSafetensorsImport(
@@ -1421,16 +1416,14 @@ fn runInteropCharLmSafetensorsImport(
         timing.* = timer.read();
     }
 
-    return .{
-        .shapes = try shapeMetadataFromCharLmCheckpoint(allocator),
-        .batch_size = null,
-        .setup_latency_ns = setup_latency_ns,
-        .timings_ns = timings,
-        .throughput_items = checkpoint.len,
-        .throughput_unit = "bytes",
-        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
-        .notes = spec.notes,
-    };
+    return interopCheckpointOutput(
+        try shapeMetadataFromCharLmCheckpoint(allocator),
+        setup_latency_ns,
+        timings,
+        checkpoint.len,
+        maybeCaptureHostBlasTelemetry(host),
+        spec.notes,
+    );
 }
 
 fn runInteropPendulumSafetensorsExport(
@@ -1476,16 +1469,14 @@ fn runInteropPendulumSafetensorsExport(
         io_allocator.free(checkpoint);
     }
 
-    return .{
-        .shapes = try shapeMetadataFromPendulumCheckpoint(allocator),
-        .batch_size = null,
-        .setup_latency_ns = setup_latency_ns,
-        .timings_ns = timings,
-        .throughput_items = sample_checkpoint.len,
-        .throughput_unit = "bytes",
-        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
-        .notes = spec.notes,
-    };
+    return interopCheckpointOutput(
+        try shapeMetadataFromPendulumCheckpoint(allocator),
+        setup_latency_ns,
+        timings,
+        sample_checkpoint.len,
+        maybeCaptureHostBlasTelemetry(host),
+        spec.notes,
+    );
 }
 
 fn runInteropPendulumSafetensorsImport(
@@ -1529,16 +1520,14 @@ fn runInteropPendulumSafetensorsImport(
         timing.* = timer.read();
     }
 
-    return .{
-        .shapes = try shapeMetadataFromPendulumCheckpoint(allocator),
-        .batch_size = null,
-        .setup_latency_ns = setup_latency_ns,
-        .timings_ns = timings,
-        .throughput_items = checkpoint.len,
-        .throughput_unit = "bytes",
-        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
-        .notes = spec.notes,
-    };
+    return interopCheckpointOutput(
+        try shapeMetadataFromPendulumCheckpoint(allocator),
+        setup_latency_ns,
+        timings,
+        checkpoint.len,
+        maybeCaptureHostBlasTelemetry(host),
+        spec.notes,
+    );
 }
 
 fn runInteropCorridorSafetensorsExport(
@@ -1584,16 +1573,14 @@ fn runInteropCorridorSafetensorsExport(
         io_allocator.free(checkpoint);
     }
 
-    return .{
-        .shapes = try shapeMetadataFromCorridorCheckpoint(allocator),
-        .batch_size = null,
-        .setup_latency_ns = setup_latency_ns,
-        .timings_ns = timings,
-        .throughput_items = sample_checkpoint.len,
-        .throughput_unit = "bytes",
-        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
-        .notes = spec.notes,
-    };
+    return interopCheckpointOutput(
+        try shapeMetadataFromCorridorCheckpoint(allocator),
+        setup_latency_ns,
+        timings,
+        sample_checkpoint.len,
+        maybeCaptureHostBlasTelemetry(host),
+        spec.notes,
+    );
 }
 
 fn runInteropCorridorSafetensorsImport(
@@ -1637,16 +1624,14 @@ fn runInteropCorridorSafetensorsImport(
         timing.* = timer.read();
     }
 
-    return .{
-        .shapes = try shapeMetadataFromCorridorCheckpoint(allocator),
-        .batch_size = null,
-        .setup_latency_ns = setup_latency_ns,
-        .timings_ns = timings,
-        .throughput_items = checkpoint.len,
-        .throughput_unit = "bytes",
-        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
-        .notes = spec.notes,
-    };
+    return interopCheckpointOutput(
+        try shapeMetadataFromCorridorCheckpoint(allocator),
+        setup_latency_ns,
+        timings,
+        checkpoint.len,
+        maybeCaptureHostBlasTelemetry(host),
+        spec.notes,
+    );
 }
 
 fn runInteropDqnSafetensorsExport(
@@ -1682,16 +1667,14 @@ fn runInteropDqnSafetensorsExport(
         io_allocator.free(checkpoint);
     }
 
-    return .{
-        .shapes = try shapeMetadataFromDqnCheckpoint(allocator),
-        .batch_size = null,
-        .setup_latency_ns = setup_latency_ns,
-        .timings_ns = timings,
-        .throughput_items = sample_checkpoint.len,
-        .throughput_unit = "bytes",
-        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
-        .notes = spec.notes,
-    };
+    return interopCheckpointOutput(
+        try shapeMetadataFromDqnCheckpoint(allocator),
+        setup_latency_ns,
+        timings,
+        sample_checkpoint.len,
+        maybeCaptureHostBlasTelemetry(host),
+        spec.notes,
+    );
 }
 
 fn runInteropDqnSafetensorsImport(
@@ -1725,16 +1708,14 @@ fn runInteropDqnSafetensorsImport(
         timing.* = timer.read();
     }
 
-    return .{
-        .shapes = try shapeMetadataFromDqnCheckpoint(allocator),
-        .batch_size = null,
-        .setup_latency_ns = setup_latency_ns,
-        .timings_ns = timings,
-        .throughput_items = checkpoint.len,
-        .throughput_unit = "bytes",
-        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
-        .notes = spec.notes,
-    };
+    return interopCheckpointOutput(
+        try shapeMetadataFromDqnCheckpoint(allocator),
+        setup_latency_ns,
+        timings,
+        checkpoint.len,
+        maybeCaptureHostBlasTelemetry(host),
+        spec.notes,
+    );
 }
 
 fn runInteropGcnSafetensorsExport(
@@ -1777,16 +1758,14 @@ fn runInteropGcnSafetensorsExport(
         io_allocator.free(checkpoint);
     }
 
-    return .{
-        .shapes = try shapeMetadataFromGcnCheckpoint(allocator),
-        .batch_size = null,
-        .setup_latency_ns = setup_latency_ns,
-        .timings_ns = timings,
-        .throughput_items = sample_checkpoint.len,
-        .throughput_unit = "bytes",
-        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
-        .notes = spec.notes,
-    };
+    return interopCheckpointOutput(
+        try shapeMetadataFromGcnCheckpoint(allocator),
+        setup_latency_ns,
+        timings,
+        sample_checkpoint.len,
+        maybeCaptureHostBlasTelemetry(host),
+        spec.notes,
+    );
 }
 
 fn runInteropGcnSafetensorsImport(
@@ -1827,16 +1806,14 @@ fn runInteropGcnSafetensorsImport(
         timing.* = timer.read();
     }
 
-    return .{
-        .shapes = try shapeMetadataFromGcnCheckpoint(allocator),
-        .batch_size = null,
-        .setup_latency_ns = setup_latency_ns,
-        .timings_ns = timings,
-        .throughput_items = checkpoint.len,
-        .throughput_unit = "bytes",
-        .host_blas_telemetry = maybeCaptureHostBlasTelemetry(host),
-        .notes = spec.notes,
-    };
+    return interopCheckpointOutput(
+        try shapeMetadataFromGcnCheckpoint(allocator),
+        setup_latency_ns,
+        timings,
+        checkpoint.len,
+        maybeCaptureHostBlasTelemetry(host),
+        spec.notes,
+    );
 }
 
 fn runMnistTrain(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
@@ -3368,6 +3345,30 @@ fn oneGcnCheckpointImport(
     defer model.deinit();
 }
 
+fn interopCheckpointOutput(
+    shapes: []const result.ShapeMetadata,
+    setup_latency_ns: u64,
+    timings_ns: []const u64,
+    artifact_bytes: usize,
+    host_blas_telemetry: ?result.HostBlasTelemetry,
+    notes: ?[]const u8,
+) RunOutput {
+    return .{
+        .shapes = shapes,
+        .batch_size = null,
+        .setup_latency_ns = setup_latency_ns,
+        .timings_ns = timings_ns,
+        .throughput_items = artifact_bytes,
+        .throughput_unit = "bytes",
+        .interop = .{
+            .artifact_bytes = artifact_bytes,
+            .tensor_count = shapes.len,
+        },
+        .host_blas_telemetry = host_blas_telemetry,
+        .notes = notes,
+    };
+}
+
 fn prepareAutogradDotOperands(
     allocator: std.mem.Allocator,
     device: zg.DeviceReference,
@@ -4321,6 +4322,8 @@ test "run interop char lm export benchmark" {
     try std.testing.expectEqual(@as(usize, 10), output.shapes.len);
     try std.testing.expectEqualStrings("token_embedding", output.shapes[0].name);
     try std.testing.expectEqualStrings("bytes", output.throughput_unit.?);
+    try std.testing.expectEqual(output.throughput_items.?, output.interop.?.artifact_bytes);
+    try std.testing.expectEqual(output.shapes.len, output.interop.?.tensor_count);
 }
 
 test "run interop gcn import benchmark" {
@@ -4350,6 +4353,8 @@ test "run interop gcn import benchmark" {
     try std.testing.expectEqual(@as(usize, 4), output.shapes.len);
     try std.testing.expectEqualStrings("bench.gcn.conv1.weights", output.shapes[0].name);
     try std.testing.expectEqualStrings("bytes", output.throughput_unit.?);
+    try std.testing.expectEqual(output.throughput_items.?, output.interop.?.artifact_bytes);
+    try std.testing.expectEqual(output.shapes.len, output.interop.?.tensor_count);
 }
 
 test "run char lm infer benchmark" {

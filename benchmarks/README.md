@@ -243,7 +243,10 @@ step, but stops before backward or optimizer execution.
 The interop suite currently measures in-memory safetensors checkpoint
 encode/decode cost for the maintained checkpoint-capable benchmark families,
 which keeps the signal focused on artifact translation and model reconstruction
-instead of filesystem throughput noise.
+instead of filesystem throughput noise. Successful interop JSONL records also
+carry an `interop` block with `artifact_bytes` and `tensor_count`, so
+downstream tooling does not need to infer checkpoint size or tensor cardinality
+from generic throughput fields alone.
 
 ## Spec Format
 
@@ -350,6 +353,9 @@ Each run emits one JSON object per benchmark with:
   - peak graph arena bytes
   - final graph arena bytes
   - peak scratch bytes
+- optional interop summary for `interop` suite records:
+  - `artifact_bytes`
+  - `tensor_count`
 
 ## PyTorch Baseline
 

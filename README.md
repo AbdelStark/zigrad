@@ -68,6 +68,10 @@ and `interop` suites: compiler coverage measures repeated eager
 graph-session capture on the same maintained families, while interop coverage
 measures in-memory safetensors checkpoint export/import on the maintained
 MNIST, char-LM, pendulum, corridor-control, DQN, and GCN benchmark families.
+Interop JSONL rows now also include dedicated `interop.artifact_bytes` and
+`interop.tensor_count` metadata, so checkpoint size and serialized parameter
+cardinality stay machine-readable in addition to the existing bytes-per-second
+throughput signal.
 Host benchmark/build metadata now records the explicit BLAS provider as
 `accelerate`, `openblas`, or `mkl`, and Zig runs also report host BLAS
 dispatch telemetry so fallback usage is visible in the JSONL output:
@@ -157,7 +161,9 @@ and
 and
 [`benchmarks/specs/interop/gcn-safetensors-import-synthetic.json`](./benchmarks/specs/interop/gcn-safetensors-import-synthetic.json)
 exercise maintained checkpoint save/load paths without depending on filesystem
-throughput:
+throughput. Successful interop rows report both bytes-per-second throughput and
+an `interop` block containing the checkpoint byte size plus serialized tensor
+count:
 
 ```shell
 zig build benchmark-interop

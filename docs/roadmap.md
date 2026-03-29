@@ -68,7 +68,7 @@ documents we will implement against.
 
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, external baseline-runner smoke validation, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/compiler/interop/MNIST/char-LM/pendulum/corridor-control/DQN/GCN coverage, full safetensors checkpoint export/import coverage across the maintained checkpoint-capable families, conv-lowering and broadcast-fallback matmul coverage, host thread-sweep/scaling-report workflows, and backend-aware CUDA benchmark request specs with explicit skip/fail semantics plus dedicated smoke coverage are landed; future real-GPU and external-format interop suites remain. |
+| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, external baseline-runner smoke validation, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/compiler/interop/MNIST/char-LM/pendulum/corridor-control/DQN/GCN coverage, full safetensors checkpoint export/import coverage across the maintained checkpoint-capable families, machine-readable interop artifact/tensor telemetry, conv-lowering and broadcast-fallback matmul coverage, host thread-sweep/scaling-report workflows, and backend-aware CUDA benchmark request specs with explicit skip/fail semantics plus dedicated smoke coverage are landed; future real-GPU and external-format interop suites remain. |
 | RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, a provider-sensitive numerical parity suite, opt-in runtime diagnostics hooks, example runtime smoke coverage for hello-world/MNIST/DQN/GCN, and Markdown/JSON provider plus thread-scaling report generators are landed; publication-path smoke validation now covers provider/thread reports and CI emits thread-scaling bundle artifacts, while oneMKL execution and published provider comparison runs remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Runtime selection, diagnostics, CUDA-safe DQN/GCN kernels, backend-dispatched Adam optimizer updates, host-staged loss fallbacks for maintained training workloads, and benchmark-harness integration for checked-in CUDA-targeted specs are landed; real GPU compile/run validation and executed CUDA benchmark suites remain. |
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
@@ -121,6 +121,42 @@ Every RFC in this folder set must maintain:
 - a section describing what will not be done in the RFC.
 
 ## Agentic Context
+
+### RFC-0001 2026-03-29 Interop Artifact/Tensor Telemetry Contract
+
+- Completed:
+  - Extended
+    [`benchmarks/src/result.zig`](../benchmarks/src/result.zig),
+    [`benchmarks/src/workload.zig`](../benchmarks/src/workload.zig),
+    [`benchmarks/src/cli.zig`](../benchmarks/src/cli.zig), and
+    [`benchmarks/src/validate.zig`](../benchmarks/src/validate.zig)
+    so successful interop benchmark rows now carry dedicated
+    `interop.artifact_bytes` and `interop.tensor_count` fields in the emitted
+    JSONL contract.
+  - Added unit and smoke coverage through
+    [`benchmarks/src/result.zig`](../benchmarks/src/result.zig),
+    [`benchmarks/src/workload.zig`](../benchmarks/src/workload.zig),
+    [`benchmarks/src/validate.zig`](../benchmarks/src/validate.zig),
+    [`README.md`](../README.md),
+    [`benchmarks/README.md`](../benchmarks/README.md), and
+    [`benchmarks/AUTHORING.md`](../benchmarks/AUTHORING.md)
+    so interop telemetry is documented, parsed, validated, and exercised end
+    to end.
+- Remains:
+  - Extend interop coverage beyond safetensors checkpoints into ONNX import,
+    GGUF load, and ZML translation benchmarks once those artifact paths land.
+- Blockers:
+  - External-format interop paths are still unimplemented in this environment,
+    so the benchmark contract can only be validated against safetensors
+    checkpoint workflows.
+- Validation:
+  - `zig build test`
+  - `zig build benchmark-validate -- --group interop`
+  - `zig build benchmark -- --spec benchmarks/specs/interop/gcn-safetensors-import-synthetic.json --output .zig-cache/interop-contract.jsonl`
+  - `zig build benchmark-validate -- --input .zig-cache/interop-contract.jsonl`
+  - `zig build benchmark-interop`
+  - `zig build test-benchmark-smoke`
+  - `zig build test-benchmark-publication-smoke`
 
 ### RFC-0001 2026-03-28 Safetensors Checkpoint Interop Benchmark Suite
 

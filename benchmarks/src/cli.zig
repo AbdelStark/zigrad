@@ -80,6 +80,7 @@ pub fn emitAll(
                     .setup_latency_ns = run_output.setup_latency_ns,
                     .stats = stats,
                     .memory = run_output.memory,
+                    .interop = run_output.interop,
                     .notes = run_output.notes,
                 });
             },
@@ -104,6 +105,7 @@ pub fn emitAll(
                     .setup_latency_ns = null,
                     .stats = null,
                     .memory = null,
+                    .interop = null,
                     .notes = run_result.notes,
                 });
             },
