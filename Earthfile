@@ -43,7 +43,7 @@ build:
     ARG ENABLE_CUDA=false
     ARG ENABLE_MKL=false
     FROM +deps
-    COPY --dir src scripts tests benchmarks examples ./
+    COPY --dir src scripts tests benchmarks examples tensorboard ./
     COPY *.zig .
     COPY *.zon .
     RUN zig build test

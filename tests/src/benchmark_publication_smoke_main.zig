@@ -53,6 +53,11 @@ pub fn main() !void {
     var baseline_loaded = try result.LoadedFile.loadFromFile(allocator, baseline_path);
     defer baseline_loaded.deinit();
 
+    // Derive provider names from the actual build config so the test works on both macOS (accelerate) and Linux (openblas).
+    const baseline_provider = if (baseline_loaded.records.len > 0) baseline_loaded.records[0].backend.host_provider else "accelerate";
+    const alternate_provider: []const u8 = if (std.mem.eql(u8, baseline_provider, "openblas")) "accelerate" else "openblas";
+    const rewrite_for_openblas = std.mem.eql(u8, alternate_provider, "openblas");
+
     try writeMutatedRecords(allocator, candidate_path, baseline_loaded.records, .{
         .latency_scale_numerator = 9,
         .latency_scale_denominator = 10,
@@ -61,11 +66,11 @@ pub fn main() !void {
     try expectValidationPass(allocator, candidate_path, baseline_loaded.records.len);
 
     try writeMutatedRecords(allocator, provider_path, baseline_loaded.records, .{
-        .host_provider = "openblas",
+        .host_provider = alternate_provider,
         .latency_scale_numerator = 11,
         .latency_scale_denominator = 10,
-        .note = "synthetic provider smoke variant derived from the local Accelerate thread sweep run",
-        .rewrite_thread_environment_for_openblas = true,
+        .note = "synthetic provider smoke variant derived from the local thread sweep run",
+        .rewrite_thread_environment_for_openblas = rewrite_for_openblas,
     });
     try expectValidationPass(allocator, provider_path, baseline_loaded.records.len);
 
@@ -102,7 +107,7 @@ pub fn main() !void {
         allocator,
         &provider_inputs,
         "zig",
-        "accelerate",
+        baseline_provider,
     );
     try writeProviderArtifacts(allocator, provider_markdown_path, provider_json_path, host_provider_report);
 
@@ -115,8 +120,10 @@ pub fn main() !void {
     }
 
     const provider_markdown = try readFileAlloc(allocator, provider_markdown_path);
-    try expectContains(provider_markdown, "`accelerate`");
-    try expectContains(provider_markdown, "`openblas`");
+    const baseline_backticked = try std.fmt.allocPrint(allocator, "`{s}`", .{baseline_provider});
+    const alternate_backticked = try std.fmt.allocPrint(allocator, "`{s}`", .{alternate_provider});
+    try expectContains(provider_markdown, baseline_backticked);
+    try expectContains(provider_markdown, alternate_backticked);
 
     const thread_inputs = [_]thread_report.InputFile{
         .{ .path = baseline_path, .records = baseline_loaded.records },
