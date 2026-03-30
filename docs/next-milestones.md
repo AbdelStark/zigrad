@@ -28,7 +28,7 @@ The compiler stack has reached the following state:
 | Algebraic simplification | **Landed** | `src/graph_ir.zig` |
 | Execution bridge | **Landed** | `src/graph_ir.zig` |
 | ONNX interop | **Landed** (import MVP) | `src/interop/onnx/` |
-| GGUF interop | Not started | — |
+| GGUF interop | **Landed** (reader MVP) | `src/interop/gguf/` |
 
 ---
 
@@ -285,12 +285,13 @@ that can be verified and (with M-1) executed.
 
 ---
 
-## M-5: GGUF Reader MVP
+## M-5: GGUF Reader MVP ✓ LANDED
 
 **RFC:** RFC-0005 (ggml/GGUF Interop)
 **Priority:** High — enables LLM weight loading.
 **Depends on:** RFC-0012 (landed)
 **Blocks:** None immediately
+**Status:** Complete. Landed 2026-03-30.
 
 ### Goal
 
@@ -398,12 +399,13 @@ deferred.
 
 ---
 
-## M-7: Common Subexpression Elimination (CSE) Pass
+## M-7: Common Subexpression Elimination (CSE) Pass ✓ LANDED
 
 **RFC:** RFC-0007 (Static Graph Optimization)
 **Priority:** Medium — reduces redundant computation in captured graphs.
 **Depends on:** Graph IR (landed)
 **Blocks:** None
+**Status:** Complete. Landed 2026-03-30.
 
 ### Goal
 
@@ -467,7 +469,9 @@ Milestones M-1 through M-3 are now complete (landed 2026-03-30):
 - Identity (x+0, x*1, x/1) and annihilator (x*0) patterns are eliminated
   from the graph. ✓ Verified.
 
-When M-4 and M-5 are also complete:
-- A user can load an ONNX model or GGUF weights into Zigrad and execute
-  inference, bridging the gap between external model formats and the Zigrad
-  runtime.
+M-4 and M-5 are now also complete (landed 2026-03-30):
+- A user can load an ONNX model into Zigrad as a GraphIR. ✓ Verified.
+- A user can load GGUF weights (f32, f16, Q4_0, Q8_0) into Zigrad NDArrays
+  via `zg.gguf.loadTensors()`, with dequantize-on-load to f32. ✓ Verified.
+- Together, these bridge the gap between external model formats and the
+  Zigrad runtime.

@@ -1,6 +1,6 @@
 # RFC-0005: ggml and GGUF Interoperability
 
-Status: `Planned`
+Status: `In Progress` (Milestone A complete)
 Priority: `P1`
 Depends on: RFC-0001, RFC-0012
 Blocks: None
@@ -160,3 +160,36 @@ Reference LLM examples must be able to:
   since weights are data, not computation. The loaded tensors can then be
   used as inputs to either eager execution or lazy-captured graphs.
 - Detailed milestone spec: see [`docs/next-milestones.md`](../next-milestones.md) M-5.
+
+### 2026-03-30 Milestone A: Reader — Complete
+
+- **Landed:** Full GGUF reader MVP in `src/interop/gguf/`:
+  - `parser.zig`: GGUF container parser — header, metadata KV pairs (all 13
+    value types including nested arrays), tensor descriptor table. Supports
+    GGUF v2 and v3, configurable alignment.
+  - `quant.zig`: Dequantize-on-load for f32 (passthrough), f16→f32, Q4_0→f32,
+    Q8_0→f32. Block-level dequantization matching the ggml reference.
+  - `loader.zig`: Top-level `loadTensors(allocator, data, device, options)`
+    returns a `TensorMap` (name→`NDArray(f32)` + original dtype). Supports
+    partial loading via name filter. Skips unsupported tensor types with
+    diagnostic log.
+  - `root.zig`: Module re-exports following the ONNX interop pattern.
+- **Exported:** `pub const gguf = @import("interop/gguf/root.zig")` in
+  `src/zigrad.zig`. Accessible as `zg.gguf.loadTensors(...)`.
+- **Tests:** 17 inline tests covering:
+  - Reader primitives, string parsing, alignment
+  - Full GGUF file parse with metadata and tensors
+  - All metadata value types including arrays
+  - Invalid magic and unsupported version rejection
+  - Multi-tensor files with mixed dtypes
+  - f32/f16/Q4_0/Q8_0 dequantization roundtrips
+  - End-to-end tensor loading onto host device
+  - Partial loading with name filter
+  - Metadata access through TensorMap
+- **Validation:** `zig build test` passes with 0 compilation errors.
+- **What remains:**
+  - Milestone B: Additional quantized formats (Q4_1, Q5_0, Q5_1, Q2_K..Q8_K)
+  - Milestone C: Example integration (LLM example consuming GGUF weights)
+  - GGUF export (non-goal for initial scope)
+  - Memory-mapped loading for large files
+  - Benchmark coverage for load throughput

@@ -76,13 +76,14 @@ provider comparison runs. No further agent work needed unless directed.
 - RFC-0006 has observe-mode capture AND deferred forward execution landed.
   Next: deferred backward pass (M-6).
 - RFC-0007 has Graph IR, verifier, pass manager, DCE, execution bridge,
-  **constant folding**, and **algebraic simplification** landed.
-  Next: CSE (M-7) or start ONNX/GGUF interop.
+  **constant folding**, **algebraic simplification**, and **CSE** landed.
+  All milestone passes complete. Transpose/layout simplification remains as extension.
 - RFC-0012 has all reference examples landed with smoke + benchmark coverage.
   Next: deeper transformer portfolio (lower priority).
 - RFC-0004 (ONNX) has import MVP landed (protobuf parser, schema, op registry,
   importModel/importGraph lowering). Export and full opset remain.
-- RFC-0005 (GGUF) is not started but now unblocked.
+- RFC-0005 (GGUF) has reader MVP landed (parser, dequantizer, loader).
+  Next: additional quantized formats (Milestone B), example integration (Milestone C).
 
 **Phase 2 (Compilation): Dependencies landed, not yet started.**
 RFC-0008 (Dynamic Compiler) has both RFC-0006 and RFC-0007 available now. It
@@ -91,9 +92,11 @@ RFC-0008.
 
 **Phase 3 (External Compilers): Not started, low priority.**
 
-**Where to start:** The highest-value unblocked work is **GGUF reader (M-5)**.
-CSE (M-7) is independent and lower priority. Deferred backward (M-6) targets
-training workloads. ONNX export (M-4b) can follow the import MVP.
+**Where to start:** The highest-value unblocked work is **deferred backward
+(M-6)**, which completes the lazy tensor training story. ONNX export (M-4b)
+can follow the import MVP. GGUF Milestone B/C are lower priority extensions.
+RFC-0008 (Dynamic Compiler) now has all prerequisite passes landed and is
+ready for a scoping spike.
 
 ## Core Agent Rules
 

@@ -1014,6 +1014,163 @@ fn shapeSize(shape: []const usize) usize {
     return size;
 }
 
+// ---------- Common Subexpression Elimination ----------
+
+/// CSE: merges duplicate operations that have the same name, operands, and
+/// attributes. When a duplicate is found, all uses of its result are
+/// redirected to the original op's result, and the duplicate is removed.
+pub fn csePass() Pass {
+    return .{ .name = "cse", .run_fn = runCse };
+}
+
+fn runCse(ir: *GraphIR) PassError!bool {
+    var changed = false;
+
+    // For each pair of ops, check if they are identical (same name,
+    // operands, and attributes). Collect rewrites to apply.
+    var rewrites = std.ArrayListUnmanaged(struct { result_id: u32, replacement_id: u32 }).empty;
+    defer rewrites.deinit(ir.allocator);
+
+    var dead_op_ids = std.ArrayListUnmanaged(u32).empty;
+    defer dead_op_ids.deinit(ir.allocator);
+
+    // Track which ops have already been marked dead to avoid double-removal
+    var removed = std.AutoArrayHashMapUnmanaged(u32, void).empty;
+    defer removed.deinit(ir.allocator);
+
+    for (ir.ops.items, 0..) |op_a, idx_a| {
+        if (removed.contains(op_a.id)) continue;
+
+        for (ir.ops.items[idx_a + 1 ..]) |op_b| {
+            if (removed.contains(op_b.id)) continue;
+            if (!opsIdentical(&op_a, &op_b)) continue;
+
+            // op_b is a duplicate of op_a — redirect op_b's results to op_a's
+            if (op_a.results.len != op_b.results.len) continue;
+
+            for (op_a.results, op_b.results) |orig_id, dup_id| {
+                if (orig_id != dup_id) {
+                    rewrites.append(ir.allocator, .{
+                        .result_id = dup_id,
+                        .replacement_id = orig_id,
+                    }) catch return error.PassFailed;
+                }
+            }
+
+            dead_op_ids.append(ir.allocator, op_b.id) catch return error.PassFailed;
+            removed.put(ir.allocator, op_b.id, {}) catch return error.PassFailed;
+            changed = true;
+        }
+    }
+
+    // Apply use-def rewrites
+    for (rewrites.items) |rewrite| {
+        for (ir.ops.items) |*other_op| {
+            for (other_op.operands, 0..) |operand_id, j| {
+                if (operand_id == rewrite.result_id) {
+                    const mut_operands: []u32 = @constCast(other_op.operands);
+                    mut_operands[j] = rewrite.replacement_id;
+                }
+            }
+        }
+        for (ir.output_ids.items, 0..) |output_id, j| {
+            if (output_id == rewrite.result_id) {
+                ir.output_ids.items[j] = rewrite.replacement_id;
+            }
+        }
+    }
+
+    // Remove dead ops
+    for (dead_op_ids.items) |op_id| {
+        var i: usize = 0;
+        while (i < ir.ops.items.len) {
+            if (ir.ops.items[i].id == op_id) {
+                const op = ir.ops.items[i];
+                ir.allocator.free(op.operands);
+                ir.allocator.free(op.results);
+                lazy.freeAttributesPublic(ir.allocator, op.attributes);
+                _ = ir.ops.swapRemove(i);
+                break;
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    // Remove orphaned values (result values of removed ops with no consumers)
+    if (changed) {
+        var v: usize = 0;
+        while (v < ir.values.items.len) {
+            const value = ir.values.items[v];
+            if (value.defining_op != null and ir.opById(value.defining_op.?) == null) {
+                var still_used = false;
+                for (ir.ops.items) |op| {
+                    for (op.operands) |operand_id| {
+                        if (operand_id == value.id) {
+                            still_used = true;
+                            break;
+                        }
+                    }
+                    if (still_used) break;
+                }
+                for (ir.output_ids.items) |oid| {
+                    if (oid == value.id) {
+                        still_used = true;
+                        break;
+                    }
+                }
+                if (!still_used) {
+                    ir.allocator.free(value.shape);
+                    if (value.label) |label| ir.allocator.free(label);
+                    if (value.constant_data) |data| ir.allocator.free(data);
+                    _ = ir.values.swapRemove(v);
+                    continue;
+                }
+            }
+            v += 1;
+        }
+    }
+
+    return changed;
+}
+
+/// Check if two ops are structurally identical (same name, same operands
+/// in order, same attributes).
+fn opsIdentical(a: *const Op, b: *const Op) bool {
+    if (!std.mem.eql(u8, a.name, b.name)) return false;
+    if (a.operands.len != b.operands.len) return false;
+    for (a.operands, b.operands) |oa, ob| {
+        if (oa != ob) return false;
+    }
+    if (!attributesEqual(a.attributes, b.attributes)) return false;
+    return true;
+}
+
+fn attributesEqual(a: []const lazy.OpAttribute, b: []const lazy.OpAttribute) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |attr_a, attr_b| {
+        if (!std.mem.eql(u8, attr_a.key, attr_b.key)) return false;
+        if (!attributeValueEqual(attr_a.value, attr_b.value)) return false;
+    }
+    return true;
+}
+
+fn attributeValueEqual(a: lazy.AttributeValue, b: lazy.AttributeValue) bool {
+    const TagType = @typeInfo(lazy.AttributeValue).@"union".tag_type.?;
+    const tag_a: TagType = a;
+    const tag_b: TagType = b;
+    if (tag_a != tag_b) return false;
+    return switch (a) {
+        .bool => |v| v == b.bool,
+        .int => |v| v == b.int,
+        .uint => |v| v == b.uint,
+        .float => |v| v == b.float,
+        .string => |v| std.mem.eql(u8, v, b.string),
+        .usize_list => |v| std.mem.eql(usize, v, b.usize_list),
+        .int_list => |v| std.mem.eql(i64, v, b.int_list),
+    };
+}
+
 // ---------- Execution Bridge ----------
 
 pub const ExecuteError = error{
@@ -2345,4 +2502,261 @@ test "graph_ir/algebraic_simplify mul_by_one and mul_by_zero" {
     try std.testing.expectEqual(@as(u32, 1), ir.output_ids.items[0]);
     // Output 5 (x*0) should now reference value 3 (zero constant)
     try std.testing.expectEqual(@as(u32, 3), ir.output_ids.items[1]);
+}
+
+test "graph_ir/cse eliminates duplicate ops" {
+    // Graph: two inputs (1, 2), two identical ADD ops producing different values
+    //   v1 = input
+    //   v2 = input
+    //   v3 = ADD(v1, v2)   (op 1)
+    //   v4 = ADD(v1, v2)   (op 2 — duplicate of op 1)
+    //   v5 = MUL(v3, v4)   (op 3 — uses both results)
+    //   output: v5
+    var ir = GraphIR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    // Values
+    try ir.values.append(std.testing.allocator, .{
+        .id = 1, .dtype = .f32, .shape = try std.testing.allocator.dupe(usize, &.{4}),
+        .device = .host, .storage = .owned, .defining_op = null,
+        .label = null, .requires_grad = false,
+    });
+    try ir.values.append(std.testing.allocator, .{
+        .id = 2, .dtype = .f32, .shape = try std.testing.allocator.dupe(usize, &.{4}),
+        .device = .host, .storage = .owned, .defining_op = null,
+        .label = null, .requires_grad = false,
+    });
+    try ir.values.append(std.testing.allocator, .{
+        .id = 3, .dtype = .f32, .shape = try std.testing.allocator.dupe(usize, &.{4}),
+        .device = .host, .storage = .owned, .defining_op = 1,
+        .label = null, .requires_grad = false,
+    });
+    try ir.values.append(std.testing.allocator, .{
+        .id = 4, .dtype = .f32, .shape = try std.testing.allocator.dupe(usize, &.{4}),
+        .device = .host, .storage = .owned, .defining_op = 2,
+        .label = null, .requires_grad = false,
+    });
+    try ir.values.append(std.testing.allocator, .{
+        .id = 5, .dtype = .f32, .shape = try std.testing.allocator.dupe(usize, &.{4}),
+        .device = .host, .storage = .owned, .defining_op = 3,
+        .label = null, .requires_grad = false,
+    });
+
+    try ir.input_ids.append(std.testing.allocator, 1);
+    try ir.input_ids.append(std.testing.allocator, 2);
+    try ir.output_ids.append(std.testing.allocator, 5);
+
+    // Op 1: ADD(1, 2) -> 3
+    try ir.ops.append(std.testing.allocator, .{
+        .id = 1, .name = "ADD",
+        .operands = try std.testing.allocator.dupe(u32, &.{ 1, 2 }),
+        .results = try std.testing.allocator.dupe(u32, &.{3}),
+        .attributes = &.{},
+    });
+    // Op 2: ADD(1, 2) -> 4 (duplicate)
+    try ir.ops.append(std.testing.allocator, .{
+        .id = 2, .name = "ADD",
+        .operands = try std.testing.allocator.dupe(u32, &.{ 1, 2 }),
+        .results = try std.testing.allocator.dupe(u32, &.{4}),
+        .attributes = &.{},
+    });
+    // Op 3: MUL(3, 4) -> 5
+    try ir.ops.append(std.testing.allocator, .{
+        .id = 3, .name = "MUL",
+        .operands = try std.testing.allocator.dupe(u32, &.{ 3, 4 }),
+        .results = try std.testing.allocator.dupe(u32, &.{5}),
+        .attributes = &.{},
+    });
+
+    // Verify before
+    try ir.verify();
+    try std.testing.expectEqual(@as(usize, 3), ir.opCount());
+
+    // Run CSE
+    const changed = try csePass().run(&ir);
+    try std.testing.expect(changed);
+
+    // One ADD should be eliminated
+    try std.testing.expectEqual(@as(usize, 2), ir.opCount());
+
+    // The MUL op should now reference v3 for both operands (the surviving ADD result)
+    const mul_op = ir.opById(3).?;
+    try std.testing.expectEqual(@as(u32, 3), mul_op.operands[0]);
+    try std.testing.expectEqual(@as(u32, 3), mul_op.operands[1]);
+
+    // Graph should still verify
+    try ir.verify();
+}
+
+test "graph_ir/cse preserves non-duplicate ops" {
+    // Graph: two different ops (ADD and SUB) with the same operands — NOT duplicates
+    //   v1, v2 = inputs
+    //   v3 = ADD(v1, v2)
+    //   v4 = SUB(v1, v2)
+    //   outputs: v3, v4
+    var ir = GraphIR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    try ir.values.append(std.testing.allocator, .{
+        .id = 1, .dtype = .f32, .shape = try std.testing.allocator.dupe(usize, &.{4}),
+        .device = .host, .storage = .owned, .defining_op = null,
+        .label = null, .requires_grad = false,
+    });
+    try ir.values.append(std.testing.allocator, .{
+        .id = 2, .dtype = .f32, .shape = try std.testing.allocator.dupe(usize, &.{4}),
+        .device = .host, .storage = .owned, .defining_op = null,
+        .label = null, .requires_grad = false,
+    });
+    try ir.values.append(std.testing.allocator, .{
+        .id = 3, .dtype = .f32, .shape = try std.testing.allocator.dupe(usize, &.{4}),
+        .device = .host, .storage = .owned, .defining_op = 1,
+        .label = null, .requires_grad = false,
+    });
+    try ir.values.append(std.testing.allocator, .{
+        .id = 4, .dtype = .f32, .shape = try std.testing.allocator.dupe(usize, &.{4}),
+        .device = .host, .storage = .owned, .defining_op = 2,
+        .label = null, .requires_grad = false,
+    });
+
+    try ir.input_ids.append(std.testing.allocator, 1);
+    try ir.input_ids.append(std.testing.allocator, 2);
+    try ir.output_ids.append(std.testing.allocator, 3);
+    try ir.output_ids.append(std.testing.allocator, 4);
+
+    try ir.ops.append(std.testing.allocator, .{
+        .id = 1, .name = "ADD",
+        .operands = try std.testing.allocator.dupe(u32, &.{ 1, 2 }),
+        .results = try std.testing.allocator.dupe(u32, &.{3}),
+        .attributes = &.{},
+    });
+    try ir.ops.append(std.testing.allocator, .{
+        .id = 2, .name = "SUB",
+        .operands = try std.testing.allocator.dupe(u32, &.{ 1, 2 }),
+        .results = try std.testing.allocator.dupe(u32, &.{4}),
+        .attributes = &.{},
+    });
+
+    const changed = try csePass().run(&ir);
+    try std.testing.expect(!changed);
+    try std.testing.expectEqual(@as(usize, 2), ir.opCount());
+    try ir.verify();
+}
+
+test "graph_ir/cse different operand order is not duplicate" {
+    // ADD(1, 2) and ADD(2, 1) are NOT duplicates — operand order matters
+    var ir = GraphIR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    try ir.values.append(std.testing.allocator, .{
+        .id = 1, .dtype = .f32, .shape = try std.testing.allocator.dupe(usize, &.{4}),
+        .device = .host, .storage = .owned, .defining_op = null,
+        .label = null, .requires_grad = false,
+    });
+    try ir.values.append(std.testing.allocator, .{
+        .id = 2, .dtype = .f32, .shape = try std.testing.allocator.dupe(usize, &.{4}),
+        .device = .host, .storage = .owned, .defining_op = null,
+        .label = null, .requires_grad = false,
+    });
+    try ir.values.append(std.testing.allocator, .{
+        .id = 3, .dtype = .f32, .shape = try std.testing.allocator.dupe(usize, &.{4}),
+        .device = .host, .storage = .owned, .defining_op = 1,
+        .label = null, .requires_grad = false,
+    });
+    try ir.values.append(std.testing.allocator, .{
+        .id = 4, .dtype = .f32, .shape = try std.testing.allocator.dupe(usize, &.{4}),
+        .device = .host, .storage = .owned, .defining_op = 2,
+        .label = null, .requires_grad = false,
+    });
+
+    try ir.input_ids.append(std.testing.allocator, 1);
+    try ir.input_ids.append(std.testing.allocator, 2);
+    try ir.output_ids.append(std.testing.allocator, 3);
+    try ir.output_ids.append(std.testing.allocator, 4);
+
+    // ADD(1, 2) -> 3
+    try ir.ops.append(std.testing.allocator, .{
+        .id = 1, .name = "ADD",
+        .operands = try std.testing.allocator.dupe(u32, &.{ 1, 2 }),
+        .results = try std.testing.allocator.dupe(u32, &.{3}),
+        .attributes = &.{},
+    });
+    // ADD(2, 1) -> 4 (different operand order — NOT a duplicate)
+    try ir.ops.append(std.testing.allocator, .{
+        .id = 2, .name = "ADD",
+        .operands = try std.testing.allocator.dupe(u32, &.{ 2, 1 }),
+        .results = try std.testing.allocator.dupe(u32, &.{4}),
+        .attributes = &.{},
+    });
+
+    const changed = try csePass().run(&ir);
+    try std.testing.expect(!changed);
+    try std.testing.expectEqual(@as(usize, 2), ir.opCount());
+    try ir.verify();
+}
+
+test "graph_ir/cse with pass_manager and dce" {
+    // CSE followed by DCE should leave a clean graph
+    var ir = GraphIR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    // Simple graph: two identical ADDs, output uses only one
+    try ir.values.append(std.testing.allocator, .{
+        .id = 1, .dtype = .f32, .shape = try std.testing.allocator.dupe(usize, &.{4}),
+        .device = .host, .storage = .owned, .defining_op = null,
+        .label = null, .requires_grad = false,
+    });
+    try ir.values.append(std.testing.allocator, .{
+        .id = 2, .dtype = .f32, .shape = try std.testing.allocator.dupe(usize, &.{4}),
+        .device = .host, .storage = .owned, .defining_op = null,
+        .label = null, .requires_grad = false,
+    });
+    try ir.values.append(std.testing.allocator, .{
+        .id = 3, .dtype = .f32, .shape = try std.testing.allocator.dupe(usize, &.{4}),
+        .device = .host, .storage = .owned, .defining_op = 1,
+        .label = null, .requires_grad = false,
+    });
+    try ir.values.append(std.testing.allocator, .{
+        .id = 4, .dtype = .f32, .shape = try std.testing.allocator.dupe(usize, &.{4}),
+        .device = .host, .storage = .owned, .defining_op = 2,
+        .label = null, .requires_grad = false,
+    });
+
+    try ir.input_ids.append(std.testing.allocator, 1);
+    try ir.input_ids.append(std.testing.allocator, 2);
+    // Output only v3 (so v4 becomes dead after CSE redirects its consumers)
+    try ir.output_ids.append(std.testing.allocator, 3);
+    try ir.output_ids.append(std.testing.allocator, 4);
+
+    // Op 1: ADD(1, 2) -> 3
+    try ir.ops.append(std.testing.allocator, .{
+        .id = 1, .name = "ADD",
+        .operands = try std.testing.allocator.dupe(u32, &.{ 1, 2 }),
+        .results = try std.testing.allocator.dupe(u32, &.{3}),
+        .attributes = &.{},
+    });
+    // Op 2: ADD(1, 2) -> 4 (duplicate)
+    try ir.ops.append(std.testing.allocator, .{
+        .id = 2, .name = "ADD",
+        .operands = try std.testing.allocator.dupe(u32, &.{ 1, 2 }),
+        .results = try std.testing.allocator.dupe(u32, &.{4}),
+        .attributes = &.{},
+    });
+
+    var pm = PassManager.init(std.testing.allocator);
+    defer pm.deinit();
+    try pm.addPass(csePass());
+    try pm.addPass(dcePass());
+    try pm.run(&ir);
+
+    // CSE should have merged the two ADDs, so only 1 op remains
+    try std.testing.expectEqual(@as(usize, 1), ir.opCount());
+
+    // Both outputs should reference v3 now
+    try std.testing.expectEqual(@as(u32, 3), ir.output_ids.items[0]);
+    try std.testing.expectEqual(@as(u32, 3), ir.output_ids.items[1]);
+
+    // CSE should have changed, DCE should also have changed (removed orphaned value)
+    const stats = pm.passStats();
+    try std.testing.expectEqual(@as(usize, 2), stats.len);
+    try std.testing.expect(stats[0].changed); // CSE changed
 }

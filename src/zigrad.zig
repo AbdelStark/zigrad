@@ -18,6 +18,7 @@ pub const Op = @import("ndtensor.zig").Op;
 pub const lazy = @import("lazy.zig");
 pub const graph_ir = @import("graph_ir.zig");
 pub const onnx = @import("interop/onnx/root.zig");
+pub const gguf = @import("interop/gguf/root.zig");
 pub const loss = @import("nn/loss.zig");
 pub const Graph = @import("graph.zig");
 pub const TensorOpts = @import("ndtensor/utils.zig").TensorOpts;

@@ -72,9 +72,9 @@ documents we will implement against.
 | RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, a provider-sensitive numerical parity suite, opt-in runtime diagnostics hooks, example runtime smoke coverage for hello-world/MNIST/DQN/GCN, and Markdown/JSON provider plus thread-scaling report generators are landed; publication-path smoke validation now covers provider/thread reports and CI emits thread-scaling bundle artifacts, while oneMKL execution and published provider comparison runs remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Runtime selection, diagnostics, CUDA-safe DQN/GCN kernels, backend-dispatched Adam optimizer updates, host-staged loss fallbacks for maintained training workloads, and benchmark-harness integration for checked-in CUDA-targeted specs are landed; real GPU compile/run validation and executed CUDA benchmark suites remain. |
 | RFC-0004 | ONNX Interop | `Ready` | P1 | RFC-0001, RFC-0007 | Import MVP landed: protobuf wire reader, ONNX schema parser (ModelProto/GraphProto/NodeProto/TensorProto), op registry (17 ops), `importModel`/`importGraph` lowering to GraphIR with constant data, 2-layer MLP import test; export, full opset coverage, and execution-level validation remain. |
-| RFC-0005 | ggml/GGUF Interop | `Planned` | P1 | RFC-0001, RFC-0012 | Critical for LLM examples and inference compatibility. |
+| RFC-0005 | ggml/GGUF Interop | `In Progress` | P1 | RFC-0001, RFC-0012 | Reader MVP landed: GGUF container parser (v2/v3), metadata reader (all 13 value types), tensor descriptor table, f32/f16/Q4_0/Q8_0 dequantize-on-load, `loadTensors()` API returning name→NDArray(f32) map; additional quantized formats and example integration remain. |
 | RFC-0006 | Lazy Tensors | `Ready` | P1 | RFC-0001, RFC-0002, RFC-0003 | Opt-in lazy-session capture, graph inspection dumps, explicit materialization events, structured op attributes, machine-readable session JSON dumps, and forward-pass deferred execution via thunk queue with auto-realize at materialization boundaries are landed; deferred backward, subgraph-level scheduling, and autograd-aware realization remain. |
-| RFC-0007 | Static Graph Optimization | `Ready` | P1 | RFC-0006 | Graph IR, verifier, pass manager, DCE, execution bridge, constant folding (with `Value.constant_data`, mini-IR evaluation, op removal), and algebraic simplification (identity/annihilator rules for +0, *1, *0, /1, use-def rewiring) are landed; CSE remains. |
+| RFC-0007 | Static Graph Optimization | `Ready` | P1 | RFC-0006 | Graph IR, verifier, pass manager, DCE, execution bridge, constant folding, algebraic simplification, and **CSE** are all landed. The full pass pipeline (DCE → constant fold → algebraic simplify → CSE) is operational. Transpose/layout simplification and fusion marking remain as extensions. |
 | RFC-0008 | Dynamic Graph Compiler | `Draft` | P2 | RFC-0006, RFC-0007 | Specialization and caching for dynamic workloads. |
 | RFC-0009 | MLIR Lowering Pipeline | `Exploratory` | P2 | RFC-0007, RFC-0008 | Optional compiler interoperability layer. |
 | RFC-0010 | ZML Inference Bridge | `Draft` | P2 | RFC-0007 | Enables inference handoff to ZML for pure serving flows. |
@@ -107,19 +107,20 @@ needing to read every agentic-context section.
 | 0002 | Host Backend | Provider selection, broadcast matmul, telemetry, parity suite, provider/thread reports | oneMKL execution runs, published provider comparisons |
 | 0003 | CUDA Backend | Runtime selection, diagnostics, CUDA-safe kernels, device-dispatched Adam, benchmark specs | Real GPU compile/run validation |
 | 0006 | Lazy Tensors | Observe-mode capture, op attributes, JSON/D2/text dumps, **deferred forward execution via thunk queue** | Deferred backward, subgraph scheduling |
-| 0007 | Static Optimization | **Graph IR, verifier, pass manager, DCE, execution bridge, constant folding, algebraic simplification** | CSE |
+| 0007 | Static Optimization | **Graph IR, verifier, pass manager, DCE, execution bridge, constant folding, algebraic simplification, CSE** | Transpose/layout simplification, fusion marking |
 | 0012 | Examples | hello-world, MNIST, char-LM (causal attention), pendulum, corridor, DQN, GCN — all with smoke + benchmark | Deeper transformer portfolio, CUDA hardware validation |
 | 0004 | ONNX Interop | **Import MVP landed**: protobuf reader, schema parser, op registry, importModel/importGraph | Export, full opset, execution validation |
-| 0005 | GGUF Interop | — (not started) | Container parser, tensor loader, dequantizer |
+| 0005 | GGUF Interop | **Reader MVP landed**: parser, metadata, f32/f16/Q4_0/Q8_0 dequant, loadTensors() | Additional quant formats, example integration, benchmarks |
 | 0008 | Dynamic Compiler | — (not started, dependencies now landed) | Needs scoping spike |
 | 0009 | MLIR Lowering | — (not started) | Blocked on RFC-0008 |
 | 0010 | ZML Bridge | — (not started) | Blocked on RFC-0007 optimization passes |
 | 0011 | TVM Integration | — (not started) | Exploratory |
 
-**Critical path:** M-1 through M-3 are landed (execution bridge, constant
-folding, algebraic simplification). The optimization pipeline is operational.
-The next high-value work is **ONNX import (M-4)** and **GGUF reader (M-5)**,
-which can run in parallel. CSE (M-7) is independent but lower priority.
+**Critical path:** M-1 through M-5 are landed (execution bridge, constant
+folding, algebraic simplification, ONNX import, GGUF reader). The optimization
+pipeline and both external model format readers are operational.
+The next high-value work is **CSE (M-7)** and **deferred backward (M-6)**.
+ONNX export (M-4b) and GGUF additional quantized formats are extensions.
 
 ## Definition of Done for the Roadmap Program
 
