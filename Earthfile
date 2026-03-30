@@ -46,6 +46,7 @@ build:
     COPY --dir src scripts tests benchmarks examples tensorboard ./
     COPY *.zig .
     COPY *.zon .
+    RUN cd examples/mnist && python3 mnist_data.py
     RUN zig build test
     RUN zig build -Doptimize=ReleaseFast -Denable_cuda=${ENABLE_CUDA} -Denable_mkl=${ENABLE_MKL}
     CMD ["./zig-out/bin/main"]
