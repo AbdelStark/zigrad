@@ -80,7 +80,9 @@ provider comparison runs. No further agent work needed unless directed.
   Next: CSE (M-7) or start ONNX/GGUF interop.
 - RFC-0012 has all reference examples landed with smoke + benchmark coverage.
   Next: deeper transformer portfolio (lower priority).
-- RFC-0004 (ONNX) and RFC-0005 (GGUF) are not started but now unblocked.
+- RFC-0004 (ONNX) has import MVP landed (protobuf parser, schema, op registry,
+  importModel/importGraph lowering). Export and full opset remain.
+- RFC-0005 (GGUF) is not started but now unblocked.
 
 **Phase 2 (Compilation): Dependencies landed, not yet started.**
 RFC-0008 (Dynamic Compiler) has both RFC-0006 and RFC-0007 available now. It
@@ -89,9 +91,9 @@ RFC-0008.
 
 **Phase 3 (External Compilers): Not started, low priority.**
 
-**Where to start:** The highest-value unblocked work is **ONNX import (M-4)**
-or **GGUF reader (M-5)**, which can run in parallel. CSE (M-7) is independent
-and lower priority. Deferred backward (M-6) targets training workloads.
+**Where to start:** The highest-value unblocked work is **GGUF reader (M-5)**.
+CSE (M-7) is independent and lower priority. Deferred backward (M-6) targets
+training workloads. ONNX export (M-4b) can follow the import MVP.
 
 ## Core Agent Rules
 

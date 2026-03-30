@@ -1,6 +1,6 @@
 # RFC-0004: ONNX Interoperability
 
-Status: `Planned`
+Status: `Ready` (Import MVP landed)
 Priority: `P1`
 Depends on: RFC-0001, RFC-0007
 Blocks: RFC-0010

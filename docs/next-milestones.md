@@ -27,7 +27,7 @@ The compiler stack has reached the following state:
 | Constant folding | **Landed** | `src/graph_ir.zig` |
 | Algebraic simplification | **Landed** | `src/graph_ir.zig` |
 | Execution bridge | **Landed** | `src/graph_ir.zig` |
-| ONNX interop | Not started | — |
+| ONNX interop | **Landed** (import MVP) | `src/interop/onnx/` |
 | GGUF interop | Not started | — |
 
 ---
@@ -220,12 +220,13 @@ Apply identity and annihilator rules to simplify the graph:
 
 ---
 
-## M-4: ONNX Import MVP
+## M-4: ONNX Import MVP ✓ LANDED
 
 **RFC:** RFC-0004 (ONNX Interop)
 **Priority:** High — first external model format, critical for ecosystem.
 **Depends on:** RFC-0007 Graph IR (landed)
 **Blocks:** None immediately
+**Status:** Complete. Landed 2026-03-30.
 
 ### Goal
 
