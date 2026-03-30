@@ -74,7 +74,7 @@ documents we will implement against.
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
 | RFC-0005 | ggml/GGUF Interop | `Planned` | P1 | RFC-0001, RFC-0012 | Critical for LLM examples and inference compatibility. |
 | RFC-0006 | Lazy Tensors | `Ready` | P1 | RFC-0001, RFC-0002, RFC-0003 | Opt-in lazy-session capture, graph inspection dumps, explicit materialization events, structured op attributes, machine-readable session JSON dumps, and forward-pass deferred execution via thunk queue with auto-realize at materialization boundaries are landed; deferred backward, subgraph-level scheduling, and autograd-aware realization remain. |
-| RFC-0007 | Static Graph Optimization | `Planned` | P1 | RFC-0006 | First optimization layer and foundation for compiler work. |
+| RFC-0007 | Static Graph Optimization | `Ready` | P1 | RFC-0006 | Graph IR with typed values/ops, session-to-IR lowering, verifier (use-def, acyclicity), pass manager with timing, and DCE pass are landed; constant folding, algebraic simplification, CSE, and execution bridge remain. |
 | RFC-0008 | Dynamic Graph Compiler | `Draft` | P2 | RFC-0006, RFC-0007 | Specialization and caching for dynamic workloads. |
 | RFC-0009 | MLIR Lowering Pipeline | `Exploratory` | P2 | RFC-0007, RFC-0008 | Optional compiler interoperability layer. |
 | RFC-0010 | ZML Inference Bridge | `Draft` | P2 | RFC-0007 | Enables inference handoff to ZML for pure serving flows. |

@@ -1,10 +1,10 @@
 # RFC-0007: Static Graph Optimization
 
-Status: `Planned`  
-Priority: `P1`  
-Depends on: RFC-0006  
-Blocks: RFC-0004, RFC-0008, RFC-0009, RFC-0010, RFC-0011  
-Last updated: `2026-03-27`
+Status: `Ready`
+Priority: `P1`
+Depends on: RFC-0006
+Blocks: RFC-0004, RFC-0008, RFC-0009, RFC-0010, RFC-0011
+Last updated: `2026-03-30`
 
 ## Summary
 
@@ -162,4 +162,54 @@ compiled lowering.
 - How much symbolic shape reasoning is required in the first version?
 - Should memory planning be annotations in this RFC or a later dedicated pass?
 - Do we permit backend-specific passes in the base pass manager?
+
+## Agentic Context
+
+### 2026-03-30 Graph IR Foundation, Verifier, Pass Manager, and DCE
+
+- Completed:
+  - Defined a stable graph IR in
+    [`src/graph_ir.zig`](../../src/graph_ir.zig)
+    with typed `Value` nodes (id, dtype, shape, device, storage, label,
+    requires_grad, defining_op), `Op` nodes (id, name, operands, results,
+    attributes), and graph-level input/output tracking.
+  - Added `DType` enum with `fromName()` for lowering lazy-session dtype
+    strings into typed IR values.
+  - Implemented `GraphIR.fromSession()` that lowers `lazy.Session` captures
+    into the IR, mapping source/external_input records to graph inputs and
+    computed tensor records to op+value pairs. Materialized tensors become
+    graph outputs.
+  - Implemented an IR verifier that checks: no duplicate value/op IDs, all
+    operand references resolve, all defining ops exist, and the dataflow
+    graph is acyclic (DFS with cycle detection).
+  - Implemented a `PassManager` with deterministic ordering, per-pass timing
+    statistics, and optional pre/post verification after each pass.
+  - Implemented DCE (dead code elimination) as the first real optimization
+    pass — removes ops whose results are not reachable from graph outputs,
+    and removes orphaned values.
+  - Added structural stubs for constant folding and algebraic simplification
+    passes, ready for host-side evaluation wiring.
+  - Added a `writeSummary()` text dump for the IR in SSA-like notation with
+    typed values, op names, and attributes.
+  - Exported `graph_ir` through
+    [`src/zigrad.zig`](../../src/zigrad.zig),
+    and added public attribute helper wrappers in
+    [`src/lazy.zig`](../../src/lazy.zig).
+  - Added five regression tests: session-to-IR lowering, dangling operand
+    verifier detection, DCE removing dead ops, pass manager execution with
+    stats, and summary output format.
+- Remains:
+  - Constant folding with host-side evaluation (requires execution bridge).
+  - Algebraic simplification with constant value tracking.
+  - Additional passes: CSE, transpose/layout simplification, fusion marking.
+  - Execution bridge: lower optimized IR back to device dispatch.
+  - Benchmark coverage comparing optimized vs unoptimized execution.
+- Blockers:
+  - Constant folding and algebraic simplification require either embedding
+    constant data in the IR or an execution bridge that can evaluate ops at
+    optimization time.
+- Validation performed:
+  - `zig fmt src/graph_ir.zig src/lazy.zig src/zigrad.zig`
+  - `zig build test` — all tests pass including five new graph IR tests
+  - `zig build test-example-smoke` — no regressions
 

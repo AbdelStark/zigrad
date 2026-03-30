@@ -378,6 +378,19 @@ pub const Guard = struct {
     }
 };
 
+// Public wrappers for cross-module use (graph_ir.zig)
+pub fn dupeAttributesPublic(allocator: std.mem.Allocator, attributes: []const OpAttribute) ![]const OpAttribute {
+    return dupeAttributes(allocator, attributes);
+}
+
+pub fn freeAttributesPublic(allocator: std.mem.Allocator, attributes: []const OpAttribute) void {
+    freeAttributes(allocator, attributes);
+}
+
+pub fn writeAttributesPublic(writer: anytype, attributes: []const OpAttribute) !void {
+    return writeAttributes(writer, attributes);
+}
+
 fn writeShape(writer: anytype, shape: []const usize) !void {
     try writeUsizeList(writer, shape, "x");
 }
