@@ -923,7 +923,7 @@ pub fn max_fwd(_: *const Self, T: type, p: opspec.max_fwd(T)) void {
         f64 => c.cblas_idamax(@intCast(p.x.len), p.x.ptr, 1),
         else => @compileError("Unsupported type for BLAS max" ++ @typeName(T)),
     };
-    p.y[0] = p.x[idx];
+    p.y[0] = p.x[@intCast(idx)];
 }
 
 pub fn max_bwd(_: *const Self, T: type, p: opspec.max_bwd(T)) void {

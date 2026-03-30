@@ -74,7 +74,7 @@ documents we will implement against.
 | RFC-0004 | ONNX Interop | `Planned` | P1 | RFC-0001, RFC-0007 | Best treated as import/export on top of a stable graph IR. |
 | RFC-0005 | ggml/GGUF Interop | `Planned` | P1 | RFC-0001, RFC-0012 | Critical for LLM examples and inference compatibility. |
 | RFC-0006 | Lazy Tensors | `Ready` | P1 | RFC-0001, RFC-0002, RFC-0003 | Opt-in lazy-session capture, graph inspection dumps, explicit materialization events, structured op attributes, machine-readable session JSON dumps, and forward-pass deferred execution via thunk queue with auto-realize at materialization boundaries are landed; deferred backward, subgraph-level scheduling, and autograd-aware realization remain. |
-| RFC-0007 | Static Graph Optimization | `Ready` | P1 | RFC-0006 | Graph IR with typed values/ops, session-to-IR lowering, verifier (use-def, acyclicity), pass manager with timing, and DCE pass are landed; constant folding, algebraic simplification, CSE, and execution bridge remain. |
+| RFC-0007 | Static Graph Optimization | `Ready` | P1 | RFC-0006 | Graph IR with typed values/ops, session-to-IR lowering, verifier (use-def, acyclicity), pass manager with timing, DCE pass, and execution bridge (topological sort, typed buffer management, op dispatch table covering elwise/unary/BLAS/reduction ops, roundtrip parity tests) are landed; constant folding, algebraic simplification, and CSE remain. |
 | RFC-0008 | Dynamic Graph Compiler | `Draft` | P2 | RFC-0006, RFC-0007 | Specialization and caching for dynamic workloads. |
 | RFC-0009 | MLIR Lowering Pipeline | `Exploratory` | P2 | RFC-0007, RFC-0008 | Optional compiler interoperability layer. |
 | RFC-0010 | ZML Inference Bridge | `Draft` | P2 | RFC-0007 | Enables inference handoff to ZML for pure serving flows. |
@@ -107,19 +107,19 @@ needing to read every agentic-context section.
 | 0002 | Host Backend | Provider selection, broadcast matmul, telemetry, parity suite, provider/thread reports | oneMKL execution runs, published provider comparisons |
 | 0003 | CUDA Backend | Runtime selection, diagnostics, CUDA-safe kernels, device-dispatched Adam, benchmark specs | Real GPU compile/run validation |
 | 0006 | Lazy Tensors | Observe-mode capture, op attributes, JSON/D2/text dumps, **deferred forward execution via thunk queue** | Deferred backward, subgraph scheduling |
-| 0007 | Static Optimization | **Graph IR (SSA-form), verifier, pass manager, DCE pass**, constant fold/algebraic stubs | Execution bridge, constant folding, algebraic simplification, CSE |
+| 0007 | Static Optimization | **Graph IR (SSA-form), verifier, pass manager, DCE pass, execution bridge** (topo sort, typed buffer mgmt, op dispatch for elwise/unary/BLAS/reduction, roundtrip parity tests), constant fold/algebraic stubs | Constant folding, algebraic simplification, CSE |
 | 0012 | Examples | hello-world, MNIST, char-LM (causal attention), pendulum, corridor, DQN, GCN — all with smoke + benchmark | Deeper transformer portfolio, CUDA hardware validation |
 | 0004 | ONNX Interop | — (not started) | Protobuf parser, op registry, import function |
 | 0005 | GGUF Interop | — (not started) | Container parser, tensor loader, dequantizer |
 | 0008 | Dynamic Compiler | — (not started, dependencies now landed) | Needs scoping spike |
 | 0009 | MLIR Lowering | — (not started) | Blocked on RFC-0008 |
-| 0010 | ZML Bridge | — (not started) | Blocked on RFC-0007 execution bridge |
+| 0010 | ZML Bridge | — (not started) | Blocked on RFC-0007 optimization passes |
 | 0011 | TVM Integration | — (not started) | Exploratory |
 
-**Critical path:** The next unblocked high-value work is the **execution bridge**
-for RFC-0007 (see [`docs/next-milestones.md`](./next-milestones.md) M-1),
-followed by constant folding (M-2) and algebraic simplification (M-3).
-ONNX import (M-4) and GGUF reader (M-5) can run in parallel.
+**Critical path:** The execution bridge (M-1) is now landed. The next unblocked
+high-value work is **constant folding** (M-2) followed by algebraic
+simplification (M-3). ONNX import (M-4) and GGUF reader (M-5) can run in
+parallel.
 
 ## Definition of Done for the Roadmap Program
 
@@ -1388,3 +1388,41 @@ Every RFC in this folder set must maintain:
   - `cd examples/hello-world && zig build --help | rg "enable_cuda|rebuild_cuda|host_blas"`
   - `cd examples/dqn && zig build --help | rg "enable_cuda|rebuild_cuda|host_blas"`
   - `cd examples/gcn && zig build --help | rg "enable_cuda|rebuild_cuda|host_blas"`
+
+### RFC-0007 2026-03-30 Execution Bridge (M-1)
+
+- Completed:
+  - Implemented topological sort (`GraphIR.topoSort`) using Kahn's algorithm
+    to produce a valid execution ordering of IR ops.
+  - Implemented typed execution bridge (`GraphIR.execute(T, ...)`) with:
+    - Lazy session suspension (`lazy.suspendSession/restoreSession`) so
+      dispatch always runs immediately, even if called from within a deferred
+      capture scope.
+    - Input buffer binding (copy host data to device).
+    - Op dispatch table covering: ADD, SUB, MUL, DIV (elwise), EXP, sqrt,
+      rsqrt, relu, tanh, POW (unary), SUM, MAX (reductions), TRANSPOSE,
+      DOT, MATMUL_AB/AtB/ABt/AtBt (2D matmul), batched matmul via bmm_acc,
+      clone, alias (pass-through).
+    - `ExecutionResult(T)` type with buffer ownership tracking and cleanup.
+  - Added 5 roundtrip parity tests:
+    1. Elementwise chain (add + mul)
+    2. 2D matrix multiplication
+    3. Multi-layer MLP forward pass (matmul + add + relu, 2 layers)
+    4. Capture-optimize-execute (full pipeline with DCE)
+    5. Topological sort ordering
+  - Fixed pre-existing `max_fwd` BLAS index type mismatch in
+    `src/device/host_device.zig` (cblas_isamax returns c_int, needed @intCast
+    for usize slice index).
+  - Added `lazy.suspendSession()` and `lazy.restoreSession()` to `src/lazy.zig`
+    for cross-module session isolation.
+- Remains:
+  - Constant folding (M-2) — now unblocked by the execution bridge.
+  - Algebraic simplification (M-3) — depends on constant tracking from M-2.
+  - CSE (M-7) — independent, can run in parallel.
+  - Benchmark comparison of IR execution vs eager (deferred to M-2/M-3 where
+    optimization passes create measurable difference).
+- Blockers: None. M-2 is now unblocked.
+- Validation:
+  - `zig build test` (all tests pass, exit 0)
+  - `zig build test-benchmark-smoke` (exit 0)
+  - `zig build test-example-smoke` (exit 0)

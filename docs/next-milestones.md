@@ -26,19 +26,20 @@ The compiler stack has reached the following state:
 | DCE pass | Landed, working | `src/graph_ir.zig` |
 | Constant folding | Stub only | `src/graph_ir.zig` |
 | Algebraic simplification | Stub only | `src/graph_ir.zig` |
-| Execution bridge | Not started | — |
+| Execution bridge | **Landed** | `src/graph_ir.zig` |
 | ONNX interop | Not started | — |
 | GGUF interop | Not started | — |
 
 ---
 
-## M-1: Graph IR Execution Bridge
+## M-1: Graph IR Execution Bridge ✓ LANDED
 
 **RFC:** RFC-0007 (Static Graph Optimization)
 **Priority:** Highest — unblocks constant folding, algebraic simplification, and
 end-to-end optimized execution.
 **Depends on:** Graph IR (landed), deferred execution (landed)
 **Blocks:** M-2, M-3, M-5
+**Status:** Complete. Landed 2026-03-30.
 
 ### Goal
 

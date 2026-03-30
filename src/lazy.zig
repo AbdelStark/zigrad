@@ -106,6 +106,20 @@ pub fn enqueueDeferredThunk(thunk: *ThunkBase) void {
         @panic("OOM: cannot enqueue deferred thunk in lazy session");
 }
 
+/// Temporarily suspend the active session so dispatch calls execute
+/// immediately (used by the execution bridge). Returns the suspended
+/// session so it can be restored later.
+pub fn suspendSession() ?*Session {
+    const s = active_session;
+    active_session = null;
+    return s;
+}
+
+/// Restore a previously suspended session.
+pub fn restoreSession(session: ?*Session) void {
+    active_session = session;
+}
+
 pub fn flushIfDeferred() void {
     const session = active_session orelse return;
     if (session.mode == .deferred) {
