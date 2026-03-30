@@ -165,6 +165,30 @@ compiled lowering.
 
 ## Agentic Context
 
+### Consolidated Status (2026-03-30)
+
+**Landed:**
+- Graph IR (`src/graph_ir.zig`) with typed Value/Op nodes in SSA form,
+  DType enum, session-to-IR lowering, IR verifier (use-def + acyclicity),
+  pass manager with deterministic ordering and per-pass timing, DCE pass,
+  and text summary dump
+- 6 regression tests including end-to-end deferred-capture-optimize-verify
+  pipeline test
+
+**Not yet landed:**
+- Execution bridge (M-1) — lower optimized IR back to device dispatch
+- Constant folding (M-2) — needs execution bridge for host-side evaluation
+- Algebraic simplification (M-3) — needs constant tracking from M-2
+- CSE (M-7) — can be done independently of M-1
+- Transpose/layout simplification, fusion-candidate marking, memory planning
+
+**Key file:** `src/graph_ir.zig` (all IR types, verifier, pass manager, passes)
+
+**Next milestone:** Execution bridge (M-1) — see
+[`docs/next-milestones.md`](../next-milestones.md) for detailed specification.
+
+---
+
 ### 2026-03-30 Graph IR Foundation, Verifier, Pass Manager, and DCE
 
 - Completed:

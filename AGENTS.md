@@ -61,6 +61,38 @@ When selecting work:
 - do not start a lower-priority RFC if a higher-priority RFC has obvious,
   unblocked, high-value work remaining.
 
+## Current Execution State (2026-03-30)
+
+Read this section first to understand where the project stands before selecting
+work. For detailed milestone specs, see
+[`docs/next-milestones.md`](./docs/next-milestones.md).
+
+**Phase 0 (Measurement/Backend): Substantially complete.**
+RFC-0001, RFC-0002, RFC-0003 have comprehensive landed implementations. The
+main remaining work is real-GPU CUDA validation (needs hardware) and published
+provider comparison runs. No further agent work needed unless directed.
+
+**Phase 1 (Execution Model): Active frontier.**
+- RFC-0006 has observe-mode capture AND deferred forward execution landed.
+  Next: deferred backward pass (M-6).
+- RFC-0007 has Graph IR, verifier, pass manager, and DCE landed.
+  Next: **execution bridge (M-1)** — this is the critical path.
+- RFC-0012 has all reference examples landed with smoke + benchmark coverage.
+  Next: deeper transformer portfolio (lower priority).
+- RFC-0004 (ONNX) and RFC-0005 (GGUF) are not started but now unblocked.
+
+**Phase 2 (Compilation): Dependencies landed, not yet started.**
+RFC-0008 (Dynamic Compiler) has both RFC-0006 and RFC-0007 available now. It
+needs a scoping spike before implementation. RFC-0009 (MLIR) is blocked on
+RFC-0008.
+
+**Phase 3 (External Compilers): Not started, low priority.**
+
+**Where to start:** The highest-value unblocked work is RFC-0007's execution
+bridge (`docs/next-milestones.md` M-1). After that, constant folding (M-2)
+and algebraic simplification (M-3). ONNX import (M-4) and GGUF reader (M-5)
+can run in parallel with those.
+
 ## Core Agent Rules
 
 - Do not guess about behavior that can be verified from the codebase.

@@ -1,10 +1,10 @@
 # RFC-0008: Dynamic Graph Compiler
 
-Status: `Draft`  
-Priority: `P2`  
-Depends on: RFC-0006, RFC-0007  
-Blocks: RFC-0009  
-Last updated: `2026-03-27`
+Status: `Draft`
+Priority: `P2`
+Depends on: RFC-0006, RFC-0007
+Blocks: RFC-0009
+Last updated: `2026-03-30`
 
 ## Summary
 
@@ -149,3 +149,31 @@ backward graphs.
 - How small can a compiled segment be before the cost is not worth it?
 - Is the first backend target handwritten codegen, MLIR, or another IR?
 
+## Agentic Context
+
+### 2026-03-30 Dependency Status Update
+
+- Dependencies now available:
+  - **RFC-0006 (Lazy Tensors):** Deferred forward execution via thunk queue
+    is landed. Operations can be captured and replayed. The lazy session
+    records op names, dtypes, shapes, devices, parent edges, and structured
+    attributes. See `src/lazy.zig`.
+  - **RFC-0007 (Static Graph Optimization):** Graph IR with typed Value/Op
+    nodes in SSA form, verifier (use-def + acyclicity), pass manager with
+    timing, and a working DCE pass are all landed. See `src/graph_ir.zig`.
+- What this RFC can now build on:
+  - The `GraphIR.fromSession()` lowering provides a stable IR from lazy
+    captures. The pass manager provides the infrastructure for adding
+    compilation passes. The execution bridge (RFC-0007 M-1, not yet landed)
+    will provide the ability to execute optimized/compiled graphs.
+- Blockers:
+  - This RFC remains `Draft` because it needs a scoping spike to decide
+    the compilation target (handwritten codegen vs MLIR) and minimum viable
+    segment size before implementation begins.
+  - The execution bridge (RFC-0007 M-1) should land before this RFC starts,
+    as compiled segments need an execution path.
+- Recommended next step:
+  - A scoping spike that captures one of the reference models (e.g.,
+    char-LM or MNIST) in deferred mode, lowers to IR, and measures the
+    overhead of capture + IR construction to establish a baseline for what
+    compilation needs to improve on.

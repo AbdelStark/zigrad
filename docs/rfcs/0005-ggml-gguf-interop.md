@@ -1,10 +1,10 @@
 # RFC-0005: ggml and GGUF Interoperability
 
-Status: `Planned`  
-Priority: `P1`  
-Depends on: RFC-0001, RFC-0012  
-Blocks: None  
-Last updated: `2026-03-27`
+Status: `Planned`
+Priority: `P1`
+Depends on: RFC-0001, RFC-0012
+Blocks: None
+Last updated: `2026-03-30`
 
 ## Summary
 
@@ -145,3 +145,18 @@ Reference LLM examples must be able to:
 - Which quantized formats are the true must-have subset?
 - Should quantized tensors remain first-class or be normalized eagerly?
 
+## Agentic Context
+
+### 2026-03-30 Dependency Readiness
+
+- Dependencies now available:
+  - **RFC-0001 (Benchmarking):** Fully landed. Interop benchmark contract
+    ready for GGUF load benchmarks once the artifact path exists.
+  - **RFC-0012 (Examples):** All reference examples landed (MNIST, char-LM,
+    pendulum, corridor, DQN, GCN). The char-LM example is the most natural
+    consumer for GGUF-loaded weights.
+- This RFC is now **unblocked** for implementation.
+- Recommended approach: GGUF loads to `NDArray` buffers (not `GraphIR`),
+  since weights are data, not computation. The loaded tensors can then be
+  used as inputs to either eager execution or lazy-captured graphs.
+- Detailed milestone spec: see [`docs/next-milestones.md`](../next-milestones.md) M-5.

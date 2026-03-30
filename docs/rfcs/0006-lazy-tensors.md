@@ -4,7 +4,7 @@ Status: `Ready`
 Priority: `P1`
 Depends on: RFC-0001, RFC-0002, RFC-0003
 Blocks: RFC-0007, RFC-0008, RFC-0010
-Last updated: `2026-03-29`
+Last updated: `2026-03-30`
 
 ## Summary
 
@@ -161,6 +161,33 @@ The exact API should stay minimal until implementation experience is gathered.
 - Can the existing graph manager participate directly, or do we need a new IR?
 
 ## Agentic Context
+
+### Consolidated Status (2026-03-30)
+
+**Landed:**
+- Observe-mode capture with scoped sessions, tensor records, text/D2/JSON
+  graph dumps, materialization events, and structured op attributes
+  (`src/lazy.zig`, `src/ndtensor.zig`, `src/nn/nn.zig`, `src/nn/loss.zig`)
+- Deferred forward execution via thunk queue with auto-realize at
+  `realize()` and `copy_to_host()` boundaries
+  (`src/lazy.zig`, `src/device/device_reference.zig`, `src/ndtensor.zig`)
+- 8 regression tests covering capture, attributes, JSON, deferred parity,
+  auto-realize, matmul chains, and metadata correctness
+
+**Not yet landed:**
+- Deferred backward pass (autograd ops in deferred mode) — see
+  [`docs/next-milestones.md`](../next-milestones.md) M-6
+- Subgraph-level realization (current flush is global FIFO)
+- Backend-specific deferred batching and scheduling
+
+**Key files:** `src/lazy.zig` (session + thunk infra), `src/device/device_reference.zig`
+(dispatch interception + DeferredDispatchThunk), `src/ndtensor.zig` (capture hooks +
+realize/host-read flush)
+
+**Downstream consumers:** `src/graph_ir.zig` (RFC-0007) lowers session captures
+into a typed graph IR for optimization.
+
+---
 
 ### 2026-03-29 Opt-In Lazy Capture Session Foundation
 

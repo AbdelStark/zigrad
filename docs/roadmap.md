@@ -96,6 +96,31 @@ documents we will implement against.
 11. RFC-0009 MLIR Lowering Pipeline
 12. RFC-0011 Apache TVM Integration
 
+## Current Execution State (as of 2026-03-30)
+
+This section gives agents a quick picture of where each RFC stands without
+needing to read every agentic-context section.
+
+| RFC | Layer | What's Landed | What's Next |
+|-----|-------|---------------|-------------|
+| 0001 | Benchmarking | Harness, JSONL, comparison, validation, smoke CI, compiler/interop suites, publication bundle | Real-GPU suites, ONNX/GGUF interop benchmarks |
+| 0002 | Host Backend | Provider selection, broadcast matmul, telemetry, parity suite, provider/thread reports | oneMKL execution runs, published provider comparisons |
+| 0003 | CUDA Backend | Runtime selection, diagnostics, CUDA-safe kernels, device-dispatched Adam, benchmark specs | Real GPU compile/run validation |
+| 0006 | Lazy Tensors | Observe-mode capture, op attributes, JSON/D2/text dumps, **deferred forward execution via thunk queue** | Deferred backward, subgraph scheduling |
+| 0007 | Static Optimization | **Graph IR (SSA-form), verifier, pass manager, DCE pass**, constant fold/algebraic stubs | Execution bridge, constant folding, algebraic simplification, CSE |
+| 0012 | Examples | hello-world, MNIST, char-LM (causal attention), pendulum, corridor, DQN, GCN — all with smoke + benchmark | Deeper transformer portfolio, CUDA hardware validation |
+| 0004 | ONNX Interop | — (not started) | Protobuf parser, op registry, import function |
+| 0005 | GGUF Interop | — (not started) | Container parser, tensor loader, dequantizer |
+| 0008 | Dynamic Compiler | — (not started, dependencies now landed) | Needs scoping spike |
+| 0009 | MLIR Lowering | — (not started) | Blocked on RFC-0008 |
+| 0010 | ZML Bridge | — (not started) | Blocked on RFC-0007 execution bridge |
+| 0011 | TVM Integration | — (not started) | Exploratory |
+
+**Critical path:** The next unblocked high-value work is the **execution bridge**
+for RFC-0007 (see [`docs/next-milestones.md`](./next-milestones.md) M-1),
+followed by constant folding (M-2) and algebraic simplification (M-3).
+ONNX import (M-4) and GGUF reader (M-5) can run in parallel.
+
 ## Definition of Done for the Roadmap Program
 
 The roadmap is considered complete only when:

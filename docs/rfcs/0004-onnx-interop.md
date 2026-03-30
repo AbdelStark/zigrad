@@ -1,10 +1,10 @@
 # RFC-0004: ONNX Interoperability
 
-Status: `Planned`  
-Priority: `P1`  
-Depends on: RFC-0001, RFC-0007  
-Blocks: RFC-0010  
-Last updated: `2026-03-27`
+Status: `Planned`
+Priority: `P1`
+Depends on: RFC-0001, RFC-0007
+Blocks: RFC-0010
+Last updated: `2026-03-30`
 
 ## Summary
 
@@ -158,3 +158,20 @@ Unsupported operators must fail loudly with actionable diagnostics.
 - Do we vendor generated ONNX protobuf types or keep parsing isolated?
 - When do we support training graph export versus inference-only export?
 
+## Agentic Context
+
+### 2026-03-30 Dependency Readiness
+
+- Dependencies now available:
+  - **RFC-0001 (Benchmarking):** Fully landed. Interop benchmark contract
+    supports safetensors; ONNX interop rows will be added once an artifact
+    path exists.
+  - **RFC-0007 (Static Graph Optimization):** Graph IR with typed Value/Op
+    nodes (SSA form), verifier, pass manager, and DCE pass are landed in
+    `src/graph_ir.zig`. The IR provides the target representation for ONNX
+    import lowering.
+- This RFC is now **unblocked** for implementation.
+- Recommended approach: Import to `GraphIR` rather than eager execution
+  directly. This lets imported models benefit from the optimization pipeline
+  and keeps the import path decoupled from the runtime tensor machinery.
+- Detailed milestone spec: see [`docs/next-milestones.md`](../next-milestones.md) M-4.
