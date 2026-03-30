@@ -748,3 +748,115 @@ test "graph_ir/summary output is well-formed" {
     try std.testing.expect(std.mem.indexOf(u8, output, "ADD") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "outputs:") != null);
 }
+
+test "graph_ir/end_to_end deferred capture, IR lowering, DCE, and verification" {
+    const zg = @import("zigrad.zig");
+    const Graph = zg.Graph;
+    const Tensor = zg.NDTensor(f32);
+
+    // --- Eager reference run ---
+    var eager_cpu = zg.device.HostDevice.init();
+    defer eager_cpu.deinit();
+    const eager_dev = eager_cpu.reference();
+
+    var eager_graph = Graph.init(std.testing.allocator, .{});
+    defer eager_graph.deinit();
+
+    const ea = try Tensor.from_slice(eager_dev, &.{ 1, 2, 3, 4, 5, 6 }, &.{ 2, 3 }, .{
+        .graph = &eager_graph,
+    });
+    defer ea.deinit();
+
+    const eb = try Tensor.from_slice(eager_dev, &.{ 7, 8, 9, 10, 11, 12 }, &.{ 2, 3 }, .{
+        .graph = &eager_graph,
+    });
+    defer eb.deinit();
+
+    const e_sum = try ea.add(eb);
+    defer e_sum.deinit();
+
+    const e_prod = try e_sum.mul(ea);
+    defer e_prod.deinit();
+
+    // Dead branch — will be eliminated by DCE
+    const e_dead = try ea.sub(eb);
+    defer e_dead.deinit();
+
+    const eager_result = try e_prod.to_host_owned(std.testing.allocator);
+    defer std.testing.allocator.free(eager_result);
+
+    // --- Deferred capture run ---
+    var def_cpu = zg.device.HostDevice.init();
+    defer def_cpu.deinit();
+    const def_dev = def_cpu.reference();
+
+    var def_graph = Graph.init(std.testing.allocator, .{});
+    defer def_graph.deinit();
+
+    var session = zg.lazy.Session.init(std.testing.allocator);
+    defer session.deinit();
+    session.mode = .deferred;
+
+    var capture = try session.begin();
+    defer capture.end();
+
+    const da = try Tensor.from_slice(def_dev, &.{ 1, 2, 3, 4, 5, 6 }, &.{ 2, 3 }, .{
+        .graph = &def_graph,
+        .label = "a",
+    });
+    defer da.deinit();
+
+    const db = try Tensor.from_slice(def_dev, &.{ 7, 8, 9, 10, 11, 12 }, &.{ 2, 3 }, .{
+        .graph = &def_graph,
+        .label = "b",
+    });
+    defer db.deinit();
+
+    const d_sum = try da.add(db);
+    defer d_sum.deinit();
+
+    const d_prod = try d_sum.mul(da);
+    defer d_prod.deinit();
+
+    // Dead branch (will not be realized)
+    const d_dead = try da.sub(db);
+    defer d_dead.deinit();
+
+    // Realize only the live result
+    _ = try d_prod.realize();
+
+    // --- Verify deferred results match eager ---
+    const def_result = try d_prod.to_host_owned(std.testing.allocator);
+    defer std.testing.allocator.free(def_result);
+    try std.testing.expectEqualSlices(f32, eager_result, def_result);
+
+    // --- Lower to graph IR ---
+    var ir = try GraphIR.fromSession(std.testing.allocator, &session);
+    defer ir.deinit();
+
+    // Verify IR integrity
+    try ir.verify();
+
+    // Should have: 2 inputs, 3 ops (add, mul, sub), 5 values total
+    try std.testing.expectEqual(@as(usize, 2), ir.input_ids.items.len);
+    try std.testing.expectEqual(@as(usize, 3), ir.opCount());
+    try std.testing.expectEqual(@as(usize, 5), ir.valueCount());
+
+    // --- Run DCE ---
+    var pm = PassManager.init(std.testing.allocator);
+    defer pm.deinit();
+    try pm.addPass(dcePass());
+    try pm.run(&ir);
+
+    // After DCE: dead sub should be removed
+    try std.testing.expectEqual(@as(usize, 2), ir.opCount());
+    try std.testing.expectEqual(@as(usize, 4), ir.valueCount());
+
+    // IR should still verify
+    try ir.verify();
+
+    // Pass stats should show DCE made changes
+    const stats = pm.passStats();
+    try std.testing.expectEqual(@as(usize, 1), stats.len);
+    try std.testing.expect(stats[0].changed);
+}
