@@ -157,6 +157,17 @@ pub fn NDTensor(comptime T: type) type {
 
         pub fn backward(self: *Self) !void {
             std.debug.assert(zg.runtime.grad_enabled);
+
+            if (zg.lazy.isDeferred()) {
+                // Deferred backward: flush forward thunks so forward data
+                // is available, pre-allocate gradient, then enqueue a thunk
+                // that runs the full backward pass on flush.
+                zg.lazy.flushIfDeferred();
+                _ = try self.ensure_grad(1);
+                try zg.lazy.enqueueDeferredBackward(&self.node);
+                return;
+            }
+
             const graph = self.node.gb.promote();
             _ = try self.ensure_grad(1);
             try graph.backward(&self.node);
@@ -3164,3 +3175,161 @@ test "tensor/sqrt" {
 //    // case 4: invalid dimension
 //    try std.testing.expectError(error.DimOutOfBounds, input.max_over_dim(device, .{ .dim = 2 }));
 //}
+
+test "tensor/deferred backward produces same gradients as eager" {
+    const T = f32;
+    const Tensor = NDTensor(T);
+
+    // ── Eager backward ──
+    var eager_cpu = zg.device.HostDevice.init_advanced(TestOpts);
+    defer eager_cpu.deinit();
+    const eager_device = eager_cpu.reference();
+
+    var eager_graph = Graph.init(std.testing.allocator, .{});
+    defer eager_graph.deinit();
+
+    const eager_opts: TensorOpts = .{ .requires_grad = true, .graph = &eager_graph };
+
+    const eager_a = try Tensor.from_slice(eager_device, &.{ 1, 2, 3, 4 }, &.{ 2, 2 }, eager_opts);
+    defer eager_a.deinit();
+    const eager_b = try Tensor.from_slice(eager_device, &.{ 5, 6, 7, 8 }, &.{ 2, 2 }, eager_opts);
+    defer eager_b.deinit();
+
+    // y = a + b, z = y * a
+    const eager_y = try eager_a.add(eager_b);
+    defer eager_y.deinit();
+    var eager_z = try eager_y.mul(eager_a);
+    defer eager_z.deinit();
+
+    try eager_z.backward();
+
+    const eager_grad_a = eager_a.assume_grad_data();
+    const eager_grad_b = eager_b.assume_grad_data();
+
+    // Copy gradients for comparison
+    var ref_grad_a: [4]T = undefined;
+    var ref_grad_b: [4]T = undefined;
+    @memcpy(&ref_grad_a, eager_grad_a);
+    @memcpy(&ref_grad_b, eager_grad_b);
+
+    // ── Deferred backward ──
+    var def_cpu = zg.device.HostDevice.init_advanced(TestOpts);
+    defer def_cpu.deinit();
+    const def_device = def_cpu.reference();
+
+    var def_graph = Graph.init(std.testing.allocator, .{});
+    defer def_graph.deinit();
+
+    var session = zg.lazy.Session.init(std.testing.allocator);
+    defer session.deinit();
+    session.mode = .deferred;
+
+    var capture = try session.begin();
+    defer capture.end();
+
+    const def_opts: TensorOpts = .{ .requires_grad = true, .graph = &def_graph };
+
+    const def_a = try Tensor.from_slice(def_device, &.{ 1, 2, 3, 4 }, &.{ 2, 2 }, def_opts);
+    defer def_a.deinit();
+    const def_b = try Tensor.from_slice(def_device, &.{ 5, 6, 7, 8 }, &.{ 2, 2 }, def_opts);
+    defer def_b.deinit();
+
+    const def_y = try def_a.add(def_b);
+    defer def_y.deinit();
+    var def_z = try def_y.mul(def_a);
+    defer def_z.deinit();
+
+    // backward() in deferred mode should flush forward thunks and enqueue
+    // a backward thunk
+    try def_z.backward();
+
+    // The backward thunk should be pending
+    try std.testing.expect(session.pendingThunkCount() > 0);
+
+    // realize() flushes the backward thunk
+    _ = try def_z.realize();
+
+    // Gradients should match eager
+    const def_grad_a = def_a.assume_grad_data();
+    const def_grad_b = def_b.assume_grad_data();
+
+    for (0..4) |i| {
+        try std.testing.expectApproxEqAbs(ref_grad_a[i], def_grad_a[i], 1e-6);
+        try std.testing.expectApproxEqAbs(ref_grad_b[i], def_grad_b[i], 1e-6);
+    }
+}
+
+test "tensor/deferred backward training step (forward + loss + backward)" {
+    const T = f32;
+    const Tensor = NDTensor(T);
+
+    // ── Eager training step ──
+    var eager_cpu = zg.device.HostDevice.init_advanced(TestOpts);
+    defer eager_cpu.deinit();
+    const eager_device = eager_cpu.reference();
+
+    var eager_graph = Graph.init(std.testing.allocator, .{});
+    defer eager_graph.deinit();
+
+    const eager_opts: TensorOpts = .{ .requires_grad = true, .graph = &eager_graph };
+    const eager_no_grad: TensorOpts = .{ .requires_grad = false, .graph = &eager_graph };
+
+    // Simple linear model: out = x * w, loss = sum((out - target)^2)
+    const eager_x = try Tensor.from_slice(eager_device, &.{ 1, 2, 3, 4 }, &.{ 2, 2 }, eager_no_grad);
+    defer eager_x.deinit();
+    const eager_w = try Tensor.from_slice(eager_device, &.{ 0.5, 0.5, 0.5, 0.5 }, &.{ 2, 2 }, eager_opts);
+    defer eager_w.deinit();
+
+    const eager_out = try eager_x.bmm(eager_w, .{});
+    defer eager_out.deinit();
+
+    // Simple loss: element-wise square of output (proxy for MSE)
+    var eager_loss = try eager_out.mul(eager_out);
+    defer eager_loss.deinit();
+
+    try eager_loss.backward();
+
+    var ref_grad_w: [4]T = undefined;
+    @memcpy(&ref_grad_w, eager_w.assume_grad_data());
+
+    // ── Deferred training step ──
+    var def_cpu = zg.device.HostDevice.init_advanced(TestOpts);
+    defer def_cpu.deinit();
+    const def_device = def_cpu.reference();
+
+    var def_graph = Graph.init(std.testing.allocator, .{});
+    defer def_graph.deinit();
+
+    var session = zg.lazy.Session.init(std.testing.allocator);
+    defer session.deinit();
+    session.mode = .deferred;
+
+    var capture = try session.begin();
+    defer capture.end();
+
+    const def_opts: TensorOpts = .{ .requires_grad = true, .graph = &def_graph };
+    const def_no_grad: TensorOpts = .{ .requires_grad = false, .graph = &def_graph };
+
+    const def_x = try Tensor.from_slice(def_device, &.{ 1, 2, 3, 4 }, &.{ 2, 2 }, def_no_grad);
+    defer def_x.deinit();
+    const def_w = try Tensor.from_slice(def_device, &.{ 0.5, 0.5, 0.5, 0.5 }, &.{ 2, 2 }, def_opts);
+    defer def_w.deinit();
+
+    const def_out = try def_x.bmm(def_w, .{});
+    defer def_out.deinit();
+
+    var def_loss = try def_out.mul(def_out);
+    defer def_loss.deinit();
+
+    // Deferred backward
+    try def_loss.backward();
+
+    // Realize flushes everything
+    _ = try def_loss.realize();
+
+    // Weight gradients should match
+    const def_grad_w = def_w.assume_grad_data();
+    for (0..4) |i| {
+        try std.testing.expectApproxEqAbs(ref_grad_w[i], def_grad_w[i], 1e-6);
+    }
+}

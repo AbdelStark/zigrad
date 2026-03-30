@@ -73,8 +73,9 @@ main remaining work is real-GPU CUDA validation (needs hardware) and published
 provider comparison runs. No further agent work needed unless directed.
 
 **Phase 1 (Execution Model): Active frontier.**
-- RFC-0006 has observe-mode capture AND deferred forward execution landed.
-  Next: deferred backward pass (M-6).
+- RFC-0006 has observe-mode capture, deferred forward execution, AND
+  **deferred backward pass** landed. The full forward+backward deferred
+  pipeline is operational. Next: subgraph-level scheduling (extension).
 - RFC-0007 has Graph IR, verifier, pass manager, DCE, execution bridge,
   **constant folding**, **algebraic simplification**, and **CSE** landed.
   All milestone passes complete. Transpose/layout simplification remains as extension.
@@ -92,11 +93,11 @@ RFC-0008.
 
 **Phase 3 (External Compilers): Not started, low priority.**
 
-**Where to start:** The highest-value unblocked work is **deferred backward
-(M-6)**, which completes the lazy tensor training story. ONNX export (M-4b)
-can follow the import MVP. GGUF Milestone B/C are lower priority extensions.
-RFC-0008 (Dynamic Compiler) now has all prerequisite passes landed and is
-ready for a scoping spike.
+**Where to start:** All planned milestones (M-1 through M-7) are now
+complete. RFC-0008 (Dynamic Compiler) has all prerequisites landed and is
+ready for a scoping spike. ONNX export (M-4b) and GGUF Milestone B/C are
+extensions. Deeper transformer examples (RFC-0012) can now leverage both
+GGUF weight loading and the complete lazy tensor training pipeline.
 
 ## Core Agent Rules
 

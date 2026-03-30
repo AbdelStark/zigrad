@@ -174,11 +174,15 @@ The exact API should stay minimal until implementation experience is gathered.
 - 8 regression tests covering capture, attributes, JSON, deferred parity,
   auto-realize, matmul chains, and metadata correctness
 
+- Deferred backward pass via `enqueueDeferredBackward()` — backward() in
+  deferred mode flushes forward thunks, pre-allocates gradients, and enqueues
+  a backward macro-thunk that suspends the session and runs graph.backward()
+  immediately when flushed. 2 parity tests (add+mul chain, matmul training step).
+
 **Not yet landed:**
-- Deferred backward pass (autograd ops in deferred mode) — see
-  [`docs/next-milestones.md`](../next-milestones.md) M-6
 - Subgraph-level realization (current flush is global FIFO)
 - Backend-specific deferred batching and scheduling
+- Higher-order gradients in deferred mode
 
 **Key files:** `src/lazy.zig` (session + thunk infra), `src/device/device_reference.zig`
 (dispatch interception + DeferredDispatchThunk), `src/ndtensor.zig` (capture hooks +

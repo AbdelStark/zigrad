@@ -347,12 +347,13 @@ buffers, enabling LLM example models to load pre-trained weights.
 
 ---
 
-## M-6: Deferred Backward Pass
+## M-6: Deferred Backward Pass ✓ LANDED
 
 **RFC:** RFC-0006 (Lazy Tensors)
 **Priority:** Medium — completes the lazy tensor story for training workloads.
 **Depends on:** Deferred execution (landed)
 **Blocks:** RFC-0008 (full dynamic compiler)
+**Status:** Complete. Landed 2026-03-30.
 
 ### Goal
 

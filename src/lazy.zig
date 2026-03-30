@@ -106,6 +106,46 @@ pub fn enqueueDeferredThunk(thunk: *ThunkBase) void {
         @panic("OOM: cannot enqueue deferred thunk in lazy session");
 }
 
+/// Enqueue a deferred backward pass. The backward closure runs with
+/// the session suspended so all gradient dispatch calls execute
+/// immediately.
+pub fn enqueueDeferredBackward(node_ptr: anytype) !void {
+    const session = active_session orelse return;
+    const NodeType = @TypeOf(node_ptr);
+
+    const Thunk = struct {
+        base: ThunkBase,
+        node: NodeType,
+
+        fn execute(base_ptr: *ThunkBase) void {
+            const self: *@This() = @fieldParentPtr("base", base_ptr);
+            // Suspend the deferred session so gradient dispatch calls
+            // execute immediately within the backward traversal.
+            const saved = suspendSession();
+            defer restoreSession(saved);
+
+            const graph = self.node.gb.promote();
+            graph.backward(self.node) catch
+                @panic("deferred backward failed");
+        }
+
+        fn cleanup(base_ptr: *ThunkBase, allocator: std.mem.Allocator) void {
+            const self: *@This() = @fieldParentPtr("base", base_ptr);
+            allocator.destroy(self);
+        }
+    };
+
+    const thunk = try session.allocator.create(Thunk);
+    thunk.* = .{
+        .base = .{
+            .execute_fn = Thunk.execute,
+            .cleanup_fn = Thunk.cleanup,
+        },
+        .node = node_ptr,
+    };
+    enqueueDeferredThunk(&thunk.base);
+}
+
 /// Temporarily suspend the active session so dispatch calls execute
 /// immediately (used by the execution bridge). Returns the suspended
 /// session so it can be restored later.
