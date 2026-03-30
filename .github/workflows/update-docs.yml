@@ -10,7 +10,7 @@ on:
       zig-version:
         description: 'Zig version to use'
         required: false
-        default: '0.14.0'
+        default: '0.15.2'
 
 permissions:
   contents: write
@@ -23,7 +23,7 @@ jobs:
   create-tar:
     runs-on: ubuntu-latest
     env:
-      ZIG_VERSION: ${{ inputs.zig-version || '0.14.0' }}
+      ZIG_VERSION: ${{ inputs.zig-version || '0.15.2' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

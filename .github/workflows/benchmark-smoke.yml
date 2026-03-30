@@ -34,6 +34,9 @@ jobs:
       - name: Run OpenBLAS provider parity suite
         run: zig build -Dhost_blas=openblas test-provider-parity
 
+      - name: Download MNIST test data
+        run: cd examples/mnist && python3 mnist_data.py
+
       - name: Run OpenBLAS example smoke suite
         run: zig build -Dhost_blas=openblas test-example-smoke
 

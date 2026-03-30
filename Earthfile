@@ -2,7 +2,7 @@ VERSION 0.8
 
 ZIG:
     FUNCTION
-    ARG ZIG_VERSION=0.14.0
+    ARG ZIG_VERSION=0.15.2
     ARG INSTALL_PATH=/usr/local
     ARG BINARY_LINK_PATH=/usr/local/bin
     RUN ARCH=$(uname -m) && \
