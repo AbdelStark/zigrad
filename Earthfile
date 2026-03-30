@@ -6,14 +6,14 @@ ZIG:
     ARG INSTALL_PATH=/usr/local
     ARG BINARY_LINK_PATH=/usr/local/bin
     RUN ARCH=$(uname -m) && \
-        DOWNLOAD_URL="https://ziglang.org/download/${ZIG_VERSION}/zig-linux-${ARCH}-${ZIG_VERSION}.tar.xz" && \
+        DOWNLOAD_URL="https://ziglang.org/download/${ZIG_VERSION}/zig-${ARCH}-linux-${ZIG_VERSION}.tar.xz" && \
         wget -q "$DOWNLOAD_URL" && \
-        tar -xf "zig-linux-${ARCH}-${ZIG_VERSION}.tar.xz" && \
+        tar -xf "zig-${ARCH}-linux-${ZIG_VERSION}.tar.xz" && \
         mkdir -p "${INSTALL_PATH}" && \
-        mv "zig-linux-${ARCH}-${ZIG_VERSION}" "${INSTALL_PATH}/zig" && \
+        mv "zig-${ARCH}-linux-${ZIG_VERSION}" "${INSTALL_PATH}/zig" && \
         mkdir -p "${BINARY_LINK_PATH}" && \
         ln -s "${INSTALL_PATH}/zig/zig" "${BINARY_LINK_PATH}/zig" && \
-        rm "zig-linux-${ARCH}-${ZIG_VERSION}.tar.xz"
+        rm "zig-${ARCH}-linux-${ZIG_VERSION}.tar.xz"
 
 deps:
     ARG PYTHON_VERSION=3.12
