@@ -1,5 +1,25 @@
 const std = @import("std");
 
+pub const ExecutionMode = enum {
+    /// Record-only: operations execute eagerly, capture observes.
+    observe,
+    /// Deferred: operations are queued and replayed on realize().
+    deferred,
+};
+
+pub const ThunkBase = struct {
+    execute_fn: *const fn (*ThunkBase) void,
+    cleanup_fn: *const fn (*ThunkBase, std.mem.Allocator) void,
+
+    pub fn execute(self: *ThunkBase) void {
+        self.execute_fn(self);
+    }
+
+    pub fn cleanup(self: *ThunkBase, allocator: std.mem.Allocator) void {
+        self.cleanup_fn(self, allocator);
+    }
+};
+
 pub const DeviceKind = enum {
     host,
     cuda,
@@ -71,6 +91,28 @@ pub fn isCapturing() bool {
     return active_session != null;
 }
 
+pub fn isDeferred() bool {
+    const session = active_session orelse return false;
+    return session.mode == .deferred;
+}
+
+pub fn deferredAllocator() std.mem.Allocator {
+    return active_session.?.allocator;
+}
+
+pub fn enqueueDeferredThunk(thunk: *ThunkBase) void {
+    const session = active_session.?;
+    session.thunks.append(session.allocator, thunk) catch
+        @panic("OOM: cannot enqueue deferred thunk in lazy session");
+}
+
+pub fn flushIfDeferred() void {
+    const session = active_session orelse return;
+    if (session.mode == .deferred) {
+        session.flush();
+    }
+}
+
 pub fn maybeRecordTensor(capture: TensorCapture) !void {
     if (active_session) |session| {
         try session.recordTensor(capture);
@@ -93,7 +135,9 @@ pub const Session = struct {
     tensor_ids: std.AutoArrayHashMapUnmanaged(usize, u32) = .empty,
     records: std.ArrayListUnmanaged(TensorRecord) = .empty,
     materializations: std.ArrayListUnmanaged(MaterializationRecord) = .empty,
+    thunks: std.ArrayListUnmanaged(*ThunkBase) = .empty,
     active_depth: usize = 0,
+    mode: ExecutionMode = .observe,
 
     pub fn init(allocator: std.mem.Allocator) Session {
         return .{ .allocator = allocator };
@@ -104,10 +148,12 @@ pub const Session = struct {
         self.tensor_ids.deinit(self.allocator);
         self.records.deinit(self.allocator);
         self.materializations.deinit(self.allocator);
+        self.thunks.deinit(self.allocator);
         self.* = undefined;
     }
 
     pub fn reset(self: *Session) void {
+        self.clearThunks();
         for (self.records.items) |record| {
             self.allocator.free(record.shape);
             freeAttributes(self.allocator, record.attributes);
@@ -117,6 +163,24 @@ pub const Session = struct {
         self.records.clearRetainingCapacity();
         self.materializations.clearRetainingCapacity();
         self.tensor_ids.clearRetainingCapacity();
+    }
+
+    pub fn flush(self: *Session) void {
+        for (self.thunks.items) |thunk| {
+            thunk.execute();
+        }
+        self.clearThunks();
+    }
+
+    pub fn pendingThunkCount(self: *const Session) usize {
+        return self.thunks.items.len;
+    }
+
+    fn clearThunks(self: *Session) void {
+        for (self.thunks.items) |thunk| {
+            thunk.cleanup(self.allocator);
+        }
+        self.thunks.clearRetainingCapacity();
     }
 
     pub fn begin(self: *Session) !Guard {

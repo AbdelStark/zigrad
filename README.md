@@ -129,16 +129,17 @@ zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthe
 zig build benchmark-validate -- --input .zig-cache/zigrad-compiler-capture.jsonl
 ```
 
-The first RFC-0006 lazy-capture surface is also available now through
-`zg.lazy`. Capture remains opt-in and eager execution remains the default, but
-you can wrap a region in a session to collect a stable tensor graph with dtype,
-shape, device, parent-edge, and materialization-boundary metadata for debug or
-future compiler work:
+The RFC-0006 lazy-tensor surface is available through `zg.lazy`. Capture
+remains opt-in and eager execution remains the default. In observe mode
+(default), operations execute eagerly while the session records a stable tensor
+graph. In deferred mode, device dispatch is queued and replayed when
+`realize()` or a host read is requested:
 
 ```zig
 var session = zg.lazy.Session.init(allocator);
 defer session.deinit();
 
+// Observe mode (default): eager execution, capture-only recording
 var capture = try session.begin();
 defer capture.end();
 
@@ -148,10 +149,26 @@ _ = try y.realize();
 try session.writeSummary(std.io.getStdOut().writer());
 ```
 
+```zig
+// Deferred mode: operations queue, flush on realize()
+var session = zg.lazy.Session.init(allocator);
+defer session.deinit();
+session.mode = .deferred;
+
+var capture = try session.begin();
+defer capture.end();
+
+const y = try x.add(w);
+const z = try y.mul(x);
+// No computation has run yet — thunks are queued.
+_ = try z.realize();           // flushes all pending work
+const host = try z.to_host_owned(allocator); // auto-realizes if needed
+```
+
 `session.writeSummary(...)` and `session.writeD2(...)` dump the captured graph,
 and tensors created before the capture scope are recorded automatically as
-`external_input` nodes when they enter the region. This slice is still
-shadowing eager execution; deferred realization and lowering are tracked in
+`external_input` nodes when they enter the region. Deferred backward pass and
+subgraph-level scheduling are tracked in
 [`docs/rfcs/0006-lazy-tensors.md`](./docs/rfcs/0006-lazy-tensors.md).
 
 Interop checkpoint specs such as

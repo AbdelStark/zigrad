@@ -189,6 +189,7 @@ pub fn NDTensor(comptime T: type) type {
         pub fn copy_to_host(self: *const Self, dst: []T) !void {
             if (dst.len != self.get_size()) return error.InvalidHostCopySize;
             try self.captureMaterialization(.host_read);
+            zg.lazy.flushIfDeferred();
 
             if (self.device.is_host()) {
                 @memcpy(dst, self.get_data());
@@ -209,6 +210,7 @@ pub fn NDTensor(comptime T: type) type {
 
         pub fn realize(self: *Self) !*Self {
             try self.captureMaterialization(.explicit);
+            zg.lazy.flushIfDeferred();
             self.device.sync();
             return self;
         }
@@ -2753,6 +2755,259 @@ fn findLazyIntListAttribute(attributes: []const zg.lazy.OpAttribute, key: []cons
         .int_list => |item| item,
         else => null,
     };
+}
+
+test "tensor/deferred lazy session produces same results as eager" {
+    const T = f32;
+    const Tensor = NDTensor(T);
+
+    // Eager reference run
+    var eager_cpu = zg.device.HostDevice.init_advanced(TestOpts);
+    defer eager_cpu.deinit();
+    const eager_device = eager_cpu.reference();
+
+    var eager_graph = Graph.init(std.testing.allocator, .{});
+    defer eager_graph.deinit();
+
+    const eager_a = try Tensor.from_slice(eager_device, &.{ 1, 2, 3, 4 }, &.{ 2, 2 }, .{
+        .graph = &eager_graph,
+    });
+    defer eager_a.deinit();
+
+    const eager_b = try Tensor.from_slice(eager_device, &.{ 5, 6, 7, 8 }, &.{ 2, 2 }, .{
+        .graph = &eager_graph,
+    });
+    defer eager_b.deinit();
+
+    const eager_sum = try eager_a.add(eager_b);
+    defer eager_sum.deinit();
+
+    const eager_prod = try eager_sum.mul(eager_a);
+    defer eager_prod.deinit();
+
+    const eager_result = try eager_prod.to_host_owned(std.testing.allocator);
+    defer std.testing.allocator.free(eager_result);
+
+    // Deferred run
+    var def_cpu = zg.device.HostDevice.init_advanced(TestOpts);
+    defer def_cpu.deinit();
+    const def_device = def_cpu.reference();
+
+    var def_graph = Graph.init(std.testing.allocator, .{});
+    defer def_graph.deinit();
+
+    var session = zg.lazy.Session.init(std.testing.allocator);
+    defer session.deinit();
+    session.mode = .deferred;
+
+    var capture = try session.begin();
+    defer capture.end();
+
+    const def_a = try Tensor.from_slice(def_device, &.{ 1, 2, 3, 4 }, &.{ 2, 2 }, .{
+        .graph = &def_graph,
+    });
+    defer def_a.deinit();
+
+    const def_b = try Tensor.from_slice(def_device, &.{ 5, 6, 7, 8 }, &.{ 2, 2 }, .{
+        .graph = &def_graph,
+    });
+    defer def_b.deinit();
+
+    const def_sum = try def_a.add(def_b);
+    defer def_sum.deinit();
+
+    const def_prod = try def_sum.mul(def_a);
+    defer def_prod.deinit();
+
+    // Before realize, thunks should be pending
+    try std.testing.expect(session.pendingThunkCount() > 0);
+
+    // realize() flushes deferred work
+    _ = try def_prod.realize();
+
+    // After realize, thunks should be drained
+    try std.testing.expectEqual(@as(usize, 0), session.pendingThunkCount());
+
+    const def_result = try def_prod.to_host_owned(std.testing.allocator);
+    defer std.testing.allocator.free(def_result);
+
+    try std.testing.expectEqualSlices(T, eager_result, def_result);
+}
+
+test "tensor/deferred lazy session auto-realizes on host read" {
+    const T = f32;
+    const Tensor = NDTensor(T);
+
+    var cpu = zg.device.HostDevice.init_advanced(TestOpts);
+    defer cpu.deinit();
+    const device = cpu.reference();
+
+    var graph = Graph.init(std.testing.allocator, .{});
+    defer graph.deinit();
+
+    var session = zg.lazy.Session.init(std.testing.allocator);
+    defer session.deinit();
+    session.mode = .deferred;
+
+    var capture = try session.begin();
+    defer capture.end();
+
+    const a = try Tensor.from_slice(device, &.{ 10, 20, 30, 40 }, null, .{
+        .graph = &graph,
+    });
+    defer a.deinit();
+
+    const b = try Tensor.from_slice(device, &.{ 1, 2, 3, 4 }, null, .{
+        .graph = &graph,
+    });
+    defer b.deinit();
+
+    const result = try a.sub(b);
+    defer result.deinit();
+
+    // Thunks are pending
+    try std.testing.expect(session.pendingThunkCount() > 0);
+
+    // copy_to_host auto-flushes deferred thunks
+    const host = try result.to_host_owned(std.testing.allocator);
+    defer std.testing.allocator.free(host);
+
+    try std.testing.expectEqualSlices(T, &.{ 9, 18, 27, 36 }, host);
+    try std.testing.expectEqual(@as(usize, 0), session.pendingThunkCount());
+}
+
+test "tensor/deferred lazy session multi-op chain with transpose and matmul" {
+    const T = f32;
+    const Tensor = NDTensor(T);
+
+    var cpu = zg.device.HostDevice.init_advanced(TestOpts);
+    defer cpu.deinit();
+    const device = cpu.reference();
+
+    var graph = Graph.init(std.testing.allocator, .{});
+    defer graph.deinit();
+
+    var session = zg.lazy.Session.init(std.testing.allocator);
+    defer session.deinit();
+    session.mode = .deferred;
+
+    var capture = try session.begin();
+    defer capture.end();
+
+    // 2x3 matrix
+    const a = try Tensor.from_slice(device, &.{ 1, 2, 3, 4, 5, 6 }, &.{ 2, 3 }, .{
+        .graph = &graph,
+    });
+    defer a.deinit();
+
+    // transpose to 3x2
+    const at = try a.transpose();
+    defer at.deinit();
+
+    // 2x3 @ 3x2 = 2x2
+    const prod = try a.bmm(at, .{});
+    defer prod.deinit();
+
+    // Should have queued thunks
+    try std.testing.expect(session.pendingThunkCount() > 0);
+
+    const host = try prod.to_host_owned(std.testing.allocator);
+    defer std.testing.allocator.free(host);
+
+    // A @ A^T = [[1*1+2*2+3*3, 1*4+2*5+3*6], [4*1+5*2+6*3, 4*4+5*5+6*6]]
+    //         = [[14, 32], [32, 77]]
+    try std.testing.expectEqualSlices(T, &.{ 14, 32, 32, 77 }, host);
+}
+
+test "tensor/observe mode unchanged by deferred infrastructure" {
+    const T = f32;
+    const Tensor = NDTensor(T);
+
+    var cpu = zg.device.HostDevice.init_advanced(TestOpts);
+    defer cpu.deinit();
+    const device = cpu.reference();
+
+    var graph = Graph.init(std.testing.allocator, .{});
+    defer graph.deinit();
+
+    var session = zg.lazy.Session.init(std.testing.allocator);
+    defer session.deinit();
+    // mode defaults to .observe — no deferred execution
+
+    var capture = try session.begin();
+    defer capture.end();
+
+    const a = try Tensor.from_slice(device, &.{ 1, 2, 3, 4 }, null, .{
+        .graph = &graph,
+    });
+    defer a.deinit();
+
+    const b = try Tensor.from_slice(device, &.{ 5, 6, 7, 8 }, null, .{
+        .graph = &graph,
+    });
+    defer b.deinit();
+
+    const result = try a.add(b);
+    defer result.deinit();
+
+    // In observe mode, no thunks are queued
+    try std.testing.expectEqual(@as(usize, 0), session.pendingThunkCount());
+
+    // Data is available immediately (eager execution)
+    try std.testing.expectEqualSlices(T, &.{ 6, 8, 10, 12 }, result.get_data());
+}
+
+test "tensor/deferred session records capture metadata alongside thunks" {
+    const T = f32;
+    const Tensor = NDTensor(T);
+
+    var cpu = zg.device.HostDevice.init_advanced(TestOpts);
+    defer cpu.deinit();
+    const device = cpu.reference();
+
+    var graph = Graph.init(std.testing.allocator, .{});
+    defer graph.deinit();
+
+    var session = zg.lazy.Session.init(std.testing.allocator);
+    defer session.deinit();
+    session.mode = .deferred;
+
+    var capture = try session.begin();
+    defer capture.end();
+
+    const a = try Tensor.from_slice(device, &.{ 1, 2, 3, 4 }, &.{ 2, 2 }, .{
+        .graph = &graph,
+        .label = "a",
+    });
+    defer a.deinit();
+
+    const b = try Tensor.from_slice(device, &.{ 5, 6, 7, 8 }, &.{ 2, 2 }, .{
+        .graph = &graph,
+        .label = "b",
+    });
+    defer b.deinit();
+
+    const sum = try a.add(b);
+    defer sum.deinit();
+
+    _ = try sum.realize();
+
+    // Session should have captured tensor records even in deferred mode
+    const records = session.tensors();
+    try std.testing.expect(records.len >= 3);
+    try std.testing.expectEqualStrings("source", records[0].op_name);
+    try std.testing.expectEqualStrings("source", records[1].op_name);
+    try std.testing.expectEqualStrings("ADD", records[2].op_name);
+
+    // Materialization event should be recorded
+    const materializations = session.materializationEvents();
+    try std.testing.expect(materializations.len >= 1);
+    try std.testing.expectEqual(zg.lazy.MaterializationReason.explicit, materializations[0].reason);
+
+    // And the result should be correct
+    const host = try sum.to_host_owned(std.testing.allocator);
+    defer std.testing.allocator.free(host);
+    try std.testing.expectEqualSlices(T, &.{ 6, 8, 10, 12 }, host);
 }
 
 test "tensor/pow" {

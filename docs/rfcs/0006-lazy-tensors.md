@@ -240,3 +240,44 @@ The exact API should stay minimal until implementation experience is gathered.
 - Validation performed:
   - `zig fmt src/lazy.zig src/ndtensor.zig src/nn/nn.zig src/nn/loss.zig`
   - `zig build test`
+
+### 2026-03-30 Deferred Execution via Thunk Queue
+
+- Completed:
+  - Introduced true deferred execution mode (`ExecutionMode.deferred`) in
+    [`src/lazy.zig`](../../src/lazy.zig)
+    where `Session.mode = .deferred` causes all `DeviceReference.dispatch()`
+    calls to enqueue type-erased thunks instead of executing immediately.
+  - Added `ThunkBase` vtable struct and comptime-generic
+    `DeferredDispatchThunk` in
+    [`src/device/device_reference.zig`](../../src/device/device_reference.zig)
+    that captures opspec params, device pointer, and deep-copies metadata
+    slices (`[]const usize` fields like bmm shape arrays) to prevent
+    dangling references to caller stack frames.
+  - `Session.flush()` replays all queued thunks in FIFO order, then frees
+    thunk memory. `NDTensor.realize()` and `NDTensor.copy_to_host()` now
+    auto-flush deferred thunks before accessing data, so users get correct
+    results at materialization boundaries.
+  - The default mode remains `.observe` (capture-only, eager execution), so
+    all existing code paths are unchanged.
+  - Added five deferred-mode regression tests in
+    [`src/ndtensor.zig`](../../src/ndtensor.zig):
+    eager-vs-deferred parity, auto-realize on host read, multi-op chain
+    with transpose and matmul, observe-mode unchanged, and capture metadata
+    alongside deferred thunks.
+- Remains:
+  - Deferred backward pass (autograd in deferred mode).
+  - Subgraph-level realization optimization (current flush is global FIFO).
+  - Backend-specific deferred batching and scheduling.
+  - Define how RFC-0007 should consume deferred session state for IR
+    lowering and verification.
+- Blockers:
+  - Deferred execution is forward-only for now; backward pass still requires
+    eager materialization before `backward()`.
+  - RFC-0007 now has a working deferred execution surface to build on but
+    still needs a formal IR and pass infrastructure.
+- Validation performed:
+  - `zig fmt src/lazy.zig src/ndtensor.zig src/device/device_reference.zig`
+  - `zig build test` — all tests pass including five new deferred-mode tests
+  - `zig build test-example-smoke` — no regressions
+  - `zig build test-provider-parity` — no regressions

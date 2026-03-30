@@ -5,6 +5,7 @@ const SmaxType = @import("device_common.zig").SmaxType;
 const RandType = @import("device_common.zig").RandType;
 const TransferDirection = @import("device_common.zig").TransferDirection;
 const EnabledDevicePointers = @import("enabled_devices.zig").EnabledDevicePointers;
+const lazy = @import("../lazy.zig");
 const Self = @This();
 
 const DeviceData = @import("../allocators.zig").DeviceData;
@@ -13,7 +14,28 @@ const Error = @import("../allocators.zig").Error;
 ptrs: EnabledDevicePointers,
 
 pub fn dispatch(self: Self, params: anytype) void {
-    switch (self.ptrs) {
+    if (lazy.isDeferred()) {
+        const P = @TypeOf(params);
+        const Thunk = DeferredDispatchThunk(P);
+        const alloc = lazy.deferredAllocator();
+        const thunk = alloc.create(Thunk) catch
+            @panic("OOM: cannot create deferred dispatch thunk");
+        thunk.* = .{
+            .base = .{ .execute_fn = Thunk.doExecute, .cleanup_fn = Thunk.doCleanup },
+            .params = if (comptime Thunk.hasMetadataSlices())
+                Thunk.dupeMetadataSlices(params, alloc)
+            else
+                params,
+            .device_ptrs = self.ptrs,
+        };
+        lazy.enqueueDeferredThunk(&thunk.base);
+        return;
+    }
+    dispatchImmediate(self.ptrs, params);
+}
+
+fn dispatchImmediate(ptrs: EnabledDevicePointers, params: anytype) void {
+    switch (ptrs) {
         inline else => |d| {
             const D = std.meta.Child(@TypeOf(d));
             const P = @TypeOf(params);
@@ -24,6 +46,59 @@ pub fn dispatch(self: Self, params: anytype) void {
             }
         },
     }
+}
+
+fn DeferredDispatchThunk(comptime P: type) type {
+    return struct {
+        const ThunkSelf = @This();
+        base: lazy.ThunkBase,
+        params: P,
+        device_ptrs: EnabledDevicePointers,
+
+        /// Deep-copy metadata slices (e.g. shape arrays) that may reference
+        /// stack-local memory in the caller. Data slices (typed as the
+        /// element type T) point to device-managed buffers and stay valid.
+        fn dupeMetadataSlices(params: P, allocator: std.mem.Allocator) P {
+            var result = params;
+            inline for (std.meta.fields(P)) |field| {
+                if (field.type == []const usize) {
+                    @field(result, field.name) = allocator.dupe(
+                        usize,
+                        @field(params, field.name),
+                    ) catch @panic("OOM: cannot duplicate deferred metadata slice");
+                }
+            }
+            return result;
+        }
+
+        fn freeMetadataSlices(params: P, allocator: std.mem.Allocator) void {
+            inline for (std.meta.fields(P)) |field| {
+                if (field.type == []const usize) {
+                    allocator.free(@field(params, field.name));
+                }
+            }
+        }
+
+        fn hasMetadataSlices() bool {
+            inline for (std.meta.fields(P)) |field| {
+                if (field.type == []const usize) return true;
+            }
+            return false;
+        }
+
+        fn doExecute(base_ptr: *lazy.ThunkBase) void {
+            const self: *ThunkSelf = @fieldParentPtr("base", base_ptr);
+            dispatchImmediate(self.device_ptrs, self.params);
+        }
+
+        fn doCleanup(base_ptr: *lazy.ThunkBase, allocator: std.mem.Allocator) void {
+            const self: *ThunkSelf = @fieldParentPtr("base", base_ptr);
+            if (comptime hasMetadataSlices()) {
+                freeMetadataSlices(self.params, allocator);
+            }
+            allocator.destroy(self);
+        }
+    };
 }
 
 pub fn mem_cache_alloc(self: Self, T: type, n: usize) !DeviceData(T) {
