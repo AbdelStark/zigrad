@@ -75,8 +75,9 @@ provider comparison runs. No further agent work needed unless directed.
 **Phase 1 (Execution Model): Active frontier.**
 - RFC-0006 has observe-mode capture AND deferred forward execution landed.
   Next: deferred backward pass (M-6).
-- RFC-0007 has Graph IR, verifier, pass manager, DCE, and **execution bridge** landed.
-  Next: **constant folding (M-2)** then algebraic simplification (M-3).
+- RFC-0007 has Graph IR, verifier, pass manager, DCE, execution bridge,
+  **constant folding**, and **algebraic simplification** landed.
+  Next: CSE (M-7) or start ONNX/GGUF interop.
 - RFC-0012 has all reference examples landed with smoke + benchmark coverage.
   Next: deeper transformer portfolio (lower priority).
 - RFC-0004 (ONNX) and RFC-0005 (GGUF) are not started but now unblocked.
@@ -88,9 +89,9 @@ RFC-0008.
 
 **Phase 3 (External Compilers): Not started, low priority.**
 
-**Where to start:** The highest-value unblocked work is RFC-0007's constant
-folding (`docs/next-milestones.md` M-2), then algebraic simplification (M-3).
-ONNX import (M-4) and GGUF reader (M-5) can run in parallel with those.
+**Where to start:** The highest-value unblocked work is **ONNX import (M-4)**
+or **GGUF reader (M-5)**, which can run in parallel. CSE (M-7) is independent
+and lower priority. Deferred backward (M-6) targets training workloads.
 
 ## Core Agent Rules
 

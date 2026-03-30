@@ -11,6 +11,10 @@ pub const Value = struct {
     defining_op: ?u32,
     label: ?[]const u8,
     requires_grad: bool,
+    /// Optional raw bytes of a known constant value. When present, the value
+    /// is compile-time-known and eligible for constant folding. The bytes are
+    /// stored in the native element format (e.g., f32 little-endian).
+    constant_data: ?[]const u8 = null,
 };
 
 /// An operation node that consumes operand values and produces results.
@@ -89,6 +93,7 @@ pub const GraphIR = struct {
         for (self.values.items) |value| {
             self.allocator.free(value.shape);
             if (value.label) |label| self.allocator.free(label);
+            if (value.constant_data) |data| self.allocator.free(data);
         }
         for (self.ops.items) |op| {
             self.allocator.free(op.operands);
@@ -117,11 +122,26 @@ pub const GraphIR = struct {
         return null;
     }
 
+    pub fn valueMutById(self: *GraphIR, id: u32) ?*Value {
+        for (self.values.items) |*value| {
+            if (value.id == id) return value;
+        }
+        return null;
+    }
+
     pub fn opById(self: *const GraphIR, id: u32) ?*const Op {
         for (self.ops.items) |*op| {
             if (op.id == id) return op;
         }
         return null;
+    }
+
+    /// Attach constant data to a graph input value. The data is duped
+    /// into the IR's allocator and owned by the value.
+    pub fn setConstantData(self: *GraphIR, value_id: u32, data: []const u8) !void {
+        const value = self.valueMutById(value_id) orelse return error.DanglingOperand;
+        if (value.constant_data) |old| self.allocator.free(old);
+        value.constant_data = try self.allocator.dupe(u8, data);
     }
 
     /// Lower a lazy session's captured tensor records into the graph IR.
@@ -612,11 +632,190 @@ pub fn constantFoldPass() Pass {
 }
 
 fn runConstantFold(ir: *GraphIR) PassError!bool {
-    _ = ir;
-    // Structural placeholder — actual constant evaluation requires
-    // host-side dispatch infrastructure that will be added when the
-    // execution bridge lands. Return false (no change) for now.
-    return false;
+    var changed = false;
+
+    // Iterate ops looking for those whose operands are all constants.
+    // We process a snapshot of op IDs to avoid issues with mutation.
+    var foldable_ops = std.ArrayListUnmanaged(u32).empty;
+    defer foldable_ops.deinit(ir.allocator);
+
+    for (ir.ops.items) |op| {
+        var all_const = true;
+        for (op.operands) |operand_id| {
+            const val = ir.valueById(operand_id) orelse {
+                all_const = false;
+                break;
+            };
+            if (val.constant_data == null) {
+                all_const = false;
+                break;
+            }
+        }
+        if (all_const and op.operands.len > 0) {
+            foldable_ops.append(ir.allocator, op.id) catch return error.PassFailed;
+        }
+    }
+
+    for (foldable_ops.items) |op_id| {
+        const folded = foldSingleOp(ir, op_id) catch false;
+        if (folded) changed = true;
+    }
+
+    return changed;
+}
+
+/// Evaluate a single op with all-constant operands, store the result
+/// as constant_data on the result value, then remove the op.
+fn foldSingleOp(ir: *GraphIR, op_id: u32) !bool {
+    const DevRef = @import("device/device_reference.zig");
+
+    const op = ir.opById(op_id) orelse return false;
+    if (op.results.len == 0) return false;
+
+    const result_id = op.results[0];
+    const result_value = ir.valueById(result_id) orelse return false;
+
+    // Only fold f32 for now (most common in practice)
+    if (result_value.dtype != .f32) return false;
+
+    const result_size = shapeSize(result_value.shape);
+    if (result_size == 0) return false;
+
+    // Build input map from constant data
+    var input_map = std.AutoArrayHashMapUnmanaged(u32, []const f32).empty;
+    defer input_map.deinit(ir.allocator);
+
+    // Collect all transitive constant inputs needed for this op
+    var needed_inputs = std.AutoArrayHashMapUnmanaged(u32, void).empty;
+    defer needed_inputs.deinit(ir.allocator);
+    try collectConstantInputs(ir, op, &needed_inputs);
+
+    // Temporary aligned buffers for input data (freed after execute)
+    var temp_bufs = std.ArrayListUnmanaged([]f32).empty;
+    defer {
+        for (temp_bufs.items) |buf| ir.allocator.free(buf);
+        temp_bufs.deinit(ir.allocator);
+    }
+
+    var it = needed_inputs.iterator();
+    while (it.next()) |entry| {
+        const val = ir.valueById(entry.key_ptr.*) orelse return false;
+        const data = val.constant_data orelse return false;
+        const count = data.len / @sizeOf(f32);
+        const aligned_buf = ir.allocator.alloc(f32, count) catch return false;
+        @memcpy(std.mem.sliceAsBytes(aligned_buf), data);
+        temp_bufs.append(ir.allocator, aligned_buf) catch return false;
+        try input_map.put(ir.allocator, entry.key_ptr.*, aligned_buf);
+    }
+
+    // Build a mini IR with just this op and its inputs
+    var mini_ir = GraphIR.init(ir.allocator);
+    defer mini_ir.deinit();
+
+    // Add input values
+    var input_iter = needed_inputs.iterator();
+    while (input_iter.next()) |entry| {
+        const val = ir.valueById(entry.key_ptr.*) orelse return false;
+        const shape_copy = ir.allocator.dupe(usize, val.shape) catch return false;
+        errdefer ir.allocator.free(shape_copy);
+        try mini_ir.values.append(ir.allocator, .{
+            .id = val.id,
+            .dtype = val.dtype,
+            .shape = shape_copy,
+            .device = .host,
+            .storage = .owned,
+            .defining_op = null,
+            .label = null,
+            .requires_grad = false,
+        });
+        try mini_ir.input_ids.append(ir.allocator, val.id);
+    }
+
+    // Add the op
+    const op_operands = ir.allocator.dupe(u32, op.operands) catch return false;
+    errdefer ir.allocator.free(op_operands);
+    const op_results = ir.allocator.dupe(u32, op.results) catch return false;
+    errdefer ir.allocator.free(op_results);
+    const op_attrs = lazy.dupeAttributesPublic(ir.allocator, op.attributes) catch return false;
+
+    try mini_ir.ops.append(ir.allocator, .{
+        .id = op.id,
+        .name = op.name,
+        .operands = op_operands,
+        .results = op_results,
+        .attributes = op_attrs,
+    });
+
+    // Add result value
+    const result_shape = ir.allocator.dupe(usize, result_value.shape) catch return false;
+    errdefer ir.allocator.free(result_shape);
+    try mini_ir.values.append(ir.allocator, .{
+        .id = result_id,
+        .dtype = result_value.dtype,
+        .shape = result_shape,
+        .device = .host,
+        .storage = .owned,
+        .defining_op = op.id,
+        .label = null,
+        .requires_grad = false,
+    });
+    try mini_ir.output_ids.append(ir.allocator, result_id);
+
+    // Execute on a temporary host device
+    var host = @import("device/host_device.zig").init();
+    defer host.deinit();
+    const dev: DevRef = host.reference();
+
+    var exec_result = mini_ir.execute(f32, ir.allocator, dev, input_map) catch return false;
+    defer exec_result.deinit();
+
+    const output = exec_result.getOutput(result_id) orelse return false;
+
+    // Store the computed result as constant_data on the original IR's value
+    const bytes = ir.allocator.dupe(u8, std.mem.sliceAsBytes(output)) catch return false;
+    const result_mut = ir.valueMutById(result_id) orelse {
+        ir.allocator.free(bytes);
+        return false;
+    };
+
+    if (result_mut.constant_data) |old| ir.allocator.free(old);
+    result_mut.constant_data = bytes;
+    // Clear defining_op so the value is treated as a constant input
+    result_mut.defining_op = null;
+
+    // Remove the folded op
+    var i: usize = 0;
+    while (i < ir.ops.items.len) {
+        if (ir.ops.items[i].id == op_id) {
+            const removed = ir.ops.items[i];
+            ir.allocator.free(removed.operands);
+            ir.allocator.free(removed.results);
+            lazy.freeAttributesPublic(ir.allocator, removed.attributes);
+            _ = ir.ops.swapRemove(i);
+            break;
+        } else {
+            i += 1;
+        }
+    }
+
+    return true;
+}
+
+/// Collect all value IDs that are constant inputs needed to evaluate an op.
+/// For operands that are themselves produced by ops (not inputs), we recurse
+/// only if those producers are also foldable.
+fn collectConstantInputs(
+    ir: *const GraphIR,
+    op: *const Op,
+    needed: *std.AutoArrayHashMapUnmanaged(u32, void),
+) !void {
+    for (op.operands) |operand_id| {
+        const val = ir.valueById(operand_id) orelse continue;
+        if (val.constant_data != null and val.defining_op == null) {
+            // This is a direct constant input
+            try needed.put(ir.allocator, operand_id, {});
+        }
+    }
 }
 
 /// Algebraic Simplification: applies identity and annihilator rules.
@@ -628,11 +827,176 @@ pub fn algebraicSimplifyPass() Pass {
 }
 
 fn runAlgebraicSimplify(ir: *GraphIR) PassError!bool {
-    _ = ir;
-    // Structural placeholder — requires constant value tracking to
-    // detect zero/one operands. This will be wired once the IR carries
-    // constant data or the execution bridge can query source values.
+    var changed = false;
+
+    // Collect ops to rewrite (avoid mutating while iterating)
+    var rewrites = std.ArrayListUnmanaged(struct { op_idx: usize, result_id: u32, replacement_id: u32 }).empty;
+    defer rewrites.deinit(ir.allocator);
+
+    var removals = std.ArrayListUnmanaged(u32).empty;
+    defer removals.deinit(ir.allocator);
+
+    for (ir.ops.items, 0..) |op, op_idx| {
+        if (op.operands.len != 2) continue;
+
+        const lhs_val = ir.valueById(op.operands[0]) orelse continue;
+        const rhs_val = ir.valueById(op.operands[1]) orelse continue;
+        const lhs_zero = isZeroConstant(lhs_val);
+        const rhs_zero = isZeroConstant(rhs_val);
+        const lhs_one = isOneConstant(lhs_val);
+        const rhs_one = isOneConstant(rhs_val);
+
+        const result_id = op.results[0];
+
+        if (std.mem.eql(u8, op.name, "ADD")) {
+            // x + 0 -> x
+            if (rhs_zero) {
+                rewrites.append(ir.allocator, .{ .op_idx = op_idx, .result_id = result_id, .replacement_id = op.operands[0] }) catch return error.PassFailed;
+            }
+            // 0 + x -> x
+            else if (lhs_zero) {
+                rewrites.append(ir.allocator, .{ .op_idx = op_idx, .result_id = result_id, .replacement_id = op.operands[1] }) catch return error.PassFailed;
+            }
+        } else if (std.mem.eql(u8, op.name, "SUB")) {
+            // x - 0 -> x
+            if (rhs_zero) {
+                rewrites.append(ir.allocator, .{ .op_idx = op_idx, .result_id = result_id, .replacement_id = op.operands[0] }) catch return error.PassFailed;
+            }
+        } else if (std.mem.eql(u8, op.name, "MUL")) {
+            // x * 1 -> x
+            if (rhs_one) {
+                rewrites.append(ir.allocator, .{ .op_idx = op_idx, .result_id = result_id, .replacement_id = op.operands[0] }) catch return error.PassFailed;
+            }
+            // 1 * x -> x
+            else if (lhs_one) {
+                rewrites.append(ir.allocator, .{ .op_idx = op_idx, .result_id = result_id, .replacement_id = op.operands[1] }) catch return error.PassFailed;
+            }
+            // x * 0 -> 0 (annihilator) — the zero constant replaces the result
+            else if (rhs_zero) {
+                rewrites.append(ir.allocator, .{ .op_idx = op_idx, .result_id = result_id, .replacement_id = op.operands[1] }) catch return error.PassFailed;
+            }
+            // 0 * x -> 0
+            else if (lhs_zero) {
+                rewrites.append(ir.allocator, .{ .op_idx = op_idx, .result_id = result_id, .replacement_id = op.operands[0] }) catch return error.PassFailed;
+            }
+        } else if (std.mem.eql(u8, op.name, "DIV")) {
+            // x / 1 -> x
+            if (rhs_one) {
+                rewrites.append(ir.allocator, .{ .op_idx = op_idx, .result_id = result_id, .replacement_id = op.operands[0] }) catch return error.PassFailed;
+            }
+        }
+    }
+
+    // Apply rewrites: redirect all uses of result_id to replacement_id
+    for (rewrites.items) |rewrite| {
+        // Update all ops that reference the old result to use the replacement
+        for (ir.ops.items) |*other_op| {
+            for (other_op.operands, 0..) |operand_id, j| {
+                if (operand_id == rewrite.result_id) {
+                    // Need to create a mutable copy of operands
+                    const mut_operands: []u32 = @constCast(other_op.operands);
+                    mut_operands[j] = rewrite.replacement_id;
+                }
+            }
+        }
+
+        // Update output_ids
+        for (ir.output_ids.items, 0..) |output_id, j| {
+            if (output_id == rewrite.result_id) {
+                ir.output_ids.items[j] = rewrite.replacement_id;
+            }
+        }
+
+        removals.append(ir.allocator, ir.ops.items[rewrite.op_idx].id) catch return error.PassFailed;
+        changed = true;
+    }
+
+    // Remove simplified ops
+    for (removals.items) |op_id| {
+        var i: usize = 0;
+        while (i < ir.ops.items.len) {
+            if (ir.ops.items[i].id == op_id) {
+                const removed = ir.ops.items[i];
+                ir.allocator.free(removed.operands);
+                ir.allocator.free(removed.results);
+                lazy.freeAttributesPublic(ir.allocator, removed.attributes);
+                _ = ir.ops.swapRemove(i);
+                break;
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    // Remove orphaned values (result values of removed ops with no consumers)
+    if (changed) {
+        var v: usize = 0;
+        while (v < ir.values.items.len) {
+            const value = ir.values.items[v];
+            if (value.defining_op != null and ir.opById(value.defining_op.?) == null) {
+                // This value's defining op was removed — check if it's still used
+                var still_used = false;
+                for (ir.ops.items) |op| {
+                    for (op.operands) |operand_id| {
+                        if (operand_id == value.id) {
+                            still_used = true;
+                            break;
+                        }
+                    }
+                    if (still_used) break;
+                }
+                for (ir.output_ids.items) |oid| {
+                    if (oid == value.id) {
+                        still_used = true;
+                        break;
+                    }
+                }
+                if (!still_used) {
+                    ir.allocator.free(value.shape);
+                    if (value.label) |label| ir.allocator.free(label);
+                    if (value.constant_data) |data| ir.allocator.free(data);
+                    _ = ir.values.swapRemove(v);
+                    continue;
+                }
+            }
+            v += 1;
+        }
+    }
+
+    return changed;
+}
+
+fn isZeroConstant(value: *const Value) bool {
+    const data = value.constant_data orelse return false;
+    if (value.dtype == .f32) {
+        return isAllValue(f32, data, 0.0);
+    } else if (value.dtype == .f64) {
+        return isAllValue(f64, data, 0.0);
+    }
     return false;
+}
+
+fn isOneConstant(value: *const Value) bool {
+    const data = value.constant_data orelse return false;
+    if (value.dtype == .f32) {
+        return isAllValue(f32, data, 1.0);
+    } else if (value.dtype == .f64) {
+        return isAllValue(f64, data, 1.0);
+    }
+    return false;
+}
+
+fn isAllValue(comptime T: type, data: []const u8, expected: T) bool {
+    const elem_size = @sizeOf(T);
+    if (data.len == 0 or data.len % elem_size != 0) return false;
+    const count = data.len / elem_size;
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        const bytes = data[i * elem_size ..][0..elem_size];
+        const val = std.mem.bytesToValue(T, bytes);
+        if (val != expected) return false;
+    }
+    return true;
 }
 
 fn writeShape(writer: anytype, shape: []const usize) !void {
@@ -1748,4 +2112,237 @@ test "graph_ir/topoSort returns valid execution order" {
     try std.testing.expectEqual(@as(usize, 2), sorted.len);
     try std.testing.expectEqual(@as(u32, 1), sorted[0]);
     try std.testing.expectEqual(@as(u32, 2), sorted[1]);
+}
+
+test "graph_ir/constant_fold eliminates all-constant ops" {
+    // Build IR: a(const) + b(const) = c, c * d(variable) = e
+    // After folding: a+b is folded to c(const), only c*d remains
+    var ir = GraphIR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    // Value 1: constant a = [1.0, 2.0, 3.0, 4.0]
+    const a_data = [_]f32{ 1.0, 2.0, 3.0, 4.0 };
+    const shape1 = try std.testing.allocator.dupe(usize, &.{4});
+    try ir.values.append(std.testing.allocator, .{
+        .id = 1, .dtype = .f32, .shape = shape1, .device = .host,
+        .storage = .owned, .defining_op = null, .label = null,
+        .requires_grad = false,
+        .constant_data = try std.testing.allocator.dupe(u8, std.mem.sliceAsBytes(&a_data)),
+    });
+    try ir.input_ids.append(std.testing.allocator, 1);
+
+    // Value 2: constant b = [5.0, 6.0, 7.0, 8.0]
+    const b_data = [_]f32{ 5.0, 6.0, 7.0, 8.0 };
+    const shape2 = try std.testing.allocator.dupe(usize, &.{4});
+    try ir.values.append(std.testing.allocator, .{
+        .id = 2, .dtype = .f32, .shape = shape2, .device = .host,
+        .storage = .owned, .defining_op = null, .label = null,
+        .requires_grad = false,
+        .constant_data = try std.testing.allocator.dupe(u8, std.mem.sliceAsBytes(&b_data)),
+    });
+    try ir.input_ids.append(std.testing.allocator, 2);
+
+    // Value 3: variable d = [...] (no constant_data)
+    const shape3 = try std.testing.allocator.dupe(usize, &.{4});
+    try ir.values.append(std.testing.allocator, .{
+        .id = 3, .dtype = .f32, .shape = shape3, .device = .host,
+        .storage = .owned, .defining_op = null, .label = null,
+        .requires_grad = false,
+    });
+    try ir.input_ids.append(std.testing.allocator, 3);
+
+    // Value 4: c = a + b (result of op 1)
+    const shape4 = try std.testing.allocator.dupe(usize, &.{4});
+    try ir.values.append(std.testing.allocator, .{
+        .id = 4, .dtype = .f32, .shape = shape4, .device = .host,
+        .storage = .owned, .defining_op = 1, .label = null,
+        .requires_grad = false,
+    });
+
+    // Value 5: e = c * d (result of op 2)
+    const shape5 = try std.testing.allocator.dupe(usize, &.{4});
+    try ir.values.append(std.testing.allocator, .{
+        .id = 5, .dtype = .f32, .shape = shape5, .device = .host,
+        .storage = .owned, .defining_op = 2, .label = null,
+        .requires_grad = false,
+    });
+    try ir.output_ids.append(std.testing.allocator, 5);
+
+    // Op 1: ADD(1, 2) -> 4 (foldable — both operands are constants)
+    const op1_operands = try std.testing.allocator.dupe(u32, &.{ 1, 2 });
+    const op1_results = try std.testing.allocator.dupe(u32, &.{4});
+    try ir.ops.append(std.testing.allocator, .{
+        .id = 1, .name = "ADD", .operands = op1_operands,
+        .results = op1_results, .attributes = &.{},
+    });
+
+    // Op 2: MUL(4, 3) -> 5 (not foldable — operand 3 is variable)
+    const op2_operands = try std.testing.allocator.dupe(u32, &.{ 4, 3 });
+    const op2_results = try std.testing.allocator.dupe(u32, &.{5});
+    try ir.ops.append(std.testing.allocator, .{
+        .id = 2, .name = "MUL", .operands = op2_operands,
+        .results = op2_results, .attributes = &.{},
+    });
+
+    try ir.verify();
+    try std.testing.expectEqual(@as(usize, 2), ir.opCount());
+
+    // Run constant folding
+    const fold_changed = try constantFoldPass().run(&ir);
+    try std.testing.expect(fold_changed);
+
+    // After folding: ADD op should be removed, value 4 should have constant_data
+    try std.testing.expectEqual(@as(usize, 1), ir.opCount());
+    const folded_value = ir.valueById(4).?;
+    try std.testing.expect(folded_value.constant_data != null);
+    try std.testing.expect(folded_value.defining_op == null);
+
+    // Verify the folded constant is correct: [6.0, 8.0, 10.0, 12.0]
+    const folded_bytes = folded_value.constant_data.?;
+    const expected_vals = [_]f32{ 6.0, 8.0, 10.0, 12.0 };
+    for (expected_vals, 0..) |expected, i| {
+        const offset = i * @sizeOf(f32);
+        const val = std.mem.bytesToValue(f32, folded_bytes[offset..][0..@sizeOf(f32)]);
+        try std.testing.expectApproxEqAbs(expected, val, 1e-6);
+    }
+
+    // IR should still verify
+    try ir.verify();
+}
+
+test "graph_ir/algebraic_simplify eliminates identity ops" {
+    // Build IR: x + 0 -> should be simplified to just x
+    var ir = GraphIR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    // Value 1: variable x
+    const shape1 = try std.testing.allocator.dupe(usize, &.{4});
+    try ir.values.append(std.testing.allocator, .{
+        .id = 1, .dtype = .f32, .shape = shape1, .device = .host,
+        .storage = .owned, .defining_op = null, .label = null,
+        .requires_grad = false,
+    });
+    try ir.input_ids.append(std.testing.allocator, 1);
+
+    // Value 2: constant zero = [0, 0, 0, 0]
+    const zero_data = [_]f32{ 0.0, 0.0, 0.0, 0.0 };
+    const shape2 = try std.testing.allocator.dupe(usize, &.{4});
+    try ir.values.append(std.testing.allocator, .{
+        .id = 2, .dtype = .f32, .shape = shape2, .device = .host,
+        .storage = .owned, .defining_op = null, .label = null,
+        .requires_grad = false,
+        .constant_data = try std.testing.allocator.dupe(u8, std.mem.sliceAsBytes(&zero_data)),
+    });
+    try ir.input_ids.append(std.testing.allocator, 2);
+
+    // Value 3: result of x + 0
+    const shape3 = try std.testing.allocator.dupe(usize, &.{4});
+    try ir.values.append(std.testing.allocator, .{
+        .id = 3, .dtype = .f32, .shape = shape3, .device = .host,
+        .storage = .owned, .defining_op = 1, .label = null,
+        .requires_grad = false,
+    });
+    try ir.output_ids.append(std.testing.allocator, 3);
+
+    // Op 1: ADD(1, 2) -> 3 (x + 0, identity)
+    const op1_operands = try std.testing.allocator.dupe(u32, &.{ 1, 2 });
+    const op1_results = try std.testing.allocator.dupe(u32, &.{3});
+    try ir.ops.append(std.testing.allocator, .{
+        .id = 1, .name = "ADD", .operands = op1_operands,
+        .results = op1_results, .attributes = &.{},
+    });
+
+    try ir.verify();
+    try std.testing.expectEqual(@as(usize, 1), ir.opCount());
+
+    // Run algebraic simplification
+    const changed = try algebraicSimplifyPass().run(&ir);
+    try std.testing.expect(changed);
+
+    // ADD should be eliminated, output should now reference value 1 (x) directly
+    try std.testing.expectEqual(@as(usize, 0), ir.opCount());
+    try std.testing.expectEqual(@as(u32, 1), ir.output_ids.items[0]);
+}
+
+test "graph_ir/algebraic_simplify mul_by_one and mul_by_zero" {
+    var ir = GraphIR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    // Value 1: variable x
+    const shape1 = try std.testing.allocator.dupe(usize, &.{3});
+    try ir.values.append(std.testing.allocator, .{
+        .id = 1, .dtype = .f32, .shape = shape1, .device = .host,
+        .storage = .owned, .defining_op = null, .label = null,
+        .requires_grad = false,
+    });
+    try ir.input_ids.append(std.testing.allocator, 1);
+
+    // Value 2: constant one = [1, 1, 1]
+    const one_data = [_]f32{ 1.0, 1.0, 1.0 };
+    const shape2 = try std.testing.allocator.dupe(usize, &.{3});
+    try ir.values.append(std.testing.allocator, .{
+        .id = 2, .dtype = .f32, .shape = shape2, .device = .host,
+        .storage = .owned, .defining_op = null, .label = null,
+        .requires_grad = false,
+        .constant_data = try std.testing.allocator.dupe(u8, std.mem.sliceAsBytes(&one_data)),
+    });
+    try ir.input_ids.append(std.testing.allocator, 2);
+
+    // Value 3: constant zero = [0, 0, 0]
+    const zero_data = [_]f32{ 0.0, 0.0, 0.0 };
+    const shape3 = try std.testing.allocator.dupe(usize, &.{3});
+    try ir.values.append(std.testing.allocator, .{
+        .id = 3, .dtype = .f32, .shape = shape3, .device = .host,
+        .storage = .owned, .defining_op = null, .label = null,
+        .requires_grad = false,
+        .constant_data = try std.testing.allocator.dupe(u8, std.mem.sliceAsBytes(&zero_data)),
+    });
+    try ir.input_ids.append(std.testing.allocator, 3);
+
+    // Value 4: x * 1 (should simplify to x)
+    const shape4 = try std.testing.allocator.dupe(usize, &.{3});
+    try ir.values.append(std.testing.allocator, .{
+        .id = 4, .dtype = .f32, .shape = shape4, .device = .host,
+        .storage = .owned, .defining_op = 1, .label = null,
+        .requires_grad = false,
+    });
+
+    // Value 5: x * 0 (should simplify to 0)
+    const shape5 = try std.testing.allocator.dupe(usize, &.{3});
+    try ir.values.append(std.testing.allocator, .{
+        .id = 5, .dtype = .f32, .shape = shape5, .device = .host,
+        .storage = .owned, .defining_op = 2, .label = null,
+        .requires_grad = false,
+    });
+    try ir.output_ids.append(std.testing.allocator, 4);
+    try ir.output_ids.append(std.testing.allocator, 5);
+
+    // Op 1: MUL(1, 2) -> 4 (x * 1)
+    const op1_operands = try std.testing.allocator.dupe(u32, &.{ 1, 2 });
+    const op1_results = try std.testing.allocator.dupe(u32, &.{4});
+    try ir.ops.append(std.testing.allocator, .{
+        .id = 1, .name = "MUL", .operands = op1_operands,
+        .results = op1_results, .attributes = &.{},
+    });
+
+    // Op 2: MUL(1, 3) -> 5 (x * 0)
+    const op2_operands = try std.testing.allocator.dupe(u32, &.{ 1, 3 });
+    const op2_results = try std.testing.allocator.dupe(u32, &.{5});
+    try ir.ops.append(std.testing.allocator, .{
+        .id = 2, .name = "MUL", .operands = op2_operands,
+        .results = op2_results, .attributes = &.{},
+    });
+
+    try std.testing.expectEqual(@as(usize, 2), ir.opCount());
+
+    const changed = try algebraicSimplifyPass().run(&ir);
+    try std.testing.expect(changed);
+
+    // Both MUL ops should be eliminated
+    try std.testing.expectEqual(@as(usize, 0), ir.opCount());
+
+    // Output 4 (x*1) should now reference value 1 (x)
+    try std.testing.expectEqual(@as(u32, 1), ir.output_ids.items[0]);
+    // Output 5 (x*0) should now reference value 3 (zero constant)
+    try std.testing.expectEqual(@as(u32, 3), ir.output_ids.items[1]);
 }

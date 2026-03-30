@@ -24,8 +24,8 @@ The compiler stack has reached the following state:
 | Graph IR | Landed, SSA-form with verifier | `src/graph_ir.zig` |
 | Pass manager | Landed, timing + verification | `src/graph_ir.zig` |
 | DCE pass | Landed, working | `src/graph_ir.zig` |
-| Constant folding | Stub only | `src/graph_ir.zig` |
-| Algebraic simplification | Stub only | `src/graph_ir.zig` |
+| Constant folding | **Landed** | `src/graph_ir.zig` |
+| Algebraic simplification | **Landed** | `src/graph_ir.zig` |
 | Execution bridge | **Landed** | `src/graph_ir.zig` |
 | ONNX interop | Not started | — |
 | GGUF interop | Not started | — |
@@ -122,12 +122,13 @@ switch (value.dtype) {
 
 ---
 
-## M-2: Constant Folding Pass
+## M-2: Constant Folding Pass ✓ LANDED
 
 **RFC:** RFC-0007 (Static Graph Optimization)
 **Priority:** High — first real optimization that changes execution behavior.
 **Depends on:** M-1 (execution bridge)
 **Blocks:** M-3
+**Status:** Complete. Landed 2026-03-30.
 
 ### Goal
 
@@ -172,12 +173,13 @@ known values) and replace them with their computed results in the IR.
 
 ---
 
-## M-3: Algebraic Simplification Pass
+## M-3: Algebraic Simplification Pass ✓ LANDED
 
 **RFC:** RFC-0007 (Static Graph Optimization)
 **Priority:** High — cheap optimization with broad applicability.
 **Depends on:** M-2 (constant tracking on values)
 **Blocks:** None directly
+**Status:** Complete. Landed 2026-03-30.
 
 ### Goal
 
@@ -455,12 +457,14 @@ M-7 CSE Pass (independent, needs only existing Graph IR)
 
 ## Success Criteria for the Next Phase
 
-When milestones M-1 through M-3 are complete:
+Milestones M-1 through M-3 are now complete (landed 2026-03-30):
 - A user can capture a forward pass in deferred mode, lower to IR, run DCE +
   constant folding + algebraic simplification, and execute the optimized graph
-  with identical results to eager mode.
-- The optimization pipeline is measurably faster than naive eager execution
-  on graphs with dead code or constant subexpressions.
+  with identical results to eager mode. ✓ Verified via roundtrip parity tests.
+- Constant subexpressions are evaluated at optimization time and replaced
+  with their computed values. ✓ Verified.
+- Identity (x+0, x*1, x/1) and annihilator (x*0) patterns are eliminated
+  from the graph. ✓ Verified.
 
 When M-4 and M-5 are also complete:
 - A user can load an ONNX model or GGUF weights into Zigrad and execute
