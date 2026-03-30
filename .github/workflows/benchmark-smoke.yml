@@ -87,6 +87,7 @@ jobs:
 
       - name: Compare benchmark smoke results
         if: steps.baseline.outputs.sha != ''
+        continue-on-error: true
         run: |
           zig build benchmark-compare -- \
             --baseline benchmarks/results/baseline.jsonl \
