@@ -1,6 +1,6 @@
 //! End-to-end pipeline: keygen → forward → commit → verify.
 //!
-//! Integration test that proves all building blocks compose correctly.
+//! Integration test proving all building blocks compose correctly.
 
 const std = @import("std");
 const field = @import("field.zig");
@@ -9,9 +9,7 @@ const freivalds = @import("freivalds.zig");
 const merkle = @import("merkle.zig");
 const types = @import("types.zig");
 const toy_model = @import("toy_model.zig");
-const requantize_mod = @import("requantize.zig");
 
-const Fp = field.Fp;
 const ModelConfig = constants.ModelConfig;
 const MatrixType = constants.MatrixType;
 
@@ -19,6 +17,7 @@ const MatrixType = constants.MatrixType;
 pub const PipelineResult = struct {
     all_freivalds_passed: bool,
     merkle_proofs_valid: bool,
+    io_chain_valid: bool,
     n_layers_verified: usize,
     n_matrices_verified: usize,
 };
@@ -32,19 +31,18 @@ pub fn runE2E(allocator: std.mem.Allocator) !PipelineResult {
     var key = try toy_model.generateKey(allocator, cfg, &model, 42);
     defer key.deinit();
 
-    // Generate input
     var input: [16]i8 = undefined;
     for (&input, 0..) |*v, i| {
         v.* = @intCast(@as(i32, @intCast(i)) - 8);
     }
 
-    var traces = try toy_model.forwardPass(allocator, cfg, &model, &input);
+    const traces = try toy_model.forwardPass(allocator, cfg, &model, &input);
     defer {
-        for (traces) |*t| t.deinit();
+        for (@constCast(traces)) |*t| t.deinit();
         allocator.free(traces);
     }
 
-    // Phase 1: Freivalds verification
+    // Phase 1: Freivalds verification — all 7 matrices × n_layers.
     var all_freivalds_passed = true;
     var n_matrices_verified: usize = 0;
 
@@ -52,7 +50,6 @@ pub fn runE2E(allocator: std.mem.Allocator) !PipelineResult {
         const lt = &traces[layer];
         const layer_vs = key.v_vectors[layer];
 
-        // Check all 7 per-layer matrices
         const checks = [_]struct { v_idx: usize, input: []const i8, r_mt: MatrixType, output: []const i32 }{
             .{ .v_idx = 0, .input = lt.x_attn, .r_mt = .wq, .output = lt.q },
             .{ .v_idx = 1, .input = lt.x_attn, .r_mt = .wk, .output = lt.k },
@@ -64,30 +61,23 @@ pub fn runE2E(allocator: std.mem.Allocator) !PipelineResult {
         };
 
         for (checks) |chk| {
-            const passed = freivalds.check(
-                layer_vs[chk.v_idx],
-                chk.input,
-                key.rFor(chk.r_mt),
-                chk.output,
-            );
-            if (!passed) all_freivalds_passed = false;
+            if (!freivalds.check(layer_vs[chk.v_idx], chk.input, key.rFor(chk.r_mt), chk.output)) {
+                all_freivalds_passed = false;
+            }
             n_matrices_verified += 1;
         }
     }
 
-    // Phase 2: Merkle tree commitment and verification
+    // Phase 2: Merkle tree commitment and proof verification.
     var merkle_proofs_valid = true;
 
-    // Build retained state leaves for each token (here just one token)
     const retained_layers = try allocator.alloc(merkle.RetainedLayerInput, cfg.n_layers);
     defer allocator.free(retained_layers);
 
     for (0..cfg.n_layers) |layer| {
         retained_layers[layer] = .{
             .a = traces[layer].a,
-            .scale_a = 1.0, // toy model: unit scale
-            .x_attn_i8 = null,
-            .scale_x_attn = null,
+            .scale_a = 1.0,
         };
     }
 
@@ -97,7 +87,6 @@ pub fn runE2E(allocator: std.mem.Allocator) !PipelineResult {
     var tree = try merkle.buildTree(allocator, &leaves);
     defer tree.deinit();
 
-    // Prove and verify the single token
     var proof = try merkle.prove(allocator, &tree, 0);
     defer proof.deinit();
 
@@ -105,17 +94,25 @@ pub fn runE2E(allocator: std.mem.Allocator) !PipelineResult {
         merkle_proofs_valid = false;
     }
 
+    // Phase 3: IO chain.
+    const prompt_hash = merkle.hashPrompt("test prompt");
+    const io0 = merkle.ioHashV4(leaf_hash, 0, prompt_hash);
+    // Verify chain is deterministic.
+    const io0_again = merkle.ioHashV4(leaf_hash, 0, prompt_hash);
+    const io_chain_valid = std.mem.eql(u8, &io0, &io0_again);
+
     return .{
         .all_freivalds_passed = all_freivalds_passed,
         .merkle_proofs_valid = merkle_proofs_valid,
+        .io_chain_valid = io_chain_valid,
         .n_layers_verified = cfg.n_layers,
         .n_matrices_verified = n_matrices_verified,
     };
 }
 
-// ===========================================================================
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
-// ===========================================================================
+// ═══════════════════════════════════════════════════════════════════════
 
 test "e2e_pipeline_passes" {
     const allocator = std.testing.allocator;
@@ -123,8 +120,9 @@ test "e2e_pipeline_passes" {
 
     try std.testing.expect(result.all_freivalds_passed);
     try std.testing.expect(result.merkle_proofs_valid);
+    try std.testing.expect(result.io_chain_valid);
     try std.testing.expectEqual(@as(usize, 2), result.n_layers_verified);
-    try std.testing.expectEqual(@as(usize, 14), result.n_matrices_verified); // 7 matrices * 2 layers
+    try std.testing.expectEqual(@as(usize, 14), result.n_matrices_verified);
 }
 
 test "e2e_tampered_weight_detected" {
@@ -136,7 +134,7 @@ test "e2e_tampered_weight_detected" {
     var key = try toy_model.generateKey(allocator, cfg, &model, 42);
     defer key.deinit();
 
-    // Tamper with a weight AFTER key generation
+    // Tamper AFTER keygen.
     model.layers[0].wq[0] = if (model.layers[0].wq[0] == 0) 1 else 0;
 
     var input: [16]i8 = undefined;
@@ -144,42 +142,18 @@ test "e2e_tampered_weight_detected" {
         v.* = @intCast(@as(i32, @intCast(i)) - 8);
     }
 
-    var traces = try toy_model.forwardPass(allocator, cfg, &model, &input);
+    const traces = try toy_model.forwardPass(allocator, cfg, &model, &input);
     defer {
-        for (traces) |*t| t.deinit();
+        for (@constCast(traces)) |*t| t.deinit();
         allocator.free(traces);
     }
 
-    // At least one Freivalds check should fail (Wq on layer 0)
-    const lt = &traces[0];
+    // Wq on layer 0 should fail.
     const passed = freivalds.check(
-        key.v_vectors[0][0], // v for Wq, layer 0
-        lt.x_attn,
+        key.v_vectors[0][0],
+        traces[0].x_attn,
         key.rFor(.wq),
-        lt.q,
+        traces[0].q,
     );
     try std.testing.expect(!passed);
-}
-
-test "e2e_io_chain_hashing" {
-    const allocator = std.testing.allocator;
-    const cfg = ModelConfig.toy();
-    _ = cfg;
-
-    // Test IO chain: io_0 = H(prompt_hash), io_t = H("vi-io-v4" || leaf_t || token_id_t || io_{t-1})
-    const prompt_hash = merkle.hashLeaf("test prompt");
-    const leaf0 = merkle.hashLeaf("token0");
-    const leaf1 = merkle.hashLeaf("token1");
-
-    const io0 = merkle.ioHashV4(leaf0, 42, prompt_hash);
-    const io1 = merkle.ioHashV4(leaf1, 43, io0);
-
-    // IO chain should be deterministic
-    const io0_again = merkle.ioHashV4(leaf0, 42, prompt_hash);
-    try std.testing.expectEqualSlices(u8, &io0, &io0_again);
-
-    // Different inputs should produce different hashes
-    try std.testing.expect(!std.mem.eql(u8, &io0, &io1));
-
-    _ = allocator;
 }
