@@ -18,6 +18,9 @@ pub fn siluF64(x: f64) f64 {
 
 /// Build the SiLU LUT for a given quantization scale.
 /// Maps each INT8 value g in -128..127 to SiLU(g × scale).
+///
+/// Indexing convention: `lut[@as(u8, @bitCast(g))]` where g is i8.
+/// Index 0 → g=0, index 127 → g=127, index 128 → g=-128, index 255 → g=-1.
 pub fn buildSiluLut(scale: f32) [256]f32 {
     var lut: [256]f32 = undefined;
     for (0..256) |i| {

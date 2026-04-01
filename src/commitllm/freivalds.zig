@@ -24,6 +24,9 @@ const Sha256 = std.crypto.hash.sha2.Sha256;
 ///
 /// W is row-major (rows × cols). r has length `rows`.
 /// Returns v of length `cols`. Caller owns returned memory.
+///
+/// Overflow budget: each |term| ≤ (P-1) × 128 < 2^39.
+/// u128 accumulator overflows at 2^89 terms — all realistic models are ≤ 2^16 rows.
 pub fn precomputeV(allocator: std.mem.Allocator, r: []const Fp, weight: []const i8, rows: usize, cols: usize) ![]Fp {
     std.debug.assert(r.len == rows);
     std.debug.assert(weight.len == rows * cols);
@@ -62,6 +65,8 @@ pub fn check(v: []const Fp, x: []const i8, r: []const Fp, z: []const i32) bool {
 // Fp64 variants
 // ═══════════════════════════════════════════════════════════════════════
 
+/// Overflow budget: each |term| ≤ (P64-1) × 128 < 2^68.
+/// u128 overflows at 2^60 terms — all realistic models are ≤ 2^16 rows.
 pub fn precomputeV64(allocator: std.mem.Allocator, r: []const Fp64, weight: []const i8, rows: usize, cols: usize) ![]Fp64 {
     std.debug.assert(r.len == rows);
     std.debug.assert(weight.len == rows * cols);
@@ -178,11 +183,11 @@ pub fn checkQ8Blocks(
 
     // RHS: r · z' where z'[row] = Σ_b c_b · sumi_b[row]
     // Compute z' in Fp, then dot with r.
+    for (sumi) |s| std.debug.assert(s.len == output_dim);
     var rhs_acc: u128 = 0;
     for (0..output_dim) |row| {
         var z_prime = Fp.ZERO;
         for (0..n_blocks) |b| {
-            std.debug.assert(sumi[b].len == output_dim);
             z_prime = z_prime.add(c[b].mul(Fp.fromI32(sumi[b][row])));
         }
         rhs_acc += @as(u128, r[row].val) * @as(u128, z_prime.val);

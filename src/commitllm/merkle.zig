@@ -92,7 +92,8 @@ pub fn buildTree(allocator: std.mem.Allocator, leaves: []const Hash) !MerkleTree
     };
 }
 
-/// Compute Merkle root without storing intermediate nodes. O(log N) stack.
+/// Compute Merkle root without storing the full tree. Uses O(n) temporary
+/// heap allocation for the current level, freed before return.
 pub fn computeRoot(allocator: std.mem.Allocator, leaves: []const Hash) !Hash {
     if (leaves.len == 0) return error.EmptyLeaves;
 
@@ -125,6 +126,7 @@ pub fn computeRoot(allocator: std.mem.Allocator, leaves: []const Hash) !Hash {
 pub fn prove(allocator: std.mem.Allocator, tree: *const MerkleTree, index: usize) !MerkleProof {
     if (index >= tree.n_leaves) return error.IndexOutOfRange;
 
+    // padded_size is always a power of 2, so log2 is exact.
     // For padded_size == 1, depth is 0 and proof has no siblings.
     const depth = if (tree.padded_size <= 1) 0 else std.math.log2(tree.padded_size);
     const siblings = try allocator.alloc(Hash, depth);
@@ -289,7 +291,10 @@ pub fn hashWeights(
 
 /// Derive challenge indices from commitment root, revealed seed, and counter.
 ///   index = SHA256(root || seed || counter) % n_tokens
-pub fn deriveChallenge(root: Hash, seed: []const u8, counter: u32, n_tokens: u32) u32 {
+///
+/// Returns null if n_tokens is 0 (empty batch).
+pub fn deriveChallenge(root: Hash, seed: []const u8, counter: u32, n_tokens: u32) ?u32 {
+    if (n_tokens == 0) return null;
     var h = Sha256.init(.{});
     h.update(&root);
     h.update(seed);
@@ -445,13 +450,16 @@ test "compute_root_matches_build_tree" {
 test "derive_challenge_deterministic" {
     const root = hashLeaf("root");
     const seed = "test_seed";
-    const c0 = deriveChallenge(root, seed, 0, 100);
-    const c1 = deriveChallenge(root, seed, 0, 100);
+    const c0 = deriveChallenge(root, seed, 0, 100).?;
+    const c1 = deriveChallenge(root, seed, 0, 100).?;
     try testing.expectEqual(c0, c1);
 
     // Different counter → different challenge.
-    const c2 = deriveChallenge(root, seed, 1, 100);
+    const c2 = deriveChallenge(root, seed, 1, 100).?;
     try testing.expect(c0 != c2);
+
+    // n_tokens == 0 → null
+    try testing.expectEqual(@as(?u32, null), deriveChallenge(root, seed, 0, 0));
 }
 
 test "io_chain_ordering" {

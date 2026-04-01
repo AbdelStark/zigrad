@@ -184,7 +184,7 @@ test "diff_freivalds" {
         const r = try allocator.alloc(Fp, r_arr.items.len);
         defer allocator.free(r);
         for (r_arr.items, 0..) |v, i| {
-            r[i] = Fp{ .val = @intCast(v.integer) };
+            r[i] = Fp.new(@intCast(v.integer));
         }
 
         // Parse weight

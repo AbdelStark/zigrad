@@ -165,6 +165,7 @@ pub const ModelConfig = struct {
     pub fn scaledInvFreq(self: ModelConfig, allocator: std.mem.Allocator) ![]f64 {
         const half = self.d_head / 2;
         const freqs = try allocator.alloc(f64, half);
+        errdefer allocator.free(freqs);
 
         for (0..half) |k| {
             freqs[k] = 1.0 / std.math.pow(f64, self.rope_theta, @as(f64, @floatFromInt(2 * k)) / @as(f64, @floatFromInt(self.d_head)));

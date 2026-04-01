@@ -114,6 +114,7 @@ pub const VerifierKey = struct {
     pub fn deinit(self: *VerifierKey) void {
         if (self.v_lm_head) |v| self.allocator.free(v);
         if (self.lm_head) |l| self.allocator.free(l);
+        if (self.final_norm_weights) |f| self.allocator.free(f);
         for (self.v_vectors) |layer_vs| {
             for (layer_vs) |v| self.allocator.free(v);
             self.allocator.free(layer_vs);
@@ -121,6 +122,20 @@ pub const VerifierKey = struct {
         self.allocator.free(self.v_vectors);
         for (self.r_vectors) |r| self.allocator.free(r);
         self.allocator.free(self.r_vectors);
+        // Free production-path fields if populated.
+        if (self.wo_norms.len > 0) self.allocator.free(self.wo_norms);
+        if (self.weight_scales.len > 0) self.allocator.free(self.weight_scales);
+        for (self.rmsnorm_attn_weights) |w| self.allocator.free(w);
+        if (self.rmsnorm_attn_weights.len > 0) self.allocator.free(self.rmsnorm_attn_weights);
+        for (self.rmsnorm_ffn_weights) |w| self.allocator.free(w);
+        if (self.rmsnorm_ffn_weights.len > 0) self.allocator.free(self.rmsnorm_ffn_weights);
+        for (self.per_channel_weight_scales) |layer| {
+            for (layer) |ch| self.allocator.free(ch);
+            self.allocator.free(layer);
+        }
+        if (self.per_channel_weight_scales.len > 0) self.allocator.free(self.per_channel_weight_scales);
+        for (self.qkv_biases) |b| self.allocator.free(b);
+        if (self.qkv_biases.len > 0) self.allocator.free(self.qkv_biases);
         self.* = undefined;
     }
 
@@ -183,6 +198,14 @@ pub const LayerTrace = struct {
         self.allocator.free(self.h);
         self.allocator.free(self.ffn_out);
         if (self.residual) |r| self.allocator.free(r);
+        if (self.kv_cache_k) |kk| {
+            for (kk) |entry| self.allocator.free(entry);
+            self.allocator.free(kk);
+        }
+        if (self.kv_cache_v) |kv| {
+            for (kv) |entry| self.allocator.free(entry);
+            self.allocator.free(kv);
+        }
         self.* = undefined;
     }
 };

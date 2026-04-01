@@ -275,7 +275,7 @@ pub fn main() !void {
     printOk("IO chain constructed (splice/reorder resistant)", .{});
 
     // Challenge derivation
-    const challenge_idx = commitllm.merkle.deriveChallenge(tree.root, "audit_seed_2026", 0, 100);
+    const challenge_idx = commitllm.merkle.deriveChallenge(tree.root, "audit_seed_2026", 0, 100) orelse 0;
     printInfo("Challenge derived: token index {d} (of 100)", .{challenge_idx});
 
     // ─────────────────────────────────────────────────────────────

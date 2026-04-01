@@ -25,7 +25,8 @@ pub const constants = @import("constants.zig");
 pub const types = @import("types.zig");
 pub const toy_model = @import("toy_model.zig");
 pub const pipeline = @import("pipeline.zig");
-pub const diff_tests = @import("diff_tests.zig");
+// diff_tests is test-only, not part of the public API.
+const diff_tests = @import("diff_tests.zig");
 
 // Convenience re-exports
 pub const Fp = field.Fp;

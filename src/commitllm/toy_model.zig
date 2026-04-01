@@ -170,6 +170,10 @@ pub fn forwardPass(allocator: std.mem.Allocator, cfg: ModelConfig, model: *const
     }
 
     for (model.layers, 0..) |*lw, layer_idx| {
+        // Ownership transfer: x_attn takes ownership of x. x will be
+        // reassigned to a new allocation (next layer's input) at the end
+        // of this iteration. x_attn is stored in the trace and freed by
+        // LayerTrace.deinit.
         const x_attn = x;
 
         const q = try matmulI32(allocator, lw.wq, x_attn, cfg.hidden_dim, cfg.hidden_dim);
@@ -227,7 +231,9 @@ pub fn forwardPass(allocator: std.mem.Allocator, cfg: ModelConfig, model: *const
         traces_initialized += 1;
     }
 
-    // Free the final x (output of last layer, not stored in any trace).
+    // Free the final x — this is the output of the last layer's requantize,
+    // which is NOT stored in any LayerTrace (the last trace's ffn_out is the
+    // i32 accumulators, not the requantized i8). We own it, so free it here.
     allocator.free(x);
 
     return layer_traces;
@@ -291,7 +297,7 @@ pub fn generateKey(allocator: std.mem.Allocator, cfg: ModelConfig, model: *const
     }
 
     // Compute weight-chain hash with domain separator.
-    _ = computeWeightHash(model);
+    const weight_hash = computeWeightHash(model);
 
     // Expand 64-bit seed to 32 bytes via SHA-256 for the key seed.
     var seed_bytes: [32]u8 = undefined;
@@ -305,6 +311,7 @@ pub fn generateKey(allocator: std.mem.Allocator, cfg: ModelConfig, model: *const
         .seed = seed_bytes,
         .r_vectors = r_vectors,
         .v_vectors = v_vectors,
+        .weight_hash = weight_hash,
         .allocator = allocator,
     };
 }

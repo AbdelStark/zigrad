@@ -190,11 +190,15 @@ pub const Fp64 = struct {
     }
 
     pub fn add(self: Fp64, other: Fp64) Fp64 {
+        std.debug.assert(self.val < P64);
+        std.debug.assert(other.val < P64);
         const sum = self.val + other.val;
         return .{ .val = if (sum >= P64) sum - P64 else sum };
     }
 
     pub fn sub(self: Fp64, other: Fp64) Fp64 {
+        std.debug.assert(self.val < P64);
+        std.debug.assert(other.val < P64);
         return if (self.val >= other.val)
             .{ .val = self.val - other.val }
         else
@@ -328,11 +332,22 @@ pub const U256 = struct {
     }
 
     /// Add another U256 to this one (in-place).
+    ///
+    /// SAFETY: caller must ensure the running sum does not overflow the hi
+    /// lane (u128). In practice this means reducing the accumulator before
+    /// hi exceeds ~2^126 — see the batch intervals in Fp128.dot/dotFpI8/dotFpI32.
     pub fn addAssign(self: *U256, other: U256) void {
         const new_lo = self.lo +% other.lo;
         const carry: u128 = if (new_lo < self.lo) 1 else 0;
         self.lo = new_lo;
-        self.hi += other.hi + carry;
+        // Detect hi overflow in debug builds. In release, this is a no-op.
+        if (std.debug.runtime_safety) {
+            const prev_hi = self.hi;
+            self.hi += other.hi + carry;
+            std.debug.assert(self.hi >= prev_hi); // overflow check
+        } else {
+            self.hi += other.hi + carry;
+        }
     }
 
     /// Reduce mod 2^127 - 1.
@@ -398,11 +413,15 @@ pub const Fp128 = struct {
     }
 
     pub fn add(self: Fp128, other: Fp128) Fp128 {
+        std.debug.assert(self.val < P128);
+        std.debug.assert(other.val < P128);
         const sum = self.val + other.val;
         return .{ .val = if (sum >= P128) sum - P128 else sum };
     }
 
     pub fn sub(self: Fp128, other: Fp128) Fp128 {
+        std.debug.assert(self.val < P128);
+        std.debug.assert(other.val < P128);
         return if (self.val >= other.val)
             .{ .val = self.val - other.val }
         else
@@ -418,14 +437,18 @@ pub const Fp128 = struct {
         return self.val == other.val;
     }
 
-    /// Inner product ⟨a, b⟩ in Fp128. Reduces every 2^16 terms.
+    /// Inner product ⟨a, b⟩ in Fp128.
+    ///
+    /// Each product U256.mul128(x, y) has hi ≤ 2^126. Accumulating k products
+    /// before reduction requires hi to stay below 2^128. Safe batch size: 2.
+    /// We reduce every 2 terms for correctness at all vector lengths.
     pub fn dot(a: []const Fp128, b_slice: []const Fp128) Fp128 {
         std.debug.assert(a.len == b_slice.len);
         var acc = U256.ZERO;
         for (a, b_slice, 0..) |x, y, i| {
             const prod = U256.mul128(x.val, y.val);
             acc.addAssign(prod);
-            if ((i & 0xFFFF) == 0xFFFF) {
+            if ((i & 1) == 1) {
                 const reduced = acc.reduceMersenne127();
                 acc = .{ .hi = 0, .lo = reduced };
             }
@@ -434,6 +457,10 @@ pub const Fp128 = struct {
     }
 
     /// Mixed dot product ⟨a_Fp128, b_i8⟩. Split pos/neg in U256.
+    ///
+    /// Each term: a.val < 2^127, |b| ≤ 128, product hi < 2^(127+7-128) = 2^6.
+    /// Safe to accumulate up to 2^(128-6) = 2^122 terms. We reduce every
+    /// 2^16 terms for a comfortable margin at all realistic model sizes.
     pub fn dotFpI8(a: []const Fp128, b_slice: []const i8) Fp128 {
         std.debug.assert(a.len == b_slice.len);
         var pos_acc = U256.ZERO;
@@ -459,6 +486,9 @@ pub const Fp128 = struct {
     }
 
     /// Mixed dot product ⟨a_Fp128, b_i32⟩.
+    ///
+    /// Each term: a.val < 2^127, |b| < 2^31, product hi < 2^(127+31-128) = 2^30.
+    /// Safe to accumulate 2^(128-30) = 2^98 terms. Reduce every 2^16 terms.
     pub fn dotFpI32(a: []const Fp128, b_slice: []const i32) Fp128 {
         std.debug.assert(a.len == b_slice.len);
         var pos_acc = U256.ZERO;
@@ -633,6 +663,15 @@ test "fp128_dot_fp_i32" {
     const a = [_]Fp128{ Fp128{ .val = 10 }, Fp128{ .val = 20 }, Fp128{ .val = 30 } };
     const b = [_]i32{ 23, 53, 83 };
     try std.testing.expectEqual(@as(u128, 3780), Fp128.dotFpI32(&a, &b).val);
+}
+
+test "fp_dot_empty" {
+    const empty_fp: []const Fp = &.{};
+    try std.testing.expect(Fp.dot(empty_fp, empty_fp).eql(Fp.ZERO));
+    const empty_fp64: []const Fp64 = &.{};
+    try std.testing.expect(Fp64.dot(empty_fp64, empty_fp64).eql(Fp64.ZERO));
+    const empty_fp128: []const Fp128 = &.{};
+    try std.testing.expect(Fp128.dot(empty_fp128, empty_fp128).eql(Fp128.ZERO));
 }
 
 test "u256_mul_basic" {
