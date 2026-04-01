@@ -3,7 +3,9 @@
 
 .PHONY: all build test test-fast clean \
         commitllm-test commitllm-e2e commitllm-vectors commitllm-diff \
-        mnist benchmark docs
+        commitllm-e2e-showcase commitllm-e2e-crosslang-showcase \
+        commitllm-crosslang-bundle commitllm-stats \
+        mnist benchmark docs help
 
 # ─── Core ────────────────────────────────────────────────────────────
 
@@ -55,6 +57,15 @@ commitllm-diff: commitllm-vectors
 commitllm-e2e-showcase:
 	zig build commitllm-showcase
 
+## Generate cross-language proof bundle (Rust prover)
+commitllm-crosslang-bundle:
+	cd tests/commitllm_crosslang && cargo build --release 2>/dev/null
+	cd tests/commitllm_crosslang && cargo run --release -- $(CURDIR)/tests/fixtures/commitllm/crosslang_bundle.json 2>&1
+
+## Run cross-language showcase (Rust prover -> Zig verifier)
+commitllm-e2e-crosslang-showcase: commitllm-crosslang-bundle
+	zig build commitllm-crosslang-showcase
+
 ## Show commitllm module stats
 commitllm-stats:
 	@echo "CommitLLM Module Statistics"
@@ -96,7 +107,9 @@ help:
 	@echo "    commitllm-e2e     Run e2e pipeline test"
 	@echo "    commitllm-vectors Generate Rust differential test vectors"
 	@echo "    commitllm-diff    Run differential tests (Zig vs Rust)"
-	@echo "    commitllm-e2e-showcase  Run full annotated E2E demo"
+	@echo "    commitllm-e2e-showcase         Run full annotated E2E demo"
+	@echo "    commitllm-e2e-crosslang-showcase  Rust prover -> Zig verifier"
+	@echo "    commitllm-crosslang-bundle     Generate Rust proof bundle"
 	@echo "    commitllm-stats        Show module statistics"
 	@echo ""
 	@echo "  Other:"

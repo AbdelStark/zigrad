@@ -143,6 +143,26 @@ pub fn build(b: *Build) !void {
     const commitllm_showcase_step = b.step("commitllm-showcase", "Run the CommitLLM E2E showcase");
     commitllm_showcase_step.dependOn(&run_commitllm_showcase.step);
 
+    // CommitLLM cross-language showcase (Rust prover → Zig verifier)
+    const commitllm_crosslang = b.addExecutable(.{
+        .name = "commitllm-crosslang-showcase",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/commitllm-crosslang/src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigrad", .module = zigrad },
+            },
+        }),
+    });
+    link(target, commitllm_crosslang, host_blas);
+    b.installArtifact(commitllm_crosslang);
+
+    const run_commitllm_crosslang = b.addRunArtifact(commitllm_crosslang);
+    run_commitllm_crosslang.stdio = .inherit;
+    const commitllm_crosslang_step = b.step("commitllm-crosslang-showcase", "Run the CommitLLM cross-language showcase (Rust prover, Zig verifier)");
+    commitllm_crosslang_step.dependOn(&run_commitllm_crosslang.step);
+
     const benchmark_module = b.addModule("benchmarking", .{
         .root_source_file = b.path("benchmarks/src/root.zig"),
         .target = target,
