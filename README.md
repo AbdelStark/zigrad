@@ -146,6 +146,46 @@ Runtime backend selection via `ZG_DEVICE=host|cpu|cuda[:index]`.
 - **Optimizers**: SGD, Adam (with device-dispatched updates)
 - **Integrations**: TensorBoard scalar/histogram logging, MuJoCo (via examples)
 
+### CommitLLM — Verifiable INT8 Inference
+
+Zig port of the [CommitLLM](https://github.com/nicholasgasior/commitllm)
+cryptographic commit-and-audit protocol for open-weight LLM inference.
+Based on the [CommitLLM paper](third_party/ignore/CommitLLM/paper/main.typ)
+and [Rust reference implementation](third_party/ignore/CommitLLM/crates/verilm-core/).
+
+The provider serves on GPU with ~12% tracing overhead and returns a compact
+receipt. An auditor verifies on CPU in ~1.3ms per challenged token (Llama 70B)
+— without re-running inference.
+
+**Core primitives:**
+
+| Component | Description |
+|-----------|-------------|
+| **Freivalds checks** | Precompute `v = r^T W`, verify `v·x == r·z` in O(n) per matrix. False-accept ≤ 1/p. |
+| **Three field sizes** | Fp (p=2³²-5), Fp64 (p=2⁶¹-1), Fp128 (p=2¹²⁷-1) — Mersenne primes for fast reduction. |
+| **SHA-256 Merkle trees** | Domain-separated trace commitments with splice/reorder-resistant IO chains. |
+| **Q8_0 block Freivalds** | Batched verification for GGML-style quantized weight blocks. |
+| **SiLU verification** | LUT-based (toy) and scaled f64 (production W8A8) paths. |
+
+**Run the E2E showcase** (8-phase annotated demo):
+
+```shell
+make commitllm-e2e-showcase
+# or: zig build commitllm-showcase
+```
+
+Output walks through model setup → keygen → forward pass → 14 Freivalds checks
+→ Merkle commitment → tamper detection → field arithmetic → logit binding, all
+with intermediate values and timing.
+
+**Run all commitllm tests** (72 tests, including differential tests against Rust):
+
+```shell
+make commitllm-test
+```
+
+**Module location:** `src/commitllm/` — 11 files, ~3400 lines.
+
 ### Benchmark Harness
 
 A comprehensive benchmarking program with:
@@ -216,6 +256,9 @@ cd examples/dqn && zig build run
 
 # Two-layer Graph Convolutional Network
 cd examples/gcn && zig build run
+
+# CommitLLM E2E showcase — verifiable inference demo
+zig build commitllm-showcase
 ```
 
 All examples support smoke mode for fast validation:
@@ -242,6 +285,7 @@ src/
   lazy.zig            # Lazy session capture and deferred execution
   nn/                 # Neural network layers, loss functions, optimizers
   device/             # Backend abstraction (host, CUDA)
+  commitllm/          # CommitLLM verifiable inference (Freivalds, Merkle, fields)
   interop/
     onnx/             # ONNX protobuf parser and GraphIR importer
     gguf/             # GGUF container parser and tensor loader
@@ -269,6 +313,7 @@ with per-subsystem RFCs in [`docs/rfcs/`](./docs/rfcs/).
 - ONNX import MVP
 - GGUF reader MVP (f32, f16, Q4_0, Q8_0)
 - Seven reference examples (MNIST, char-LM, pendulum, corridor, DQN, GCN)
+- CommitLLM verifiable inference module (Freivalds, Merkle, Fp/Fp64/Fp128, Q8_0)
 
 **In progress / planned:**
 - Dynamic graph compiler
