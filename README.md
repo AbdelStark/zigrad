@@ -178,13 +178,30 @@ Output walks through model setup → keygen → forward pass → 14 Freivalds ch
 → Merkle commitment → tamper detection → field arithmetic → logit binding, all
 with intermediate values and timing.
 
-**Run all commitllm tests** (72 tests, including differential tests against Rust):
+**Run the cross-language showcase** (Rust prover → Zig verifier):
+
+```shell
+make commitllm-e2e-crosslang-showcase
+```
+
+The Rust prover generates a complete proof bundle (weights, traces, Merkle
+commitment, IO chain). The Zig verifier independently recomputes every
+check — then runs adversarial tamper detection:
+
+| Phase | What | Result |
+|-------|------|--------|
+| 1–6 | Honest verification: v precompute, Freivalds, Merkle, weight hash, IO chain | All match cross-language |
+| 7 | Flip one i32 matmul accumulator → Freivalds detects | `v·x ≠ r·z'` (false-accept 2.3e-10) |
+| 8 | Flip one byte in retained state → Merkle root diverges | Root mismatch detected |
+| 9 | Wrong token ID, broken chain link, swapped leaf, weight substitution | All 4 attacks caught |
+
+**Run all commitllm tests** (73 tests, including differential tests against Rust):
 
 ```shell
 make commitllm-test
 ```
 
-**Module location:** `src/commitllm/` — 11 files, ~3400 lines.
+**Module location:** `src/commitllm/` — 11 files, ~3500 lines.
 
 ### Benchmark Harness
 
@@ -259,6 +276,9 @@ cd examples/gcn && zig build run
 
 # CommitLLM E2E showcase — verifiable inference demo
 zig build commitllm-showcase
+
+# CommitLLM cross-language — Rust prover, Zig verifier + tamper detection
+make commitllm-e2e-crosslang-showcase
 ```
 
 All examples support smoke mode for fast validation:
