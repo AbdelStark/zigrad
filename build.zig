@@ -123,6 +123,26 @@ pub fn build(b: *Build) !void {
     link(target, exe, host_blas);
     b.installArtifact(exe);
 
+    // CommitLLM E2E showcase executable
+    const commitllm_showcase = b.addExecutable(.{
+        .name = "commitllm-showcase",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/commitllm-showcase/src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigrad", .module = zigrad },
+            },
+        }),
+    });
+    link(target, commitllm_showcase, host_blas);
+    b.installArtifact(commitllm_showcase);
+
+    const run_commitllm_showcase = b.addRunArtifact(commitllm_showcase);
+    run_commitllm_showcase.stdio = .inherit;
+    const commitllm_showcase_step = b.step("commitllm-showcase", "Run the CommitLLM E2E showcase");
+    commitllm_showcase_step.dependOn(&run_commitllm_showcase.step);
+
     const benchmark_module = b.addModule("benchmarking", .{
         .root_source_file = b.path("benchmarks/src/root.zig"),
         .target = target,

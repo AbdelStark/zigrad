@@ -51,6 +51,10 @@ commitllm-diff: commitllm-vectors
 	@echo ""
 	@echo "✓ Differential tests: Zig output matches Rust reference bit-for-bit"
 
+## Run the CommitLLM E2E showcase (full annotated demo)
+commitllm-e2e-showcase:
+	zig build commitllm-showcase
+
 ## Show commitllm module stats
 commitllm-stats:
 	@echo "CommitLLM Module Statistics"
@@ -92,7 +96,8 @@ help:
 	@echo "    commitllm-e2e     Run e2e pipeline test"
 	@echo "    commitllm-vectors Generate Rust differential test vectors"
 	@echo "    commitllm-diff    Run differential tests (Zig vs Rust)"
-	@echo "    commitllm-stats   Show module statistics"
+	@echo "    commitllm-e2e-showcase  Run full annotated E2E demo"
+	@echo "    commitllm-stats        Show module statistics"
 	@echo ""
 	@echo "  Other:"
 	@echo "    mnist          Build and run MNIST example"
