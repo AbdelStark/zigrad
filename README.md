@@ -148,10 +148,10 @@ Runtime backend selection via `ZG_DEVICE=host|cpu|cuda[:index]`.
 
 ### CommitLLM — Verifiable INT8 Inference
 
-Zig port of the [CommitLLM](https://github.com/nicholasgasior/commitllm)
+Zig port of the [CommitLLM](https://github.com/lambdaclass/CommitLLM)
 cryptographic commit-and-audit protocol for open-weight LLM inference.
-Based on the [CommitLLM paper](third_party/ignore/CommitLLM/paper/main.typ)
-and [Rust reference implementation](third_party/ignore/CommitLLM/crates/verilm-core/).
+Based on the [CommitLLM paper](https://github.com/lambdaclass/CommitLLM/blob/main/paper/main.pdf)
+and [Rust reference implementation](https://github.com/lambdaclass/CommitLLM/tree/main/crates/verilm-core).
 
 The provider serves on GPU with ~12% tracing overhead and returns a compact
 receipt. An auditor verifies on CPU in ~1.3ms per challenged token (Llama 70B)
