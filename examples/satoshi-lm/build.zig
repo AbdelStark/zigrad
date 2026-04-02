@@ -18,7 +18,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const exe = b.addExecutable(.{
-        .name = "char-lm",
+        .name = "satoshi-lm",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
@@ -29,7 +29,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("zigrad", zigrad_dep.module("zigrad"));
     b.installArtifact(exe);
 
-    const run_step = b.step("run", "Train the char-level language model example");
+    const run_step = b.step("run", "Train the Satoshi-style language model");
     const run_exe = b.addRunArtifact(exe);
     run_exe.step.dependOn(b.getInstallStep());
     if (b.args) |args| {

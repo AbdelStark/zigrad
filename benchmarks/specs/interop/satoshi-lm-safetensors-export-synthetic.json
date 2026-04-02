@@ -1,7 +1,7 @@
 {
-  "id": "interop.char-lm.safetensors.export.synthetic.f32",
+  "id": "interop.satoshi-lm.safetensors.export.synthetic.f32",
   "suite": "interop",
-  "kind": "interop_char_lm_safetensors_export",
+  "kind": "interop_satoshi_lm_safetensors_export",
   "dtype": "f32",
   "warmup_iterations": 5,
   "measured_iterations": 20,
@@ -9,7 +9,7 @@
   "provenance": {
     "data_source": "synthetic.splitmix64",
     "preprocessing": [
-      "materialize deterministic benchmark char-lm parameters",
+      "materialize deterministic benchmark satoshi-lm parameters",
       "encode affine parameter stack as safetensors bytes"
     ]
   },

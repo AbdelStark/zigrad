@@ -144,23 +144,23 @@ documented rather than hidden in bespoke scripts.
 
 - Completed:
   - Added
-    [`examples/char-lm/src/model.zig`](../../examples/char-lm/src/model.zig),
-    [`examples/char-lm/src/dataset.zig`](../../examples/char-lm/src/dataset.zig),
-    [`examples/char-lm/src/main.zig`](../../examples/char-lm/src/main.zig),
+    [`examples/satoshi-lm/src/model.zig`](../../examples/satoshi-lm/src/model.zig),
+    [`examples/satoshi-lm/src/dataset.zig`](../../examples/satoshi-lm/src/dataset.zig),
+    [`examples/satoshi-lm/src/main.zig`](../../examples/satoshi-lm/src/main.zig),
     and the embedded corpus
-    [`examples/char-lm/src/corpus.txt`](../../examples/char-lm/src/corpus.txt),
+    [`examples/satoshi-lm/src/corpus.txt`](../../examples/satoshi-lm/src/corpus.txt),
     giving RFC-0012 its first maintained `llm` reference example that trains,
     evaluates, and greedily generates text from a clean checkout.
   - Added standalone build/docs in
-    [`examples/char-lm/build.zig`](../../examples/char-lm/build.zig),
-    [`examples/char-lm/build.zig.zon`](../../examples/char-lm/build.zig.zon),
+    [`examples/satoshi-lm/build.zig`](../../examples/satoshi-lm/build.zig),
+    [`examples/satoshi-lm/build.zig.zon`](../../examples/satoshi-lm/build.zig.zon),
     and
-    [`examples/char-lm/README.md`](../../examples/char-lm/README.md),
+    [`examples/satoshi-lm/README.md`](../../examples/satoshi-lm/README.md),
     then wired the example into repo-level smoke coverage through
     [`build.zig`](../../build.zig)
     and
     [`tests/src/example_smoke_main.zig`](../../tests/src/example_smoke_main.zig).
-  - Extended RFC-0001 benchmark coverage with char-LM model-train/model-infer
+  - Extended RFC-0001 benchmark coverage with satoshi-LM model-train/model-infer
     specs so the new reference family participates in the maintained benchmark
     surface immediately instead of living only as a demo.
 - Remains:
@@ -179,9 +179,9 @@ documented rather than hidden in bespoke scripts.
 - Completed:
   - Replaced the maintained char-level language model’s flattened affine stack
     with a causal self-attention architecture in
-    [`examples/char-lm/src/model.zig`](../../examples/char-lm/src/model.zig)
+    [`examples/satoshi-lm/src/model.zig`](../../examples/satoshi-lm/src/model.zig)
     and
-    [`examples/char-lm/src/main.zig`](../../examples/char-lm/src/main.zig),
+    [`examples/satoshi-lm/src/main.zig`](../../examples/satoshi-lm/src/main.zig),
     including token/position embeddings, causal masking, residual mixing, and
     a last-token readout that still trains and greedily generates from the
     embedded corpus in smoke mode.
@@ -189,11 +189,11 @@ documented rather than hidden in bespoke scripts.
     [`benchmarks/src/workload.zig`](../../benchmarks/src/workload.zig)
     and
     [`benchmarks/runners/pytorch/mnist_mlp.py`](../../benchmarks/runners/pytorch/mnist_mlp.py),
-    so the maintained char-LM train, infer, compiler-capture, and
+    so the maintained satoshi-LM train, infer, compiler-capture, and
     safetensors import/export slices all measure the same attention-based
     parameter layout instead of the old four-tensor affine checkpoint.
   - Refreshed the shipped docs in
-    [`examples/char-lm/README.md`](../../examples/char-lm/README.md),
+    [`examples/satoshi-lm/README.md`](../../examples/satoshi-lm/README.md),
     [`README.md`](../../README.md), and
     [`benchmarks/README.md`](../../benchmarks/README.md)
     so the reference portfolio now describes the landed attention model

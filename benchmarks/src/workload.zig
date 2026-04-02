@@ -5,7 +5,7 @@ const metadata = @import("metadata.zig");
 const corridor = @import("examples_corridor_environment");
 const pendulum_data = @import("examples_pendulum_dataset");
 const result = @import("result.zig");
-const CharLmModel = @import("examples_char_lm_model").CharLmModel;
+const SatoshiLmModel = @import("examples_satoshi_lm_model").SatoshiLmModel;
 const CorridorControlModel = @import("examples_corridor_model").CorridorControlModel;
 const DqnBenchmarkModel = @import("dqn_bench_model.zig").DqnBenchmarkModel;
 const GcnBenchmarkModel = @import("gcn_bench_model.zig").GcnBenchmarkModel;
@@ -91,14 +91,14 @@ pub fn expectedBatchSize(spec: manifest.Spec) ?usize {
         .memory_tensor_cache_cycle,
         .memory_mnist_train_step,
         .compiler_mnist_mlp_capture,
-        .compiler_char_lm_capture,
+        .compiler_satoshi_lm_capture,
         .compiler_pendulum_dynamics_capture,
         .compiler_corridor_control_capture,
         .compiler_dqn_cartpole_capture,
         .mnist_mlp_train,
         .mnist_mlp_infer,
-        .char_lm_train,
-        .char_lm_infer,
+        .satoshi_lm_train,
+        .satoshi_lm_infer,
         .pendulum_dynamics_train,
         .pendulum_dynamics_infer,
         .corridor_control_train,
@@ -141,13 +141,13 @@ pub fn expectedShapeMetadata(
         .interop_mnist_mlp_safetensors_export,
         .interop_mnist_mlp_safetensors_import,
         => shapeMetadataFromMnistCheckpoint(allocator),
-        .interop_char_lm_safetensors_export,
-        .interop_char_lm_safetensors_import,
-        => shapeMetadataFromCharLmCheckpoint(allocator),
-        .compiler_char_lm_capture,
-        .char_lm_train,
-        .char_lm_infer,
-        => shapeMetadataFromCharLm(allocator, spec),
+        .interop_satoshi_lm_safetensors_export,
+        .interop_satoshi_lm_safetensors_import,
+        => shapeMetadataFromSatoshiLmCheckpoint(allocator),
+        .compiler_satoshi_lm_capture,
+        .satoshi_lm_train,
+        .satoshi_lm_infer,
+        => shapeMetadataFromSatoshiLm(allocator, spec),
         .interop_pendulum_dynamics_safetensors_export,
         .interop_pendulum_dynamics_safetensors_import,
         => shapeMetadataFromPendulumCheckpoint(allocator),
@@ -258,15 +258,15 @@ pub fn run(allocator: std.mem.Allocator, spec: manifest.Spec) !RunResult {
         .memory_tensor_cache_cycle => runMemoryTensorCacheCycle(allocator, spec, &context),
         .memory_mnist_train_step => runMemoryMnistTrainStep(allocator, spec, &context),
         .compiler_mnist_mlp_capture => runCompilerMnistCapture(allocator, spec, &context),
-        .compiler_char_lm_capture => runCompilerCharLmCapture(allocator, spec, &context),
+        .compiler_satoshi_lm_capture => runCompilerSatoshiLmCapture(allocator, spec, &context),
         .compiler_pendulum_dynamics_capture => runCompilerPendulumCapture(allocator, spec, &context),
         .compiler_corridor_control_capture => runCompilerCorridorCapture(allocator, spec, &context),
         .compiler_dqn_cartpole_capture => runCompilerDqnCapture(allocator, spec, &context),
         .compiler_gcn_capture => runCompilerGcnCapture(allocator, spec, &context),
         .interop_mnist_mlp_safetensors_export => runInteropMnistSafetensorsExport(allocator, spec, &context),
         .interop_mnist_mlp_safetensors_import => runInteropMnistSafetensorsImport(allocator, spec, &context),
-        .interop_char_lm_safetensors_export => runInteropCharLmSafetensorsExport(allocator, spec, &context),
-        .interop_char_lm_safetensors_import => runInteropCharLmSafetensorsImport(allocator, spec, &context),
+        .interop_satoshi_lm_safetensors_export => runInteropSatoshiLmSafetensorsExport(allocator, spec, &context),
+        .interop_satoshi_lm_safetensors_import => runInteropSatoshiLmSafetensorsImport(allocator, spec, &context),
         .interop_pendulum_dynamics_safetensors_export => runInteropPendulumSafetensorsExport(allocator, spec, &context),
         .interop_pendulum_dynamics_safetensors_import => runInteropPendulumSafetensorsImport(allocator, spec, &context),
         .interop_corridor_control_safetensors_export => runInteropCorridorSafetensorsExport(allocator, spec, &context),
@@ -277,8 +277,8 @@ pub fn run(allocator: std.mem.Allocator, spec: manifest.Spec) !RunResult {
         .interop_gcn_safetensors_import => runInteropGcnSafetensorsImport(allocator, spec, &context),
         .mnist_mlp_train => runMnistTrain(allocator, spec, &context),
         .mnist_mlp_infer => runMnistInfer(allocator, spec, &context),
-        .char_lm_train => runCharLmTrain(allocator, spec, &context),
-        .char_lm_infer => runCharLmInfer(allocator, spec, &context),
+        .satoshi_lm_train => runSatoshiLmTrain(allocator, spec, &context),
+        .satoshi_lm_infer => runSatoshiLmInfer(allocator, spec, &context),
         .pendulum_dynamics_train => runPendulumTrain(allocator, spec, &context),
         .pendulum_dynamics_infer => runPendulumInfer(allocator, spec, &context),
         .corridor_control_train => runCorridorTrain(allocator, spec, &context),
@@ -831,7 +831,7 @@ fn runCompilerMnistCapture(allocator: std.mem.Allocator, spec: manifest.Spec, co
     };
 }
 
-fn runCompilerCharLmCapture(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
+fn runCompilerSatoshiLmCapture(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const batch_size = spec.batch_size.?;
     const input_shape = spec.input_shape.?;
     const label_shape = spec.label_shape.?;
@@ -845,7 +845,7 @@ fn runCompilerCharLmCapture(allocator: std.mem.Allocator, spec: manifest.Spec, c
     const device = context.device();
 
     var timer = try std.time.Timer.start();
-    var model = try CharLmModel(f32).initWithGraphAndSeed(
+    var model = try SatoshiLmModel(f32).initWithGraphAndSeed(
         device,
         context_len,
         vocab_size,
@@ -855,17 +855,17 @@ fn runCompilerCharLmCapture(allocator: std.mem.Allocator, spec: manifest.Spec, c
     );
     defer model.deinit();
 
-    const token_stream = try makeCharLmTokenStream(allocator, batch_size, context_len, vocab_size, spec.seed +% 107);
+    const token_stream = try makeSatoshiLmTokenStream(allocator, batch_size, context_len, vocab_size, spec.seed +% 107);
     defer allocator.free(token_stream);
-    const input_values = try makeCharLmInputBatch(allocator, token_stream, batch_size, context_len, vocab_size);
+    const input_values = try makeSatoshiLmInputBatch(allocator, token_stream, batch_size, context_len, vocab_size);
     defer allocator.free(input_values);
-    const label_values = try makeCharLmLabelBatch(allocator, token_stream, batch_size, context_len, vocab_size);
+    const label_values = try makeSatoshiLmLabelBatch(allocator, token_stream, batch_size, context_len, vocab_size);
     defer allocator.free(label_values);
 
     const setup_latency_ns = timer.read();
 
     for (0..spec.warmup_iterations) |_| {
-        try oneCompilerCharLmCaptureStep(
+        try oneCompilerSatoshiLmCaptureStep(
             &graph,
             device,
             &model,
@@ -883,7 +883,7 @@ fn runCompilerCharLmCapture(allocator: std.mem.Allocator, spec: manifest.Spec, c
 
     for (timings) |*timing| {
         timer.reset();
-        try oneCompilerCharLmCaptureStep(
+        try oneCompilerSatoshiLmCaptureStep(
             &graph,
             device,
             &model,
@@ -897,7 +897,7 @@ fn runCompilerCharLmCapture(allocator: std.mem.Allocator, spec: manifest.Spec, c
     }
 
     return .{
-        .shapes = try shapeMetadataFromCharLm(allocator, spec),
+        .shapes = try shapeMetadataFromSatoshiLm(allocator, spec),
         .batch_size = batch_size,
         .setup_latency_ns = setup_latency_ns,
         .timings_ns = timings,
@@ -1322,7 +1322,7 @@ fn runInteropMnistSafetensorsImport(
     );
 }
 
-fn runInteropCharLmSafetensorsExport(
+fn runInteropSatoshiLmSafetensorsExport(
     allocator: std.mem.Allocator,
     spec: manifest.Spec,
     context: *RunContext,
@@ -1330,15 +1330,15 @@ fn runInteropCharLmSafetensorsExport(
     const host = context.host();
     const device = context.device();
     const io_allocator = std.heap.page_allocator;
-    const context_len = interopCharLmContextLen();
-    const vocab_size = interopCharLmVocabSize();
+    const context_len = interopSatoshiLmContextLen();
+    const vocab_size = interopSatoshiLmVocabSize();
     const hidden_size = charLmHiddenSize(vocab_size);
 
     var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
     defer graph.deinit();
 
     var timer = try std.time.Timer.start();
-    var model = try CharLmModel(f32).initWithGraphAndSeed(
+    var model = try SatoshiLmModel(f32).initWithGraphAndSeed(
         device,
         context_len,
         vocab_size,
@@ -1348,25 +1348,25 @@ fn runInteropCharLmSafetensorsExport(
     );
     defer model.deinit();
 
-    const sample_checkpoint = try serializeCharLmCheckpoint(io_allocator, &model);
+    const sample_checkpoint = try serializeSatoshiLmCheckpoint(io_allocator, &model);
     defer io_allocator.free(sample_checkpoint);
     const setup_latency_ns = timer.read();
 
     const timings = try allocator.alloc(u64, spec.measured_iterations);
     for (0..spec.warmup_iterations) |_| {
-        const checkpoint = try serializeCharLmCheckpoint(io_allocator, &model);
+        const checkpoint = try serializeSatoshiLmCheckpoint(io_allocator, &model);
         io_allocator.free(checkpoint);
     }
     maybeResetHostBenchmarkTelemetry(host);
     for (timings) |*timing| {
         timer.reset();
-        const checkpoint = try serializeCharLmCheckpoint(io_allocator, &model);
+        const checkpoint = try serializeSatoshiLmCheckpoint(io_allocator, &model);
         timing.* = timer.read();
         io_allocator.free(checkpoint);
     }
 
     return interopCheckpointOutput(
-        try shapeMetadataFromCharLmCheckpoint(allocator),
+        try shapeMetadataFromSatoshiLmCheckpoint(allocator),
         setup_latency_ns,
         timings,
         sample_checkpoint.len,
@@ -1375,7 +1375,7 @@ fn runInteropCharLmSafetensorsExport(
     );
 }
 
-fn runInteropCharLmSafetensorsImport(
+fn runInteropSatoshiLmSafetensorsImport(
     allocator: std.mem.Allocator,
     spec: manifest.Spec,
     context: *RunContext,
@@ -1383,15 +1383,15 @@ fn runInteropCharLmSafetensorsImport(
     const host = context.host();
     const device = context.device();
     const io_allocator = std.heap.page_allocator;
-    const context_len = interopCharLmContextLen();
-    const vocab_size = interopCharLmVocabSize();
+    const context_len = interopSatoshiLmContextLen();
+    const vocab_size = interopSatoshiLmVocabSize();
     const hidden_size = charLmHiddenSize(vocab_size);
 
     var graph = zg.Graph.init(allocator, .{ .eager_teardown = true });
     defer graph.deinit();
 
     var timer = try std.time.Timer.start();
-    var model = try CharLmModel(f32).initWithGraphAndSeed(
+    var model = try SatoshiLmModel(f32).initWithGraphAndSeed(
         device,
         context_len,
         vocab_size,
@@ -1401,23 +1401,23 @@ fn runInteropCharLmSafetensorsImport(
     );
     defer model.deinit();
 
-    const checkpoint = try serializeCharLmCheckpoint(io_allocator, &model);
+    const checkpoint = try serializeSatoshiLmCheckpoint(io_allocator, &model);
     defer io_allocator.free(checkpoint);
     const setup_latency_ns = timer.read();
 
     const timings = try allocator.alloc(u64, spec.measured_iterations);
     for (0..spec.warmup_iterations) |_| {
-        try oneCharLmCheckpointImport(io_allocator, device, checkpoint, context_len, vocab_size, hidden_size);
+        try oneSatoshiLmCheckpointImport(io_allocator, device, checkpoint, context_len, vocab_size, hidden_size);
     }
     maybeResetHostBenchmarkTelemetry(host);
     for (timings) |*timing| {
         timer.reset();
-        try oneCharLmCheckpointImport(io_allocator, device, checkpoint, context_len, vocab_size, hidden_size);
+        try oneSatoshiLmCheckpointImport(io_allocator, device, checkpoint, context_len, vocab_size, hidden_size);
         timing.* = timer.read();
     }
 
     return interopCheckpointOutput(
-        try shapeMetadataFromCharLmCheckpoint(allocator),
+        try shapeMetadataFromSatoshiLmCheckpoint(allocator),
         setup_latency_ns,
         timings,
         checkpoint.len,
@@ -1938,7 +1938,7 @@ fn runMnistInfer(allocator: std.mem.Allocator, spec: manifest.Spec, context: *Ru
     };
 }
 
-fn runCharLmTrain(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
+fn runSatoshiLmTrain(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const batch_size = spec.batch_size.?;
     const input_shape = spec.input_shape.?;
     const label_shape = spec.label_shape.?;
@@ -1952,7 +1952,7 @@ fn runCharLmTrain(allocator: std.mem.Allocator, spec: manifest.Spec, context: *R
     const device = context.device();
 
     var timer = try std.time.Timer.start();
-    var model = try CharLmModel(f32).initWithGraphAndSeed(
+    var model = try SatoshiLmModel(f32).initWithGraphAndSeed(
         device,
         context_len,
         vocab_size,
@@ -1972,18 +1972,18 @@ fn runCharLmTrain(allocator: std.mem.Allocator, spec: manifest.Spec, context: *R
     const optimizer = adam.optimizer();
     try model.attach_optimizer(optimizer);
 
-    const token_stream = try makeCharLmTokenStream(allocator, batch_size, context_len, vocab_size, spec.seed +% 71);
+    const token_stream = try makeSatoshiLmTokenStream(allocator, batch_size, context_len, vocab_size, spec.seed +% 71);
     defer allocator.free(token_stream);
-    const input_values = try makeCharLmInputBatch(allocator, token_stream, batch_size, context_len, vocab_size);
+    const input_values = try makeSatoshiLmInputBatch(allocator, token_stream, batch_size, context_len, vocab_size);
     defer allocator.free(input_values);
-    const label_values = try makeCharLmLabelBatch(allocator, token_stream, batch_size, context_len, vocab_size);
+    const label_values = try makeSatoshiLmLabelBatch(allocator, token_stream, batch_size, context_len, vocab_size);
     defer allocator.free(label_values);
 
     const setup_latency_ns = timer.read();
     const timings = try allocator.alloc(u64, spec.measured_iterations);
 
     for (0..spec.warmup_iterations) |_| {
-        try oneCharLmTrainingStep(
+        try oneSatoshiLmTrainingStep(
             &graph,
             device,
             &model,
@@ -1997,7 +1997,7 @@ fn runCharLmTrain(allocator: std.mem.Allocator, spec: manifest.Spec, context: *R
     maybeResetHostBenchmarkTelemetry(host);
     for (timings) |*timing| {
         timer.reset();
-        try oneCharLmTrainingStep(
+        try oneSatoshiLmTrainingStep(
             &graph,
             device,
             &model,
@@ -2011,7 +2011,7 @@ fn runCharLmTrain(allocator: std.mem.Allocator, spec: manifest.Spec, context: *R
     }
 
     return .{
-        .shapes = try shapeMetadataFromCharLm(allocator, spec),
+        .shapes = try shapeMetadataFromSatoshiLm(allocator, spec),
         .batch_size = batch_size,
         .setup_latency_ns = setup_latency_ns,
         .timings_ns = timings,
@@ -2022,7 +2022,7 @@ fn runCharLmTrain(allocator: std.mem.Allocator, spec: manifest.Spec, context: *R
     };
 }
 
-fn runCharLmInfer(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
+fn runSatoshiLmInfer(allocator: std.mem.Allocator, spec: manifest.Spec, context: *RunContext) !RunOutput {
     const Tensor = zg.NDTensor(f32);
     const batch_size = spec.batch_size.?;
     const input_shape = spec.input_shape.?;
@@ -2036,7 +2036,7 @@ fn runCharLmInfer(allocator: std.mem.Allocator, spec: manifest.Spec, context: *R
     const device = context.device();
 
     var timer = try std.time.Timer.start();
-    var model = try CharLmModel(f32).initWithGraphAndSeed(
+    var model = try SatoshiLmModel(f32).initWithGraphAndSeed(
         device,
         context_len,
         vocab_size,
@@ -2047,9 +2047,9 @@ fn runCharLmInfer(allocator: std.mem.Allocator, spec: manifest.Spec, context: *R
     defer model.deinit();
     model.set_requires_grad(false);
 
-    const token_stream = try makeCharLmTokenStream(allocator, batch_size, context_len, vocab_size, spec.seed +% 83);
+    const token_stream = try makeSatoshiLmTokenStream(allocator, batch_size, context_len, vocab_size, spec.seed +% 83);
     defer allocator.free(token_stream);
-    const input_values = try makeCharLmInputBatch(allocator, token_stream, batch_size, context_len, vocab_size);
+    const input_values = try makeSatoshiLmInputBatch(allocator, token_stream, batch_size, context_len, vocab_size);
     defer allocator.free(input_values);
 
     const input = try Tensor.from_slice(device, input_values, input_shape, .{ .graph = &graph });
@@ -2074,7 +2074,7 @@ fn runCharLmInfer(allocator: std.mem.Allocator, spec: manifest.Spec, context: *R
     }
 
     return .{
-        .shapes = try shapeMetadataFromCharLm(allocator, spec),
+        .shapes = try shapeMetadataFromSatoshiLm(allocator, spec),
         .batch_size = batch_size,
         .setup_latency_ns = setup_latency_ns,
         .timings_ns = timings,
@@ -2693,10 +2693,10 @@ fn oneMnistTrainingStep(
     model.zeroGrad();
 }
 
-fn oneCharLmTrainingStep(
+fn oneSatoshiLmTrainingStep(
     graph: *zg.Graph,
     device: zg.DeviceReference,
-    model: *CharLmModel(f32),
+    model: *SatoshiLmModel(f32),
     input_values: []const f32,
     input_shape: []const usize,
     label_values: []const f32,
@@ -2784,10 +2784,10 @@ fn oneCompilerMnistCaptureStep(
     graph.teardown(&loss.node);
 }
 
-fn oneCompilerCharLmCaptureStep(
+fn oneCompilerSatoshiLmCaptureStep(
     graph: *zg.Graph,
     device: zg.DeviceReference,
-    model: *CharLmModel(f32),
+    model: *SatoshiLmModel(f32),
     input_values: []const f32,
     input_shape: []const usize,
     label_values: []const f32,
@@ -3135,9 +3135,9 @@ fn serializeAffineCheckpoint(
     return params.serialize(allocator);
 }
 
-fn serializeCharLmCheckpoint(
+fn serializeSatoshiLmCheckpoint(
     allocator: std.mem.Allocator,
-    model: *CharLmModel(f32),
+    model: *SatoshiLmModel(f32),
 ) ![]u8 {
     var params = zg.LayerMap.init(allocator);
     defer params.deinit();
@@ -3192,7 +3192,7 @@ fn serializeGcnCheckpoint(
     return params.serialize(allocator);
 }
 
-fn oneCharLmCheckpointImport(
+fn oneSatoshiLmCheckpointImport(
     allocator: std.mem.Allocator,
     device: zg.DeviceReference,
     checkpoint: []const u8,
@@ -3211,8 +3211,8 @@ fn oneCharLmCheckpointImport(
     });
     defer params.deinit();
 
-    const pack = try params.extract(CharLmModel(f32).ParameterPack, "", .{});
-    var model = try CharLmModel(f32).fromParameterPack(
+    const pack = try params.extract(SatoshiLmModel(f32).ParameterPack, "", .{});
+    var model = try SatoshiLmModel(f32).fromParameterPack(
         device,
         context_len,
         vocab_size,
@@ -3563,7 +3563,7 @@ fn makeDoneSlice(
     return values;
 }
 
-fn makeCharLmTokenStream(
+fn makeSatoshiLmTokenStream(
     allocator: std.mem.Allocator,
     batch_size: usize,
     context_len: usize,
@@ -3577,7 +3577,7 @@ fn makeCharLmTokenStream(
     return values;
 }
 
-fn makeCharLmInputBatch(
+fn makeSatoshiLmInputBatch(
     allocator: std.mem.Allocator,
     token_stream: []const usize,
     batch_size: usize,
@@ -3597,7 +3597,7 @@ fn makeCharLmInputBatch(
     return values;
 }
 
-fn makeCharLmLabelBatch(
+fn makeSatoshiLmLabelBatch(
     allocator: std.mem.Allocator,
     token_stream: []const usize,
     batch_size: usize,
@@ -3688,7 +3688,7 @@ fn shapeMetadataFromMnist(allocator: std.mem.Allocator, spec: manifest.Spec) ![]
     return shapes;
 }
 
-fn shapeMetadataFromCharLm(allocator: std.mem.Allocator, spec: manifest.Spec) ![]const result.ShapeMetadata {
+fn shapeMetadataFromSatoshiLm(allocator: std.mem.Allocator, spec: manifest.Spec) ![]const result.ShapeMetadata {
     const label_shape_count: usize = if (spec.label_shape == null) 0 else 1;
     const shapes = try allocator.alloc(result.ShapeMetadata, 1 + label_shape_count);
     shapes[0] = .{ .name = "input", .dims = spec.input_shape.? };
@@ -3768,10 +3768,10 @@ fn shapeMetadataFromDqnCheckpoint(allocator: std.mem.Allocator) ![]const result.
     return shapes;
 }
 
-fn shapeMetadataFromCharLmCheckpoint(allocator: std.mem.Allocator) ![]const result.ShapeMetadata {
-    const vocab_size = interopCharLmVocabSize();
+fn shapeMetadataFromSatoshiLmCheckpoint(allocator: std.mem.Allocator) ![]const result.ShapeMetadata {
+    const vocab_size = interopSatoshiLmVocabSize();
     const hidden_size = charLmHiddenSize(vocab_size);
-    const context_len = interopCharLmContextLen();
+    const context_len = interopSatoshiLmContextLen();
     const shapes = try allocator.alloc(result.ShapeMetadata, 10);
     shapes[0] = .{ .name = "token_embedding", .dims = try allocDims(allocator, &.{ hidden_size, vocab_size }) };
     shapes[1] = .{ .name = "position_embedding", .dims = try allocDims(allocator, &.{ context_len, hidden_size }) };
@@ -3860,11 +3860,11 @@ fn charLmHiddenSize(vocab_size: usize) usize {
     return @max(vocab_size * 2, 64);
 }
 
-fn interopCharLmContextLen() usize {
+fn interopSatoshiLmContextLen() usize {
     return 16;
 }
 
-fn interopCharLmVocabSize() usize {
+fn interopSatoshiLmVocabSize() usize {
     return 32;
 }
 
@@ -4125,16 +4125,16 @@ test "run compiler mnist capture benchmark" {
     try std.testing.expect(output.memory.?.peak_graph_arena_bytes.? > 0);
 }
 
-test "run compiler char lm capture benchmark" {
+test "run compiler satoshi lm capture benchmark" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
     const input_shape = [_]usize{ 8, 12, 24 };
     const label_shape = [_]usize{ 8, 24 };
     const spec: manifest.Spec = .{
-        .id = "test.compiler.char-lm.capture",
+        .id = "test.compiler.satoshi-lm.capture",
         .suite = .compiler,
-        .kind = .compiler_char_lm_capture,
+        .kind = .compiler_satoshi_lm_capture,
         .dtype = .f32,
         .warmup_iterations = 0,
         .measured_iterations = 1,
@@ -4296,20 +4296,20 @@ test "run compiler gcn capture benchmark" {
     try std.testing.expect(output.memory.?.peak_graph_arena_bytes.? > 0);
 }
 
-test "run interop char lm export benchmark" {
+test "run interop satoshi lm export benchmark" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
     const spec: manifest.Spec = .{
-        .id = "test.interop.char-lm.export",
+        .id = "test.interop.satoshi-lm.export",
         .suite = .interop,
-        .kind = .interop_char_lm_safetensors_export,
+        .kind = .interop_satoshi_lm_safetensors_export,
         .dtype = .f32,
         .warmup_iterations = 0,
         .measured_iterations = 1,
         .seed = 1,
         .provenance = inlineProvenance(&.{
-            "materialize deterministic benchmark char-lm parameters",
+            "materialize deterministic benchmark satoshi-lm parameters",
             "encode affine parameter stack as safetensors bytes",
         }),
         .path = "inline",
@@ -4357,15 +4357,15 @@ test "run interop gcn import benchmark" {
     try std.testing.expectEqual(output.shapes.len, output.interop.?.tensor_count);
 }
 
-test "run char lm infer benchmark" {
+test "run satoshi lm infer benchmark" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
     const input_shape = [_]usize{ 8, 12, 24 };
     const spec: manifest.Spec = .{
-        .id = "test.char-lm.infer",
+        .id = "test.satoshi-lm.infer",
         .suite = .model_infer,
-        .kind = .char_lm_infer,
+        .kind = .satoshi_lm_infer,
         .dtype = .f32,
         .warmup_iterations = 0,
         .measured_iterations = 1,

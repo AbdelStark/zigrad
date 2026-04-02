@@ -44,7 +44,7 @@ You can also pass runtime arguments through the benchmark executable:
 ```sh
 zig build benchmark -- --baseline pytorch
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic.json
-zig build benchmark -- --spec benchmarks/specs/model-infer/char-lm-synthetic.json
+zig build benchmark -- --spec benchmarks/specs/model-infer/satoshi-lm-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/pendulum-dynamics-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/corridor-control-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/compiler/mnist-mlp-capture-synthetic.json
@@ -226,7 +226,7 @@ emits both a machine-readable manifest and a Markdown summary for humans.
 These model benchmarks mirror the repository's reference families while using
 deterministic synthetic inputs, transitions, labels, and graphs so the suite
 runs from a clean checkout without dataset downloads or simulator setup. The
-char-LM workloads mirror [`examples/char-lm/`](../examples/char-lm/) with
+satoshi-LM workloads mirror [`examples/satoshi-lm/`](../examples/satoshi-lm/) with
 one-hot causal windows, a maintained causal self-attention stack, and
 next-token labels, while the pendulum workloads
 mirror [`examples/pendulum/`](../examples/pendulum/) with sine/cosine angle

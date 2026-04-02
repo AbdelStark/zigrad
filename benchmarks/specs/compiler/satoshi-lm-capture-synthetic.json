@@ -1,7 +1,7 @@
 {
-  "id": "compiler.char-lm-capture.synthetic.f32.batch32.ctx12.vocab24",
+  "id": "compiler.satoshi-lm-capture.synthetic.f32.batch32.ctx12.vocab24",
   "suite": "compiler",
-  "kind": "compiler_char_lm_capture",
+  "kind": "compiler_satoshi_lm_capture",
   "dtype": "f32",
   "warmup_iterations": 1,
   "measured_iterations": 4,

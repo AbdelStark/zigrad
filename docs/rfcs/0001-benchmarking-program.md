@@ -490,12 +490,12 @@ Regression gating should use broad thresholds first, for example:
     [`benchmarks/src/manifest.zig`](../../benchmarks/src/manifest.zig),
     [`benchmarks/src/workload.zig`](../../benchmarks/src/workload.zig), and
     [`benchmarks/runners/pytorch/mnist_mlp.py`](../../benchmarks/runners/pytorch/mnist_mlp.py)
-    with `char_lm_train` and `char_lm_infer`, so RFC-0001 now benchmarks a
+    with `satoshi_lm_train` and `satoshi_lm_infer`, so RFC-0001 now benchmarks a
     maintained language-model family alongside MNIST, DQN, and GCN.
   - Added checked-in specs in
-    [`benchmarks/specs/model-train/char-lm-synthetic.json`](../../benchmarks/specs/model-train/char-lm-synthetic.json)
+    [`benchmarks/specs/model-train/satoshi-lm-synthetic.json`](../../benchmarks/specs/model-train/satoshi-lm-synthetic.json)
     and
-    [`benchmarks/specs/model-infer/char-lm-synthetic.json`](../../benchmarks/specs/model-infer/char-lm-synthetic.json),
+    [`benchmarks/specs/model-infer/satoshi-lm-synthetic.json`](../../benchmarks/specs/model-infer/satoshi-lm-synthetic.json),
     plus smoke coverage through
     [`tests/src/benchmark_smoke_main.zig`](../../tests/src/benchmark_smoke_main.zig).
   - Updated

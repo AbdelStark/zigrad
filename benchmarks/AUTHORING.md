@@ -117,7 +117,7 @@ zig build benchmark -- --spec benchmarks/specs/compiler/pendulum-dynamics-captur
 zig build benchmark -- --spec benchmarks/specs/compiler/corridor-control-capture-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/interop/mnist-mlp-safetensors-import-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/interop/gcn-safetensors-import-synthetic.json
-zig build benchmark -- --spec benchmarks/specs/model-infer/char-lm-synthetic.json
+zig build benchmark -- --spec benchmarks/specs/model-infer/satoshi-lm-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/pendulum-dynamics-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/corridor-control-synthetic.json
 zig build benchmark -- --spec benchmarks/specs/model-infer/mnist-mlp-synthetic-cuda.json

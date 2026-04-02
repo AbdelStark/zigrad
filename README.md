@@ -259,8 +259,8 @@ cd examples/hello-world && zig build run
 # MNIST MLP
 cd examples/mnist && make
 
-# Char-level causal self-attention language model
-cd examples/char-lm && zig build run
+# Satoshi-style causal self-attention language model
+cd examples/satoshi-lm && zig build run
 
 # Pendulum dynamics regression
 cd examples/pendulum && zig build run

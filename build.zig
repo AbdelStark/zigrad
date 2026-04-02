@@ -196,8 +196,8 @@ pub fn build(b: *Build) !void {
             .{ .name = "zigrad", .module = zigrad },
         },
     }));
-    benchmark_module.addImport("examples_char_lm_model", b.createModule(.{
-        .root_source_file = b.path("examples/char-lm/src/model.zig"),
+    benchmark_module.addImport("examples_satoshi_lm_model", b.createModule(.{
+        .root_source_file = b.path("examples/satoshi-lm/src/model.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
@@ -281,8 +281,8 @@ pub fn build(b: *Build) !void {
             .{ .name = "zigrad", .module = zigrad },
         },
     });
-    const example_char_lm_main_module = b.createModule(.{
-        .root_source_file = b.path("examples/char-lm/src/main.zig"),
+    const example_satoshi_lm_main_module = b.createModule(.{
+        .root_source_file = b.path("examples/satoshi-lm/src/main.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
@@ -559,7 +559,7 @@ pub fn build(b: *Build) !void {
                 .{ .name = "examples_mnist_main", .module = example_mnist_main_module },
                 .{ .name = "examples_dqn_train", .module = example_dqn_train_module },
                 .{ .name = "examples_gcn_main", .module = example_gcn_main_module },
-                .{ .name = "examples_char_lm_main", .module = example_char_lm_main_module },
+                .{ .name = "examples_satoshi_lm_main", .module = example_satoshi_lm_main_module },
                 .{ .name = "examples_pendulum_main", .module = example_pendulum_main_module },
                 .{ .name = "examples_corridor_main", .module = example_corridor_main_module },
             },

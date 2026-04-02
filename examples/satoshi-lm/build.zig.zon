@@ -1,6 +1,6 @@
 .{
-    .name = .char_lm,
-    .fingerprint = 0x5b4c6d4e7102a991,
+    .name = .satoshi_lm,
+    .fingerprint = 0x1f79cbc5dd89627c,
     .version = "0.0.0",
     .minimum_zig_version = "0.15.0",
 

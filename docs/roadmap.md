@@ -68,7 +68,7 @@ documents we will implement against.
 
 | ID | Title | Status | Priority | Depends on | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, external baseline-runner smoke validation, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/compiler/interop/MNIST/char-LM/pendulum/corridor-control/DQN/GCN coverage, full safetensors checkpoint export/import coverage across the maintained checkpoint-capable families, machine-readable interop artifact/tensor telemetry, conv-lowering and broadcast-fallback matmul coverage, host thread-sweep/scaling-report workflows, and backend-aware CUDA benchmark request specs with explicit skip/fail semantics plus dedicated smoke coverage are landed; future real-GPU and external-format interop suites remain. |
+| RFC-0001 | Standardized Benchmarking Program | `Ready` | P0 | None | Harness, JSONL output, comparison/regression tooling, a benchmark contract validator, authoring guide, smoke CI, external baseline-runner smoke validation, end-to-end benchmark artifact smoke validation, synthetic BLAS/autograd/memory/compiler/interop/MNIST/satoshi-LM/pendulum/corridor-control/DQN/GCN coverage, full safetensors checkpoint export/import coverage across the maintained checkpoint-capable families, machine-readable interop artifact/tensor telemetry, conv-lowering and broadcast-fallback matmul coverage, host thread-sweep/scaling-report workflows, and backend-aware CUDA benchmark request specs with explicit skip/fail semantics plus dedicated smoke coverage are landed; future real-GPU and external-format interop suites remain. |
 | RFC-0002 | oneMKL Host Backend | `Ready` | P0 | RFC-0001 | Explicit host BLAS provider selection, nested batched-matmul broadcast correctness, host dense-dispatch telemetry, benchmark-visible fallback telemetry, example-model audit coverage, legacy Conv2D lowering audit, a provider-sensitive numerical parity suite, opt-in runtime diagnostics hooks, example runtime smoke coverage for hello-world/MNIST/DQN/GCN, and Markdown/JSON provider plus thread-scaling report generators are landed; publication-path smoke validation now covers provider/thread reports and CI emits thread-scaling bundle artifacts, while oneMKL execution and published provider comparison runs remain. |
 | RFC-0003 | CUDA Backend | `Ready` | P0 | RFC-0001 | Runtime selection, diagnostics, CUDA-safe DQN/GCN kernels, backend-dispatched Adam optimizer updates, host-staged loss fallbacks for maintained training workloads, and benchmark-harness integration for checked-in CUDA-targeted specs are landed; real GPU compile/run validation and executed CUDA benchmark suites remain. |
 | RFC-0004 | ONNX Interop | `Ready` | P1 | RFC-0001, RFC-0007 | Import MVP landed: protobuf wire reader, ONNX schema parser (ModelProto/GraphProto/NodeProto/TensorProto), op registry (17 ops), `importModel`/`importGraph` lowering to GraphIR with constant data, 2-layer MLP import test; export, full opset coverage, and execution-level validation remain. |
@@ -79,7 +79,7 @@ documents we will implement against.
 | RFC-0009 | MLIR Lowering Pipeline | `Exploratory` | P2 | RFC-0007, RFC-0008 | Optional compiler interoperability layer. |
 | RFC-0010 | ZML Inference Bridge | `Draft` | P2 | RFC-0007 | Enables inference handoff to ZML for pure serving flows. |
 | RFC-0011 | Apache TVM Integration | `Exploratory` | P3 | RFC-0001, RFC-0007, RFC-0009 | External compiler/autotuning path. |
-| RFC-0012 | Examples and Reference Models | `Ready` | P1 | RFC-0001, RFC-0002, RFC-0003 | Maintained smoke coverage now exists for hello-world, MNIST, char-LM, pendulum dynamics, corridor-control RL, DQN, and GCN; the first `llm`, physics/control, and upgraded RL reference examples plus matching benchmark hooks are landed, and the char-LM reference now uses causal self-attention while a deeper transformer-style portfolio still remains. |
+| RFC-0012 | Examples and Reference Models | `Ready` | P1 | RFC-0001, RFC-0002, RFC-0003 | Maintained smoke coverage now exists for hello-world, MNIST, satoshi-LM, pendulum dynamics, corridor-control RL, DQN, and GCN; the first `llm`, physics/control, and upgraded RL reference examples plus matching benchmark hooks are landed, and the satoshi-LM reference now uses causal self-attention while a deeper transformer-style portfolio still remains. |
 
 ## Recommended Implementation Order
 
@@ -108,7 +108,7 @@ needing to read every agentic-context section.
 | 0003 | CUDA Backend | Runtime selection, diagnostics, CUDA-safe kernels, device-dispatched Adam, benchmark specs | Real GPU compile/run validation |
 | 0006 | Lazy Tensors | Observe-mode capture, op attributes, JSON/D2/text dumps, **deferred forward execution via thunk queue**, **deferred backward pass** | Subgraph scheduling, higher-order gradients |
 | 0007 | Static Optimization | **Graph IR, verifier, pass manager, DCE, execution bridge, constant folding, algebraic simplification, CSE** | Transpose/layout simplification, fusion marking |
-| 0012 | Examples | hello-world, MNIST, char-LM (causal attention), pendulum, corridor, DQN, GCN — all with smoke + benchmark | Deeper transformer portfolio, CUDA hardware validation |
+| 0012 | Examples | hello-world, MNIST, satoshi-LM (causal attention), pendulum, corridor, DQN, GCN — all with smoke + benchmark | Deeper transformer portfolio, CUDA hardware validation |
 | 0004 | ONNX Interop | **Import MVP landed**: protobuf reader, schema parser, op registry, importModel/importGraph | Export, full opset, execution validation |
 | 0005 | GGUF Interop | **Reader MVP landed**: parser, metadata, f32/f16/Q4_0/Q8_0 dequant, loadTensors() | Additional quant formats, example integration, benchmarks |
 | 0008 | Dynamic Compiler | — (not started, dependencies now landed) | Needs scoping spike |
@@ -235,7 +235,7 @@ Every RFC in this folder set must maintain:
   - Added checked-in interop specs in
     [`benchmarks/specs/interop/`](../benchmarks/specs/interop/)
     so RFC-0001 now exercises checkpoint save/load on the maintained MNIST,
-    char-LM, pendulum, corridor-control, DQN, and GCN benchmark families
+    satoshi-LM, pendulum, corridor-control, DQN, and GCN benchmark families
     instead of stopping at MNIST and DQN only.
   - Expanded smoke and docs coverage through
     [`tests/src/benchmark_smoke_main.zig`](../tests/src/benchmark_smoke_main.zig),
@@ -273,7 +273,7 @@ Every RFC in this folder set must maintain:
     entrypoint and spec validation support.
   - Added checked-in eager graph-capture specs under
     [`benchmarks/specs/compiler/`](../benchmarks/specs/compiler/)
-    covering MNIST MLP, char-LM, DQN, and GCN capture workloads.
+    covering MNIST MLP, satoshi-LM, DQN, and GCN capture workloads.
   - Extended
     [`benchmarks/runners/pytorch/mnist_mlp.py`](../benchmarks/runners/pytorch/mnist_mlp.py)
     so the new compiler kinds participate in the optional PyTorch baseline
@@ -378,18 +378,18 @@ Every RFC in this folder set must maintain:
 
 - Completed:
   - Landed a new maintained `llm` reference example under
-    [`examples/char-lm/`](../examples/char-lm/)
+    [`examples/satoshi-lm/`](../examples/satoshi-lm/)
     with embedded-corpus training, greedy generation, standalone build files,
     README guidance, and root smoke coverage.
   - Extended RFC-0001’s maintained model benchmark surface with checked-in
-    char-LM train/infer specs, workload execution, and smoke coverage so the
+    satoshi-LM train/infer specs, workload execution, and smoke coverage so the
     new example participates in the same reproducible harness as MNIST, DQN,
     and GCN.
   - Promoted RFC-0012 from `Planned` to `Ready`, since the examples program is
     now actively executing on top of the already-landed P0 measurement/backend
     foundations.
 - Remains:
-  - Decide when to replace the MLP-style char-LM with a transformer-style
+  - Decide when to replace the MLP-style satoshi-LM with a transformer-style
     sequence model as RFC-0006/RFC-0007 mature.
 - Blockers:
   - CUDA hardware validation remains unavailable in this environment, so the
@@ -401,10 +401,10 @@ Every RFC in this folder set must maintain:
 ### RFC-0012/RFC-0001 2026-03-29 Causal Self-Attention Char-LM Upgrade
 
 - Completed:
-  - Replaced the maintained char-LM reference model in
-    [`examples/char-lm/src/model.zig`](../examples/char-lm/src/model.zig)
+  - Replaced the maintained satoshi-LM reference model in
+    [`examples/satoshi-lm/src/model.zig`](../examples/satoshi-lm/src/model.zig)
     and
-    [`examples/char-lm/src/main.zig`](../examples/char-lm/src/main.zig)
+    [`examples/satoshi-lm/src/main.zig`](../examples/satoshi-lm/src/main.zig)
     with a causal self-attention architecture that keeps the embedded-corpus,
     smoke-trainable workflow intact while materially moving the `llm`
     portfolio beyond the old flattened affine stack.
@@ -412,10 +412,10 @@ Every RFC in this folder set must maintain:
     [`benchmarks/src/workload.zig`](../benchmarks/src/workload.zig)
     and
     [`benchmarks/runners/pytorch/mnist_mlp.py`](../benchmarks/runners/pytorch/mnist_mlp.py),
-    so char-LM train, infer, compiler-capture, and safetensors
+    so satoshi-LM train, infer, compiler-capture, and safetensors
     export/import rows now all exercise the same attention parameter layout.
   - Refreshed
-    [`examples/char-lm/README.md`](../examples/char-lm/README.md),
+    [`examples/satoshi-lm/README.md`](../examples/satoshi-lm/README.md),
     [`README.md`](../README.md),
     [`benchmarks/README.md`](../benchmarks/README.md),
     [`docs/rfcs/0001-benchmarking-program.md`](./rfcs/0001-benchmarking-program.md),
@@ -547,13 +547,13 @@ Every RFC in this folder set must maintain:
 ### RFC-0001 2026-03-28 Char-LM Benchmark Coverage
 
 - Completed:
-  - Added checked-in char-LM model-train/model-infer specs, workload
+  - Added checked-in satoshi-LM model-train/model-infer specs, workload
     execution, and smoke coverage to the benchmark harness.
   - Extended the optional PyTorch runner surface so the new workload kind has
     an explicit baseline path instead of falling back to an unsupported-kind
     skip.
 - Remains:
-  - Capture and publish the first real cross-framework char-LM result set.
+  - Capture and publish the first real cross-framework satoshi-LM result set.
 - Blockers:
   - No published PyTorch baseline artifact was produced in this host-only run.
 - Validation:

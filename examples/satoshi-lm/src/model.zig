@@ -5,7 +5,7 @@ const Graph = zg.Graph;
 const DeviceReference = zg.DeviceReference;
 const NDTensor = zg.NDTensor;
 
-pub fn CharLmModel(comptime T: type) type {
+pub fn SatoshiLmModel(comptime T: type) type {
     return struct {
         const Self = @This();
         const Tensor = NDTensor(T);
@@ -183,7 +183,7 @@ pub fn CharLmModel(comptime T: type) type {
 
             const flat = try summary.alias();
             flat.data._reshape(&.{ batch_dim, self.hidden_size });
-            flat.set_label("char_lm.summary");
+            flat.set_label("satoshi_lm.summary");
             errdefer flat.deinit();
 
             const logits = try nn.linear(flat, self.output_weights, self.output_bias);

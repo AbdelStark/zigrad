@@ -1,20 +1,18 @@
 {
-  "id": "model-train.char-lm.synthetic.f32.batch16.ctx16.vocab32",
-  "suite": "model-train",
-  "kind": "char_lm_train",
+  "id": "model-infer.satoshi-lm.synthetic.f32.batch16.ctx16.vocab32",
+  "suite": "model-infer",
+  "kind": "satoshi_lm_infer",
   "dtype": "f32",
   "warmup_iterations": 1,
   "measured_iterations": 3,
   "batch_size": 16,
   "input_shape": [16, 16, 32],
-  "label_shape": [16, 32],
   "seed": 81761,
   "provenance": {
     "data_source": "synthetic.splitmix64",
     "preprocessing": [
       "derive a deterministic token stream",
-      "materialize one-hot causal context windows",
-      "materialize one-hot next-token labels"
+      "materialize one-hot causal context windows"
     ]
   },
   "notes": "Hidden width is max(vocab_size * 2, 64).",
